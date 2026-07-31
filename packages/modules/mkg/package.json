@@ -1,0 +1,20 @@
+{
+  "name": "@kugua/module-mkg",
+  "version": "0.3.0",
+  "type": "module",
+  "description": "苦瓜知识图谱服务模块（苦音协议接入）",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "@kugua/mkg": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "typescript": "^5.5.4"
+  }
+}

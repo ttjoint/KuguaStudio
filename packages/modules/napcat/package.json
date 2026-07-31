@@ -1,0 +1,16 @@
+{
+  "name": "@kugua/module-napcat",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Napcat 桥接模块：OneBot 11 事件转发上苦音总线，苦音请求下达到 Napcat API",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "@kugua/onebot11": "*",
+    "ws": "^8.18.0"
+  }
+}

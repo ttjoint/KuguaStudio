@@ -1,0 +1,16 @@
+{
+  "name": "@kugua/module-food",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "今天吃什么模块：随机推荐食物，数据经苦音协议从 MKG 读取",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/dscript": "*",
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}

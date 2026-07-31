@@ -1,0 +1,27 @@
+{
+  "name": "@kugua/mkg",
+  "version": "0.3.0",
+  "type": "module",
+  "description": "苦瓜知识图谱（Momordica Knowledge Graph）：本地文件索引、标签与检索",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "better-sqlite3": "^11.5.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.5.0",
+    "typescript": "^5.5.4"
+  }
+}

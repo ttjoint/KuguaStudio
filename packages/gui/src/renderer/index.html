@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>苦瓜工作室</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h1>苦瓜工作室</h1>
+        <p class="subtitle">本地知识库与模块化平台</p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>接入节点</span>
+          <button id="refresh-modules" class="icon-btn" title="刷新">&#x21bb;</button>
+        </div>
+        <ul id="module-list" class="module-list"></ul>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title"><span>知识库统计</span></div>
+        <div id="kb-stats" class="kb-stats">
+          <div class="stat-row"><span class="stat-label">资源总数</span><span class="stat-value" id="stat-total">-</span></div>
+          <div class="stat-row"><span class="stat-label">文件</span><span class="stat-value" id="stat-files">-</span></div>
+          <div class="stat-row"><span class="stat-label">目录</span><span class="stat-value" id="stat-dirs">-</span></div>
+          <div class="stat-row"><span class="stat-label">标签</span><span class="stat-value" id="stat-tags">-</span></div>
+          <div class="stat-row"><span class="stat-label">关联</span><span class="stat-value" id="stat-links">-</span></div>
+          <div class="stat-row"><span class="stat-label">文本索引</span><span class="stat-value" id="stat-texts">-</span></div>
+        </div>
+        <button id="refresh-stats" class="text-btn">刷新统计</button>
+      </div>
+    </aside>
+
+    <main id="main-area">
+      <!-- 标签页切换 -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-view="chat">&#x1F4AC; 终端</button>
+        <button class="tab-btn" data-view="explorer">&#x1F4C1; 浏览</button>
+      </div>
+
+      <!-- 终端视图 -->
+      <div id="chat-view" class="view-panel active">
+        <div id="chat-log" class="chat-log"></div>
+        <div class="chat-input-bar">
+          <input id="chat-input" type="text" placeholder="输入指令或对话，如「今天吃什么」「占卜」「搜索 关键词」…" autocomplete="off">
+          <button id="chat-send" class="send-btn">发送</button>
+          <button id="debug-toggle" class="debug-btn" title="调试日志">Debug</button>
+        </div>
+      </div>
+
+      <!-- 资源管理器视图 -->
+      <div id="explorer-view" class="view-panel">
+        <div class="explorer-layout">
+          <!-- 左侧面板：搜索 + 标签树 + 文件信息 -->
+          <div class="explorer-sidebar">
+            <div class="ex-search-box">
+              <input type="text" id="ex-search" placeholder="搜索文件...">
+            </div>
+
+            <div class="ex-section">
+              <div class="ex-section-title" data-toggle="tag-tree">
+                <span class="ex-toggle">&#x25BC;</span> 标签
+              </div>
+              <div id="ex-tag-tree" class="ex-tag-tree"></div>
+            </div>
+
+            <div id="ex-file-info" class="ex-section ex-file-info hidden">
+              <div class="ex-section-title">
+                <span>&#x1F4C4;</span> 文件信息
+              </div>
+              <div class="ex-info-content">
+                <div class="ex-info-icon" id="ex-info-icon"></div>
+                <div class="ex-info-name" id="ex-info-name"></div>
+                <div class="ex-info-row"><span class="ex-info-label">别名</span><span class="ex-info-value" id="ex-info-alias"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">类型</span><span class="ex-info-value" id="ex-info-type"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">大小</span><span class="ex-info-value" id="ex-info-size"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">路径</span><span class="ex-info-value" id="ex-info-path" title="点击复制物理路径"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">修改</span><span class="ex-info-value" id="ex-info-modified"></span></div>
+                <div class="ex-info-tags-section">
+                  <div class="ex-info-label">标签</div>
+                  <div id="ex-info-tags" class="ex-info-tags"></div>
+                </div>
+                <div class="ex-info-actions">
+                  <button class="ex-action-btn" id="ex-btn-open">&#x1F4C2; 打开</button>
+                  <button class="ex-action-btn" id="ex-btn-explorer">&#x1F5C2; 资源管理器</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右侧面板：工具栏 + 文件列表 -->
+          <div class="explorer-content">
+            <div class="ex-toolbar">
+              <div class="ex-toolbar-left">
+                <button class="ex-nav-btn" id="ex-nav-up" title="向上">&#x1F4C2;&#x2B06;</button>
+                <button class="ex-nav-btn" id="ex-nav-refresh" title="刷新">&#x21BB;</button>
+                <div class="ex-breadcrumb" id="ex-breadcrumb">
+                  <span class="ex-bc-item" data-tag-id="all">所有文件</span>
+                </div>
+              </div>
+              <div class="ex-toolbar-right">
+                <div class="ex-view-group" role="group">
+                  <button class="ex-view-btn active" data-viewmode="large" title="大图标">&#x2630;&#x2630;</button>
+                  <button class="ex-view-btn" data-viewmode="list" title="列表">&#x2630;</button>
+                  <button class="ex-view-btn" data-viewmode="details" title="详细信息">&#x2636;</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 大图标视图 -->
+            <div id="ex-items-large" class="ex-items ex-items-large"></div>
+            <!-- 列表视图 -->
+            <div id="ex-items-list" class="ex-items ex-items-list hidden"></div>
+            <!-- 详细信息视图 -->
+            <div id="ex-items-details" class="ex-items ex-items-details hidden">
+              <div class="ex-details-header">
+                <div class="ex-dh-col ex-dh-name">名称</div>
+                <div class="ex-dh-col ex-dh-type">类型</div>
+                <div class="ex-dh-col ex-dh-size">大小</div>
+                <div class="ex-dh-col ex-dh-path">路径</div>
+              </div>
+              <div id="ex-details-body" class="ex-details-body"></div>
+            </div>
+
+            <div id="ex-statusbar" class="ex-statusbar">
+              <span id="ex-status-count">0 个项目</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 右键菜单 -->
+  <div id="context-menu" class="context-menu hidden">
+    <div class="cm-item" data-action="open">&#x1F4C2; 打开</div>
+    <div class="cm-item" data-action="openWith">&#x2795; 选择打开方式...</div>
+    <div class="cm-sep"></div>
+    <div class="cm-item" data-action="rename">&#x270F; 重命名</div>
+    <div class="cm-sep"></div>
+    <div class="cm-item" data-action="explorer">&#x1F5C2; 在资源管理器中显示</div>
+    <div class="cm-item" data-action="copyPath">&#x1F4CB; 复制文件物理地址</div>
+  </div>
+
+  <!-- 打开方式对话框 -->
+  <div id="openwith-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body">
+      <div class="modal-title">选择打开方式</div>
+      <div class="modal-content">
+        <div id="ow-list" class="ow-list"></div>
+        <div class="ow-custom">
+          <label>或指定程序路径：</label>
+          <input type="text" id="ow-program" placeholder="例如 C:\Windows\notepad.exe">
+          <label>启动参数（可选，{0} 代表文件路径）：</label>
+          <input type="text" id="ow-args" value='"{0}"'>
+          <label>标签（可选）：</label>
+          <input type="text" id="ow-label" placeholder="例如 记事本">
+          <label class="ow-check"><input type="checkbox" id="ow-set-default"> 设为该类型默认打开方式</label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="ow-cancel">取消</button>
+        <button class="modal-btn primary" id="ow-confirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重命名对话框 -->
+  <div id="rename-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body small">
+      <div class="modal-title">重命名（知识库内名称）</div>
+      <div class="modal-content">
+        <div class="rename-hint" id="rename-hint"></div>
+        <input type="text" id="rename-input" placeholder="输入新名称">
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="rename-cancel">取消</button>
+        <button class="modal-btn primary" id="rename-confirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug 面板 -->
+  <div id="debug-panel" class="debug-panel hidden">
+    <div class="debug-header">
+      <span class="debug-title">通信日志</span>
+      <div class="debug-controls">
+        <label class="debug-filter"><input type="checkbox" id="filter-send" checked> 发送</label>
+        <label class="debug-filter"><input type="checkbox" id="filter-recv" checked> 接收</label>
+        <label class="debug-filter"><input type="checkbox" id="filter-timeout" checked> 超时</label>
+        <button id="debug-clear" class="text-btn" style="width:auto;padding:0.2rem 0.5rem">清空</button>
+        <button id="debug-close" class="text-btn" style="width:auto;padding:0.2rem 0.5rem">关闭</button>
+      </div>
+    </div>
+    <div id="debug-log" class="debug-log"></div>
+  </div>
+  <script src="index.js"></script>
+</body>
+</html>

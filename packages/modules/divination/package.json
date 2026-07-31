@@ -1,0 +1,16 @@
+{
+  "name": "@kugua/module-divination",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "周易占卜模块，严格复刻C#大衍筮法逻辑，数据经苦音协议从MKG读取",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/dscript": "*",
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}

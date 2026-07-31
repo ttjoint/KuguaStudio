@@ -1,0 +1,23 @@
+{
+  "name": "@kugua/nigane",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦音（Nigane）协议 TypeScript SDK：信封定义、服务端与客户端",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10"
+  }
+}

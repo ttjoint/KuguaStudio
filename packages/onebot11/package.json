@@ -1,0 +1,23 @@
+{
+  "name": "@kugua/onebot11",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "OneBot 11（Napcat）协议库：消息段、事件类型与正向 WebSocket 客户端",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10"
+  }
+}
