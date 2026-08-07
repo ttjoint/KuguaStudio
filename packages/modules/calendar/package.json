@@ -1,0 +1,15 @@
+{
+  "name": "@kugua/module-calendar",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算（复刻 ModCalendar）",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}

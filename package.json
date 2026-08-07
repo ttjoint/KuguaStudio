@@ -9,13 +9,19 @@
     "packages/modules/*"
   ],
   "scripts": {
-    "build": "npm run build -w @kugua/nigane && npm run build -w @kugua/onebot11 && npm run build -w @kugua/mkg && npm run build -w @kugua/main && npm run build -w @kugua/module-echo && npm run build -w @kugua/module-mkg && npm run build -w @kugua/module-napcat && npm run build -w @kugua/module-divination && npm run build -w @kugua/module-food && npm run build -w @kugua/gui",
+    "build": "npm run build -w @kugua/nigane && npm run build -w @kugua/onebot11 && npm run build -w @kugua/mkg && npm run build -w @kugua/main && npm run build -w @kugua/module-echo && npm run build -w @kugua/module-mkg && npm run build -w @kugua/module-napcat && npm run build -w @kugua/module-divination && npm run build -w @kugua/module-food && npm run build -w @kugua/module-image && npm run build -w @kugua/module-dice && npm run build -w @kugua/module-text && npm run build -w @kugua/module-proof && npm run build -w @kugua/module-calendar && npm run build -w @kugua/module-translate && npm run build -w @kugua/module-infotool && npm run build -w @kugua/gui",
     "test": "vitest run",
     "main": "node packages/main/dist/index.js",
     "echo": "node packages/modules/echo/dist/index.js",
     "mkg": "node packages/modules/mkg/dist/index.js",
     "divination": "node packages/modules/divination/dist/index.js",
     "food": "node packages/modules/food/dist/index.js",
+    "dice": "node packages/modules/dice/dist/index.js",
+    "text": "node packages/modules/text/dist/index.js",
+    "proof": "node packages/modules/proof/dist/index.js",
+    "calendar": "node packages/modules/calendar/dist/index.js",
+    "translate": "node packages/modules/translate/dist/index.js",
+    "infotool": "node packages/modules/infotool/dist/index.js",
     "gui": "npm run build -w @kugua/gui && npm run start -w @kugua/gui"
   },
   "devDependencies": {

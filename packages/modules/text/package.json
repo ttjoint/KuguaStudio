@@ -1,0 +1,16 @@
+{
+  "name": "@kugua/module-text",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "文本功能模块：反转/大小写/乱序/切分/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "@kugua/dscript": "*",
+    "ws": "^8.18.0"
+  }
+}

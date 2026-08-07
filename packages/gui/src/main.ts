@@ -1,12 +1,13 @@
-﻿/**
+/**
  * Electron 主进程
  * 职责：启动苦音主控、创建 GUI 窗口、代理渲染进程与主控的通信。
  */
 
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from "electron";
 import { spawn, type ChildProcess, exec } from "node:child_process";
-import { resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { NiganeClient } from "@kugua/nigane";
 import { promisify } from "node:util";
@@ -174,7 +175,13 @@ async function 创建窗口(): Promise<void> {
   主窗口 = new BrowserWindow({
     width: 1200,
     height: 800,
+    minWidth: 840,
+    minHeight: 560,
     icon: 图标路径,
+    // 无边框窗口：去掉系统默认菜单栏与窗体外壳，由渲染进程自绘标题栏与窗口控制按钮
+    frame: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#1a1a2e",
     webPreferences: {
       preload: resolve(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -191,18 +198,87 @@ async function 创建窗口(): Promise<void> {
     }
   });
 
+  // 通知渲染进程窗口最大化状态变化，用于切换最大/还原按钮图标
+  主窗口.on("maximize", () => 主窗口?.webContents.send("kugua:window:maximized", true));
+  主窗口.on("unmaximize", () => 主窗口?.webContents.send("kugua:window:maximized", false));
+
   await 主窗口.loadFile(resolve(__dirname, "renderer/index.html"));
 }
 
 function 注册IPC(): void {
+  // ===== 窗口控制（无边框窗口）=====
+  ipcMain.handle("kugua:window:minimize", () => {
+    主窗口?.minimize();
+  });
+  ipcMain.handle("kugua:window:maximize", () => {
+    if (!主窗口) return false;
+    if (主窗口.isMaximized()) {
+      主窗口.unmaximize();
+      return false;
+    }
+    主窗口.maximize();
+    return true;
+  });
+  ipcMain.handle("kugua:window:close", () => {
+    主窗口?.close();
+  });
+  ipcMain.handle("kugua:window:isMaximized", () => 主窗口?.isMaximized() ?? false);
+
   ipcMain.handle("kugua:request", async (_event, target: string, action: string, params: unknown) => {
     if (!苦音客户端) throw new Error("苦音客户端未初始化");
-    return 苦音客户端.request(target, action, params);
+    // 图片处理经 Python 引擎 + base64 传输较慢，放宽超时
+    const 超时毫秒 = target === "image" ? 60000 : 10000;
+    return 苦音客户端.request(target, action, params, 超时毫秒);
+  });
+
+  // 将 base64 内容写入临时文件（用于无本地路径的拖拽导入），返回磁盘路径
+  ipcMain.handle("kugua:writeTempFile", async (_event, payload: { base64?: string; name?: string; ext?: string }) => {
+    const { base64 = "", name = "", ext = "" } = payload ?? {};
+    if (!base64) throw new Error("缺少 base64 内容");
+    const buf = Buffer.from(base64, "base64");
+    const 目录 = join(tmpdir(), "kugua-drop");
+    mkdirSync(目录, { recursive: true });
+    const 清理名 = name.replace(/[\\/:*?"<>|]/g, "_").trim() || `未命名_${Date.now()}`;
+    const 文件名 = 清理名 + (清理名.endsWith(ext) ? "" : ext);
+    const 路径 = join(目录, 文件名);
+    writeFileSync(路径, buf);
+    return 路径;
   });
 
   ipcMain.handle("kugua:broadcast", async (_event, action: string, params: unknown) => {
     if (!苦音客户端) throw new Error("苦音客户端未初始化");
     return 苦音客户端.sendEvent(action, params);
+  });
+
+  ipcMain.handle("kugua:dialog:openFiles", async (_event, options: unknown) => {
+    const opts = (options ?? {}) as {
+      title?: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+      multi?: boolean;
+    };
+    const result = await dialog.showOpenDialog(主窗口!, {
+      title: opts.title ?? "选择文件",
+      properties: [
+        "openFile",
+        ...(opts.multi !== false ? (["multiSelections"] as const) : []),
+      ],
+      filters: opts.filters,
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+
+  ipcMain.handle("kugua:dialog:openImages", async () => {
+    const result = await dialog.showOpenDialog(主窗口!, {
+      title: "选择图片导入",
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        {
+          name: "图片文件",
+          extensions: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "tiff", "ico"],
+        },
+      ],
+    });
+    return result.canceled ? [] : result.filePaths;
   });
 }
 

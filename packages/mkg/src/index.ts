@@ -1,5 +1,5 @@
-import { existsSync, statSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { existsSync, statSync, mkdirSync, copyFileSync } from "node:fs";
+import { basename, extname, join, resolve } from "node:path";
 import { exec, spawn } from "node:child_process";
 import { 初始化数据库 } from "./db.js";
 import { 索引目录, type 索引结果 } from "./indexer.js";
@@ -13,6 +13,19 @@ import type {
   搜索结果,
   资源详情,
   打开方式配置,
+  笔记,
+  素材,
+  素材更新,
+  看板列,
+  看板列更新,
+  卡片,
+  卡片更新,
+  节点类型,
+  节点详情,
+  内容分类,
+  统一内容条目,
+  文本片段,
+  文本片段更新,
 } from "./types.js";
 
 export * from "./types.js";
@@ -645,6 +658,822 @@ export class MKG {
     const 关联数 = (this.db.prepare("SELECT COUNT(*) as c FROM resource_tags").get() as { c: number }).c;
     const 文本内容数 = (this.db.prepare("SELECT COUNT(*) as c FROM text_contents").get() as { c: number }).c;
     return { 资源总数, 文件数, 目录数, 标签数, 关联数, 文本内容数, 数据库大小: 0 };
+  }
+
+  /**
+   * 计算不冲突的目标文件路径
+   */
+  private 计算目标路径(源路径: string, 目标目录: string, 指定名称?: string): { 目标路径: string; 物理文件名: string } {
+    const 源扩展名 = extname(源路径);
+    const 源无扩展名 = basename(源路径, 源扩展名);
+    const 使用基础名 = 指定名称?.trim() || 源无扩展名;
+    let 候选名 = 使用基础名 + 源扩展名;
+    let 索引 = 1;
+    let 目标路径 = resolve(join(目标目录, 候选名));
+    while (existsSync(目标路径)) {
+      候选名 = `${使用基础名} (${索引})${源扩展名}`;
+      目标路径 = resolve(join(目标目录, 候选名));
+      索引++;
+    }
+    return { 目标路径, 物理文件名: 候选名 };
+  }
+
+  /**
+   * 导入单个文件：复制到知识库目录 → 索引 → 设别名 → 打标签
+   * 返回资源详情
+   */
+  async importFile(params: {
+    sourcePath: string;
+    destDir?: string;
+    name?: string;
+    alias?: string;
+    tagIds?: number[];
+  }): Promise<资源详情> {
+    const { sourcePath, destDir, name, alias, tagIds = [] } = params;
+    if (!existsSync(sourcePath)) throw new Error(`源文件不存在：${sourcePath}`);
+    const stat = statSync(sourcePath);
+    if (!stat.isFile()) throw new Error(`源路径不是文件：${sourcePath}`);
+
+    // 默认知识库根目录：db 所在目录下的 library 文件夹
+    let 目标目录 = destDir;
+    if (!目标目录) {
+      const 默认库目录 = resolve(process.cwd(), "data/library");
+      目标目录 = 默认库目录;
+    }
+    mkdirSync(目标目录, { recursive: true });
+
+    const { 目标路径 } = this.计算目标路径(sourcePath, 目标目录, name);
+    copyFileSync(sourcePath, 目标路径);
+
+    // 索引单个文件
+    await 索引目录(this.db, 目标路径, { maxDepth: 0 });
+
+    const 资源 = this.getResource(目标路径);
+    if (!资源) throw new Error(`索引失败：${目标路径}`);
+
+    // 设置别名
+    if (alias && alias.trim()) {
+      this.setAlias(资源.id, alias.trim());
+    }
+
+    // 打标签
+    for (const tagId of tagIds) {
+      this.tagResource(资源.id, tagId);
+    }
+
+    const 详情 = this.getResourceDetail(资源.id);
+    if (!详情) throw new Error(`获取资源详情失败：${资源.id}`);
+    return 详情;
+  }
+
+  /**
+   * 批量导入文件
+   */
+  async importFiles(params: {
+    items: Array<{ sourcePath: string; name?: string; alias?: string; tagIds?: number[] }>;
+    destDir?: string;
+  }): Promise<资源详情[]> {
+    const 结果: 资源详情[] = [];
+    for (const item of params.items) {
+      结果.push(await this.importFile({ ...item, destDir: params.destDir }));
+    }
+    return 结果;
+  }
+
+  /**
+   * 覆盖设置资源的标签（事务：先删旧标签再插新标签）
+   */
+  setResourceTags(resourceId: number, tagIds: number[]): 标签[] {
+    const 去重 = Array.from(new Set(tagIds));
+    const 删除旧 = this.db.prepare("DELETE FROM resource_tags WHERE resource_id = ?");
+    const 插入新 = this.db.prepare("INSERT OR IGNORE INTO resource_tags (resource_id, tag_id, created_at) VALUES (?, ?, ?)");
+    const tx = this.db.transaction(() => {
+      删除旧.run(resourceId);
+      const ts = Math.floor(Date.now() / 1000);
+      for (const tid of 去重) {
+        插入新.run(resourceId, tid, ts);
+      }
+    });
+    tx();
+    return this.getResourceTags(resourceId);
+  }
+
+  /**
+   * 给资源批量追加标签（不影响已有标签）
+   */
+  addResourceTags(resourceId: number, tagIds: number[]): 标签[] {
+    const 去重 = Array.from(new Set(tagIds));
+    const ts = Math.floor(Date.now() / 1000);
+    for (const tid of 去重) {
+      this.tagResource(resourceId, tid);
+      void ts;
+    }
+    return this.getResourceTags(resourceId);
+  }
+
+  /**
+   * 从资源批量移除标签
+   */
+  removeResourceTags(resourceId: number, tagIds: number[]): 标签[] {
+    for (const tid of tagIds) {
+      this.untagResource(resourceId, tid);
+    }
+    return this.getResourceTags(resourceId);
+  }
+
+  // ===== 统一内容节点（P0）=====
+
+  private 确保笔记表(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS note_contents (
+        node_id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      )
+    `);
+  }
+
+  /** 创建笔记（点子） */
+  createNote(title: string, content = "", tagIds: number[] = []): 笔记 {
+    this.确保笔记表();
+    const now = Math.floor(Date.now() / 1000);
+    const res = this.db
+      .prepare("INSERT INTO nodes (type, title, created_at, updated_at) VALUES ('note', ?, ?, ?)")
+      .run(title, now, now);
+    const nodeId = Number(res.lastInsertRowid);
+    this.db.prepare("INSERT INTO note_contents (node_id, content) VALUES (?, ?)").run(nodeId, content);
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+    );
+    for (const tid of tagIds) ins.run(nodeId, tid, now);
+    return this.getNote(nodeId)!;
+  }
+
+  /** 获取单个笔记 */
+  getNote(id: number): 笔记 | undefined {
+    this.确保笔记表();
+    const row = this.db
+      .prepare(
+        "SELECT n.id, n.title, n.created_at AS createdAt, n.updated_at AS updatedAt, c.content FROM nodes n LEFT JOIN note_contents c ON c.node_id = n.id WHERE n.id = ? AND n.type = 'note'",
+      )
+      .get(id) as
+      | { id: number; title: string; createdAt: number; updatedAt: number; content: string | null }
+      | undefined;
+    if (!row) return undefined;
+    const tagIds = (
+      this.db.prepare("SELECT tag_id AS id FROM node_tags WHERE node_id = ?").all(id) as { id: number }[]
+    ).map((r) => r.id);
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content ?? "",
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      tagIds,
+    };
+  }
+
+  /** 列出全部笔记 */
+  listNotes(): 笔记[] {
+    this.确保笔记表();
+    const rows = this.db
+      .prepare("SELECT id FROM nodes WHERE type = 'note' ORDER BY id DESC")
+      .all() as { id: number }[];
+    return rows.map((r) => this.getNote(r.id)!).filter(Boolean);
+  }
+
+  /** 更新笔记 */
+  updateNote(id: number, patch: { title?: string; content?: string; tagIds?: number[] }): 笔记 | undefined {
+    this.确保笔记表();
+    const existing = this.getNote(id);
+    if (!existing) return undefined;
+    const now = Math.floor(Date.now() / 1000);
+    if (patch.title !== undefined) {
+      this.db.prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?").run(patch.title, now, id);
+    }
+    if (patch.content !== undefined) {
+      this.db
+        .prepare("INSERT INTO note_contents (node_id, content) VALUES (?, ?) ON CONFLICT(node_id) DO UPDATE SET content = excluded.content")
+        .run(id, patch.content);
+    }
+    if (patch.tagIds !== undefined) {
+      this.db.prepare("DELETE FROM node_tags WHERE node_id = ?").run(id);
+      const ins = this.db.prepare(
+        "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+      );
+      for (const tid of patch.tagIds) ins.run(id, tid, now);
+    }
+    return this.getNote(id);
+  }
+
+  /** 删除笔记 */
+  deleteNote(id: number): void {
+    this.db.prepare("DELETE FROM nodes WHERE id = ? AND type = 'note'").run(id);
+  }
+
+  // ===== 素材（material）=====
+
+  private 确保素材表(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS material_contents (
+        node_id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      )
+    `);
+  }
+
+  /** 创建素材 */
+  createMaterial(data: { title: string; content?: string; kind?: string; sourceUrl?: string; imageUrl?: string; tagIds?: number[] }): 素材 {
+    this.确保素材表();
+    const now = Math.floor(Date.now() / 1000);
+    const meta = JSON.stringify({
+      kind: data.kind ?? "",
+      sourceUrl: data.sourceUrl ?? "",
+      imageUrl: data.imageUrl ?? "",
+    });
+    const res = this.db
+      .prepare("INSERT INTO nodes (type, title, meta, created_at, updated_at) VALUES ('material', ?, ?, ?, ?)")
+      .run(data.title, meta, now, now);
+    const nodeId = Number(res.lastInsertRowid);
+    this.db.prepare("INSERT INTO material_contents (node_id, content) VALUES (?, ?)").run(nodeId, data.content ?? "");
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+    );
+    for (const tid of data.tagIds ?? []) ins.run(nodeId, tid, now);
+    return this.getMaterial(nodeId)!;
+  }
+
+  /** 获取单个素材 */
+  getMaterial(id: number): 素材 | undefined {
+    this.确保素材表();
+    const row = this.db
+      .prepare(
+        "SELECT n.id, n.title, n.meta, n.created_at AS createdAt, n.updated_at AS updatedAt, c.content FROM nodes n LEFT JOIN material_contents c ON c.node_id = n.id WHERE n.id = ? AND n.type = 'material'",
+      )
+      .get(id) as
+      | { id: number; title: string; meta: string; createdAt: number; updatedAt: number; content: string | null }
+      | undefined;
+    if (!row) return undefined;
+    let meta: { kind?: string; sourceUrl?: string; imageUrl?: string } = {};
+    try { meta = JSON.parse(row.meta || "{}") as typeof meta; } catch { meta = {}; }
+    const tagIds = (
+      this.db.prepare("SELECT tag_id AS id FROM node_tags WHERE node_id = ?").all(id) as { id: number }[]
+    ).map((r) => r.id);
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content ?? "",
+      kind: meta.kind ?? "",
+      sourceUrl: meta.sourceUrl ?? "",
+      imageUrl: meta.imageUrl ?? "",
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      tagIds,
+    };
+  }
+
+  /** 列出全部素材 */
+  listMaterials(): 素材[] {
+    this.确保素材表();
+    const rows = this.db
+      .prepare("SELECT id FROM nodes WHERE type = 'material' ORDER BY id DESC")
+      .all() as { id: number }[];
+    return rows.map((r) => this.getMaterial(r.id)!).filter(Boolean);
+  }
+
+  /** 更新素材 */
+  updateMaterial(id: number, patch: 素材更新): 素材 | undefined {
+    this.确保素材表();
+    const existing = this.getMaterial(id);
+    if (!existing) return undefined;
+    const now = Math.floor(Date.now() / 1000);
+    if (patch.title !== undefined) {
+      this.db.prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?").run(patch.title, now, id);
+    }
+    if (patch.content !== undefined) {
+      this.db
+        .prepare("INSERT INTO material_contents (node_id, content) VALUES (?, ?) ON CONFLICT(node_id) DO UPDATE SET content = excluded.content")
+        .run(id, patch.content);
+    }
+    const metaRaw = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(id) as { meta: string };
+    let meta: { kind?: string; sourceUrl?: string; imageUrl?: string } = {};
+    try { meta = JSON.parse(metaRaw.meta || "{}") as typeof meta; } catch { meta = {}; }
+    if (patch.kind !== undefined) meta.kind = patch.kind;
+    if (patch.sourceUrl !== undefined) meta.sourceUrl = patch.sourceUrl;
+    if (patch.imageUrl !== undefined) meta.imageUrl = patch.imageUrl;
+    this.db.prepare("UPDATE nodes SET meta = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(meta), now, id);
+    if (patch.tagIds !== undefined) {
+      this.db.prepare("DELETE FROM node_tags WHERE node_id = ?").run(id);
+      const ins = this.db.prepare(
+        "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+      );
+      for (const tid of patch.tagIds) ins.run(id, tid, now);
+    }
+    return this.getMaterial(id);
+  }
+
+  /** 删除素材 */
+  deleteMaterial(id: number): void {
+    this.db.prepare("DELETE FROM nodes WHERE id = ? AND type = 'material'").run(id);
+  }
+
+  // ===== 文本段（snippet）=====
+
+  private 确保片段表(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS snippet_contents (
+        node_id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      )
+    `);
+  }
+
+  /** 创建文本段 */
+  createSnippet(title: string, content = "", tagIds: number[] = []): 文本片段 {
+    this.确保片段表();
+    const now = Math.floor(Date.now() / 1000);
+    const res = this.db
+      .prepare("INSERT INTO nodes (type, title, created_at, updated_at) VALUES ('snippet', ?, ?, ?)")
+      .run(title, now, now);
+    const nodeId = Number(res.lastInsertRowid);
+    this.db.prepare("INSERT INTO snippet_contents (node_id, content) VALUES (?, ?)").run(nodeId, content);
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+    );
+    for (const tid of tagIds) ins.run(nodeId, tid, now);
+    return this.getSnippet(nodeId)!;
+  }
+
+  /** 获取单个文本段 */
+  getSnippet(id: number): 文本片段 | undefined {
+    this.确保片段表();
+    const row = this.db
+      .prepare(
+        "SELECT n.id, n.title, n.created_at AS createdAt, n.updated_at AS updatedAt, c.content FROM nodes n LEFT JOIN snippet_contents c ON c.node_id = n.id WHERE n.id = ? AND n.type = 'snippet'",
+      )
+      .get(id) as
+      | { id: number; title: string; createdAt: number; updatedAt: number; content: string | null }
+      | undefined;
+    if (!row) return undefined;
+    const tagIds = (
+      this.db.prepare("SELECT tag_id AS id FROM node_tags WHERE node_id = ?").all(id) as { id: number }[]
+    ).map((r) => r.id);
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content ?? "",
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      tagIds,
+    };
+  }
+
+  /** 列出全部文本段 */
+  listSnippets(): 文本片段[] {
+    this.确保片段表();
+    const rows = this.db
+      .prepare("SELECT id FROM nodes WHERE type = 'snippet' ORDER BY id DESC")
+      .all() as { id: number }[];
+    return rows.map((r) => this.getSnippet(r.id)!).filter(Boolean);
+  }
+
+  /** 更新文本段 */
+  updateSnippet(id: number, patch: 文本片段更新): 文本片段 | undefined {
+    this.确保片段表();
+    const existing = this.getSnippet(id);
+    if (!existing) return undefined;
+    const now = Math.floor(Date.now() / 1000);
+    if (patch.title !== undefined) {
+      this.db.prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?").run(patch.title, now, id);
+    }
+    if (patch.content !== undefined) {
+      this.db
+        .prepare("INSERT INTO snippet_contents (node_id, content) VALUES (?, ?) ON CONFLICT(node_id) DO UPDATE SET content = excluded.content")
+        .run(id, patch.content);
+    }
+    if (patch.tagIds !== undefined) {
+      this.db.prepare("DELETE FROM node_tags WHERE node_id = ?").run(id);
+      const ins = this.db.prepare(
+        "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+      );
+      for (const tid of patch.tagIds) ins.run(id, tid, now);
+    }
+    return this.getSnippet(id);
+  }
+
+  /** 删除文本段 */
+  deleteSnippet(id: number): void {
+    this.db.prepare("DELETE FROM nodes WHERE id = ? AND type = 'snippet'").run(id);
+  }
+
+  // ===== 工作流看板（card）=====
+
+  private 确保看板表(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS card_columns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS card_contents (
+        node_id INTEGER PRIMARY KEY,
+        content TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+      );
+    `);
+  }
+
+  /** 创建看板列 */
+  createColumn(name: string): 看板列 {
+    this.确保看板表();
+    const now = Math.floor(Date.now() / 1000);
+    const 最大排序 = this.db.prepare("SELECT COALESCE(MAX(sort), -1) AS m FROM card_columns").get() as { m: number };
+    const res = this.db
+      .prepare("INSERT INTO card_columns (name, sort, created_at) VALUES (?, ?, ?)")
+      .run(name, 最大排序.m + 1, now);
+    return this.getColumn(Number(res.lastInsertRowid))!;
+  }
+
+  /** 获取单个看板列 */
+  getColumn(id: number): 看板列 | undefined {
+    this.确保看板表();
+    const row = this.db
+      .prepare("SELECT id, name, sort, created_at AS createdAt FROM card_columns WHERE id = ?")
+      .get(id) as { id: number; name: string; sort: number; createdAt: number } | undefined;
+    return row ?? undefined;
+  }
+
+  /** 列出全部看板列（按排序） */
+  listColumns(): 看板列[] {
+    this.确保看板表();
+    return this.db
+      .prepare("SELECT id, name, sort, created_at AS createdAt FROM card_columns ORDER BY sort ASC, id ASC")
+      .all() as 看板列[];
+  }
+
+  /** 更新看板列 */
+  updateColumn(id: number, patch: 看板列更新): 看板列 | undefined {
+    this.确保看板表();
+    const existing = this.getColumn(id);
+    if (!existing) return undefined;
+    if (patch.name !== undefined) {
+      this.db.prepare("UPDATE card_columns SET name = ? WHERE id = ?").run(patch.name, id);
+    }
+    if (patch.sort !== undefined) {
+      this.db.prepare("UPDATE card_columns SET sort = ? WHERE id = ?").run(patch.sort, id);
+    }
+    return this.getColumn(id);
+  }
+
+  /** 删除看板列：其下卡片移到第一个剩余列，无剩余列则置为未分列 */
+  deleteColumn(id: number): void {
+    this.确保看板表();
+    const 剩余列 = this.db
+      .prepare("SELECT id FROM card_columns WHERE id != ? ORDER BY sort ASC, id ASC LIMIT 1")
+      .get(id) as { id: number } | undefined;
+    if (剩余列) {
+      const 卡片行 = this.db.prepare("SELECT id FROM nodes WHERE type = 'card'").all() as { id: number }[];
+      for (const c of 卡片行) {
+        const metaRaw = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(c.id) as { meta: string };
+        let meta: { columnId?: number | null } = {};
+        try { meta = JSON.parse(metaRaw.meta || "{}") as typeof meta; } catch { meta = {}; }
+        if (meta.columnId === id) {
+          meta.columnId = 剩余列.id;
+          this.db.prepare("UPDATE nodes SET meta = ? WHERE id = ?").run(JSON.stringify(meta), c.id);
+        }
+      }
+    } else {
+      const 卡片行 = this.db.prepare("SELECT id FROM nodes WHERE type = 'card'").all() as { id: number }[];
+      for (const c of 卡片行) {
+        const metaRaw = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(c.id) as { meta: string };
+        let meta: { columnId?: number | null } = {};
+        try { meta = JSON.parse(metaRaw.meta || "{}") as typeof meta; } catch { meta = {}; }
+        if (meta.columnId === id) {
+          meta.columnId = null;
+          this.db.prepare("UPDATE nodes SET meta = ? WHERE id = ?").run(JSON.stringify(meta), c.id);
+        }
+      }
+    }
+    this.db.prepare("DELETE FROM card_columns WHERE id = ?").run(id);
+  }
+
+  /** 创建卡片 */
+  createCard(data: { title: string; content?: string; columnId?: number | null; tagIds?: number[] }): 卡片 {
+    this.确保看板表();
+    const now = Math.floor(Date.now() / 1000);
+    const meta = JSON.stringify({ columnId: data.columnId ?? null });
+    const res = this.db
+      .prepare("INSERT INTO nodes (type, title, meta, created_at, updated_at) VALUES ('card', ?, ?, ?, ?)")
+      .run(data.title, meta, now, now);
+    const nodeId = Number(res.lastInsertRowid);
+    this.db.prepare("INSERT INTO card_contents (node_id, content) VALUES (?, ?)").run(nodeId, data.content ?? "");
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+    );
+    for (const tid of data.tagIds ?? []) ins.run(nodeId, tid, now);
+    return this.getCard(nodeId)!;
+  }
+
+  /** 获取单个卡片 */
+  getCard(id: number): 卡片 | undefined {
+    this.确保看板表();
+    const row = this.db
+      .prepare(
+        "SELECT n.id, n.title, n.meta, n.created_at AS createdAt, n.updated_at AS updatedAt, c.content FROM nodes n LEFT JOIN card_contents c ON c.node_id = n.id WHERE n.id = ? AND n.type = 'card'",
+      )
+      .get(id) as
+      | { id: number; title: string; meta: string; createdAt: number; updatedAt: number; content: string | null }
+      | undefined;
+    if (!row) return undefined;
+    let meta: { columnId?: number | null } = {};
+    try { meta = JSON.parse(row.meta || "{}") as typeof meta; } catch { meta = {}; }
+    const tagIds = (
+      this.db.prepare("SELECT tag_id AS id FROM node_tags WHERE node_id = ?").all(id) as { id: number }[]
+    ).map((r) => r.id);
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content ?? "",
+      columnId: meta.columnId ?? null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      tagIds,
+    };
+  }
+
+  /** 列出全部卡片，可选按列过滤 */
+  listCards(columnId?: number | null): 卡片[] {
+    this.确保看板表();
+    let rows: { id: number }[];
+    if (columnId === null) {
+      rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card' ORDER BY id DESC").all() as { id: number }[];
+    } else if (columnId !== undefined) {
+      rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card' ORDER BY id DESC").all() as { id: number }[];
+      rows = rows.filter((r) => this.getCard(r.id)?.columnId === columnId);
+    } else {
+      rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card' ORDER BY id DESC").all() as { id: number }[];
+    }
+    return rows.map((r) => this.getCard(r.id)!).filter(Boolean);
+  }
+
+  /** 更新卡片 */
+  updateCard(id: number, patch: 卡片更新): 卡片 | undefined {
+    this.确保看板表();
+    const existing = this.getCard(id);
+    if (!existing) return undefined;
+    const now = Math.floor(Date.now() / 1000);
+    if (patch.title !== undefined) {
+      this.db.prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?").run(patch.title, now, id);
+    }
+    if (patch.content !== undefined) {
+      this.db
+        .prepare("INSERT INTO card_contents (node_id, content) VALUES (?, ?) ON CONFLICT(node_id) DO UPDATE SET content = excluded.content")
+        .run(id, patch.content);
+    }
+    if (patch.columnId !== undefined) {
+      const metaRaw = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(id) as { meta: string };
+      let meta: { columnId?: number | null } = {};
+      try { meta = JSON.parse(metaRaw.meta || "{}") as typeof meta; } catch { meta = {}; }
+      meta.columnId = patch.columnId;
+      this.db.prepare("UPDATE nodes SET meta = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(meta), now, id);
+    }
+    if (patch.tagIds !== undefined) {
+      this.db.prepare("DELETE FROM node_tags WHERE node_id = ?").run(id);
+      const ins = this.db.prepare(
+        "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+      );
+      for (const tid of patch.tagIds) ins.run(id, tid, now);
+    }
+    return this.getCard(id);
+  }
+
+  /** 删除卡片 */
+  deleteCard(id: number): void {
+    this.db.prepare("DELETE FROM nodes WHERE id = ? AND type = 'card'").run(id);
+  }
+
+  /** 给节点打标签 */
+  tagNode(nodeId: number, tagId: number): void {
+    const now = Math.floor(Date.now() / 1000);
+    this.db
+      .prepare("INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)")
+      .run(nodeId, tagId, now);
+  }
+
+  /** 移除节点标签 */
+  untagNode(nodeId: number, tagId: number): void {
+    this.db.prepare("DELETE FROM node_tags WHERE node_id = ? AND tag_id = ?").run(nodeId, tagId);
+  }
+
+  /** 获取节点标签 */
+  getNodeTags(nodeId: number): 标签[] {
+    const rows = this.db
+      .prepare(
+        "SELECT t.id, t.name, t.parent_id, t.description FROM tags t JOIN node_tags nt ON nt.tag_id = t.id WHERE nt.node_id = ?",
+      )
+      .all(nodeId) as unknown as { id: number; name: string; parent_id: number | null; description: string | null }[];
+    return rows.map((t) => ({ id: t.id, name: t.name, parentId: t.parent_id ?? null, description: t.description }));
+  }
+
+  /** 覆盖设置节点标签 */
+  setNodeTags(nodeId: number, tagIds: number[]): 标签[] {
+    this.db.prepare("DELETE FROM node_tags WHERE node_id = ?").run(nodeId);
+    const now = Math.floor(Date.now() / 1000);
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+    );
+    for (const tid of tagIds) ins.run(nodeId, tid, now);
+    return this.getNodeTags(nodeId);
+  }
+
+  /** 列出节点（统一内容流），可按类型筛选 */
+  listNodes(type?: 节点类型, options: 搜索选项 = {}): 搜索结果<节点详情> {
+    const limit = options.limit ?? 50;
+    const offset = options.offset ?? 0;
+    let where = "WHERE 1=1";
+    const params: unknown[] = [];
+    if (type) {
+      where += " AND type = ?";
+      params.push(type);
+    }
+    const total = this.db
+      .prepare("SELECT COUNT(*) AS c FROM nodes " + where)
+      .get(...params) as { c: number };
+    const rows = this.db
+      .prepare("SELECT * FROM nodes " + where + " ORDER BY id DESC LIMIT ? OFFSET ?")
+      .all(...params, limit, offset) as unknown as {
+      id: number;
+      type: string;
+      title: string;
+      created_at: number;
+      updated_at: number;
+      meta: string;
+    }[];
+    const items = rows.map((r) => this.节点转详情(r));
+    return { total: total.c, items };
+  }
+
+  private 节点转详情(row: {
+    id: number;
+    type: string;
+    title: string;
+    created_at: number;
+    updated_at: number;
+    meta: string;
+  }): 节点详情 {
+    let meta: Record<string, unknown> = {};
+    try { meta = JSON.parse(row.meta || "{}") as Record<string, unknown>; } catch { meta = {}; }
+    const resource = this.db
+      .prepare("SELECT id FROM resources WHERE node_id = ?")
+      .get(row.id) as { id: number } | undefined;
+    const tagPaths = this.getResourceTagPathsByNode(row.id);
+    return {
+      id: row.id,
+      type: row.type as 节点类型,
+      title: row.title,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      meta,
+      resourceId: resource?.id ?? null,
+      tagPaths,
+    };
+  }
+
+  private getResourceTagPathsByNode(nodeId: number): string[][] {
+    const tags = this.getNodeTags(nodeId);
+    return tags.map((t) => this.获取标签路径(t.id));
+  }
+
+  /** 搜索节点（标题 + 笔记内容） */
+  searchNodes(keyword: string, options: 搜索选项 = {}): 搜索结果<节点详情> {
+    this.确保笔记表();
+    const limit = options.limit ?? 50;
+    const offset = options.offset ?? 0;
+    const like = "%" + keyword + "%";
+    const rows = this.db
+      .prepare(
+        "SELECT DISTINCT n.* FROM nodes n LEFT JOIN note_contents c ON c.node_id = n.id WHERE n.title LIKE ? OR c.content LIKE ? ORDER BY n.id DESC LIMIT ? OFFSET ?",
+      )
+      .all(like, like, limit, offset) as unknown as {
+      id: number;
+      type: string;
+      title: string;
+      created_at: number;
+      updated_at: number;
+      meta: string;
+    }[];
+    const total = (
+      this.db
+        .prepare("SELECT COUNT(DISTINCT n.id) AS c FROM nodes n LEFT JOIN note_contents c ON c.node_id = n.id WHERE n.title LIKE ? OR c.content LIKE ?")
+        .get(like, like) as { c: number }
+    ).c;
+    return { total, items: rows.map((r) => this.节点转详情(r)) };
+  }
+
+  /** 获取内容分类：按节点类型与文件扩展名归类 */
+  private 获取内容分类(type: string, name: string): 内容分类 {
+    if (type === "directory") return "目录";
+    if (type === "note") return "点子";
+    if (type === "material") return "素材";
+    if (type === "snippet") return "文本段";
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const 图片 = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"];
+    const 音乐 = ["mp3", "wav", "flac", "m4a", "ogg", "opus", "aac", "wma"];
+    const 视频 = ["mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v"];
+    const 文本 = [
+      "txt", "md", "markdown", "log", "json", "yaml", "yml", "xml", "csv", "html", "htm",
+      "css", "js", "ts", "tsx", "jsx", "py", "java", "c", "cpp", "cs", "go", "rs", "sql",
+      "sh", "bat", "ps1", "ini", "conf", "toml",
+    ];
+    if (图片.includes(ext)) return "图片";
+    if (音乐.includes(ext)) return "音乐";
+    if (视频.includes(ext)) return "视频";
+    if (文本.includes(ext)) return "文本";
+    return "文件";
+  }
+
+  /** 获取节点正文：笔记/素材/看板卡片正文，文件为空 */
+  private 获取节点内容(node: { id: number; type: string }): string {
+    if (node.type === "note") {
+      this.确保笔记表();
+      const r = this.db.prepare("SELECT content FROM note_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
+      return r?.content ?? "";
+    }
+    if (node.type === "material") {
+      this.确保素材表();
+      const r = this.db.prepare("SELECT content FROM material_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
+      return r?.content ?? "";
+    }
+    if (node.type === "card") {
+      this.确保看板表();
+      const r = this.db.prepare("SELECT content FROM card_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
+      return r?.content ?? "";
+    }
+    if (node.type === "snippet") {
+      this.确保片段表();
+      const r = this.db.prepare("SELECT content FROM snippet_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
+      return r?.content ?? "";
+    }
+    return "";
+  }
+
+  /** 列出全部内容（统一浏览窗口：名称/内容/一系列标签），支持分类/无分类/关键词筛选与排序 */
+  listAllContent(opts: {
+    keyword?: string;
+    categories?: 内容分类[];
+    noTag?: boolean;
+    sort?: "import" | "name" | "updated";
+    limit?: number;
+  } = {}): 统一内容条目[] {
+    const { keyword, categories, noTag, sort = "import", limit = 1000 } = opts;
+    const rows = this.db.prepare("SELECT * FROM nodes ORDER BY id ASC").all() as {
+      id: number; type: string; title: string; created_at: number; updated_at: number; meta: string;
+    }[];
+    const items: 统一内容条目[] = [];
+    for (const row of rows) {
+      let meta: Record<string, unknown> = {};
+      try { meta = JSON.parse(row.meta || "{}") as Record<string, unknown>; } catch { meta = {}; }
+      if (row.type === "card") continue; // 看板卡片不参与统一浏览
+      const content = this.获取节点内容(row);
+      const tags = this.getNodeTags(row.id);
+      const tagIds = tags.map((t) => t.id);
+      const tagPaths = tags.map((t) => this.获取标签路径(t.id));
+      const category = this.获取内容分类(row.type, row.title);
+      if (categories && categories.length > 0 && !categories.includes(category)) continue;
+      if (noTag && tagIds.length > 0) continue;
+      if (keyword && keyword.trim()) {
+        const kw = keyword.trim().toLowerCase();
+        if (!row.title.toLowerCase().includes(kw) && !content.toLowerCase().includes(kw)) continue;
+      }
+      const 资源行 = this.db.prepare("SELECT * FROM resources WHERE node_id = ?").get(row.id) as {
+        id: number; path: string; size: number; modified_time: number;
+      } | undefined;
+      items.push({
+        id: row.id,
+        type: row.type as 节点类型,
+        category,
+        name: row.title,
+        content,
+        tagIds,
+        tagPaths,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        resourceId: 资源行?.id ?? null,
+        path: 资源行?.path ?? null,
+        size: 资源行?.size ?? 0,
+        modifiedTime: 资源行?.modified_time ?? 0,
+        extension: this.获取扩展名(row.title),
+        meta,
+      });
+    }
+    if (sort === "name") items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    else if (sort === "updated") items.sort((a, b) => b.updatedAt - a.updatedAt);
+    else items.sort((a, b) => a.createdAt - b.createdAt); // 导入顺序（旧→新）
+    return limit ? items.slice(0, limit) : items;
   }
 
   /**

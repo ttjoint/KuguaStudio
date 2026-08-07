@@ -1,0 +1,15 @@
+{
+  "name": "@kugua/module-infotool",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "信息工具模块：查IP属地（在线）、计算器、URL编/解码、字节/进制换算、体脂率（复刻 ModInfotool）",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}

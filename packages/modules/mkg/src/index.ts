@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NiganeClient } from "@kugua/nigane";
-import { MKG, type 资源关系类型 } from "@kugua/mkg";
+import { MKG, type 资源关系类型, type 内容分类 } from "@kugua/mkg";
 
 interface 模块配置 {
   host?: string;
@@ -78,6 +78,39 @@ async function 启动(): Promise<void> {
       "mkg.resource.detail",
       "mkg.resource.listDetail",
       "mkg.resource.listByTagDetail",
+      "mkg.resource.importFile",
+      "mkg.resource.importFiles",
+      "mkg.tag.setResourceTags",
+      "mkg.tag.addResourceTags",
+      "mkg.tag.removeResourceTags",
+      "mkg.note.create",
+      "mkg.note.get",
+      "mkg.note.list",
+      "mkg.note.update",
+      "mkg.note.delete",
+      "mkg.material.create",
+      "mkg.material.get",
+      "mkg.material.list",
+      "mkg.material.update",
+      "mkg.material.delete",
+      "mkg.card.columnCreate",
+      "mkg.card.columnList",
+      "mkg.card.columnUpdate",
+      "mkg.card.columnDelete",
+      "mkg.card.create",
+      "mkg.card.get",
+      "mkg.card.list",
+      "mkg.card.update",
+      "mkg.card.delete",
+      "mkg.node.list",
+      "mkg.node.search",
+      "mkg.node.setTags",
+      "mkg.node.listAll",
+      "mkg.snippet.create",
+      "mkg.snippet.get",
+      "mkg.snippet.list",
+      "mkg.snippet.update",
+      "mkg.snippet.delete",
     ],
   });
 
@@ -334,6 +367,222 @@ async function 启动(): Promise<void> {
       limit: typeof options?.limit === "number" ? options.limit : undefined,
       offset: typeof options?.offset === "number" ? options.offset : undefined,
     });
+  });
+
+  客户端.onRequest("mkg.resource.importFile", async (params) => {
+    const p = (params ?? {}) as {
+      sourcePath?: string; destDir?: string; name?: string; alias?: string; tagIds?: number[];
+    };
+    if (!p.sourcePath) throw new Error("缺少 sourcePath");
+    return mkg.importFile({
+      sourcePath: p.sourcePath, destDir: p.destDir, name: p.name, alias: p.alias,
+      tagIds: Array.isArray(p.tagIds) ? p.tagIds : [],
+    });
+  });
+
+  客户端.onRequest("mkg.resource.importFiles", async (params) => {
+    const p = (params ?? {}) as {
+      items?: Array<{ sourcePath: string; name?: string; alias?: string; tagIds?: number[] }>;
+      destDir?: string;
+    };
+    if (!Array.isArray(p.items)) throw new Error("缺少 items（数组）");
+    return mkg.importFiles({ items: p.items, destDir: p.destDir });
+  });
+
+  客户端.onRequest("mkg.tag.setResourceTags", (params) => {
+    const { resourceId, tagIds } = (params ?? {}) as { resourceId?: number; tagIds?: number[] };
+    if (resourceId === undefined || !Array.isArray(tagIds)) throw new Error("缺少 resourceId 或 tagIds（数组）");
+    return mkg.setResourceTags(resourceId, tagIds);
+  });
+
+  客户端.onRequest("mkg.tag.addResourceTags", (params) => {
+    const { resourceId, tagIds } = (params ?? {}) as { resourceId?: number; tagIds?: number[] };
+    if (resourceId === undefined || !Array.isArray(tagIds)) throw new Error("缺少 resourceId 或 tagIds（数组）");
+    return mkg.addResourceTags(resourceId, tagIds);
+  });
+
+  客户端.onRequest("mkg.tag.removeResourceTags", (params) => {
+    const { resourceId, tagIds } = (params ?? {}) as { resourceId?: number; tagIds?: number[] };
+    if (resourceId === undefined || !Array.isArray(tagIds)) throw new Error("缺少 resourceId 或 tagIds（数组）");
+    return mkg.removeResourceTags(resourceId, tagIds);
+  });
+
+  // ===== 统一内容节点 & 笔记（P0）=====
+  客户端.onRequest("mkg.note.create", (params) => {
+    const { title, content, tagIds } = (params ?? {}) as { title?: string; content?: string; tagIds?: number[] };
+    if (!title) throw new Error("缺少 title");
+    return mkg.createNote(title, content ?? "", tagIds ?? []);
+  });
+
+  客户端.onRequest("mkg.note.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    return mkg.getNote(id);
+  });
+
+  客户端.onRequest("mkg.note.list", () => mkg.listNotes());
+
+  客户端.onRequest("mkg.note.update", (params) => {
+    const { id, patch } = (params ?? {}) as { id?: number; patch?: { title?: string; content?: string; tagIds?: number[] } };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.updateNote(id, patch);
+  });
+
+  客户端.onRequest("mkg.note.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.deleteNote(id);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.material.create", (params) => {
+    const { title, content, kind, sourceUrl, imageUrl, tagIds } = (params ?? {}) as {
+      title?: string; content?: string; kind?: string; sourceUrl?: string; imageUrl?: string; tagIds?: number[];
+    };
+    if (!title) throw new Error("缺少 title");
+    return mkg.createMaterial({ title, content, kind, sourceUrl, imageUrl, tagIds });
+  });
+
+  客户端.onRequest("mkg.material.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    return mkg.getMaterial(id);
+  });
+
+  客户端.onRequest("mkg.material.list", () => mkg.listMaterials());
+
+  客户端.onRequest("mkg.material.update", (params) => {
+    const { id, patch } = (params ?? {}) as {
+      id?: number;
+      patch?: { title?: string; content?: string; kind?: string; sourceUrl?: string; imageUrl?: string; tagIds?: number[] };
+    };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.updateMaterial(id, patch);
+  });
+
+  客户端.onRequest("mkg.material.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.deleteMaterial(id);
+    return { success: true };
+  });
+
+  // ===== 工作流看板（card）=====
+  客户端.onRequest("mkg.card.columnCreate", (params) => {
+    const { name } = (params ?? {}) as { name?: string };
+    if (!name) throw new Error("缺少 name");
+    return mkg.createColumn(name);
+  });
+
+  客户端.onRequest("mkg.card.columnList", () => mkg.listColumns());
+
+  客户端.onRequest("mkg.card.columnUpdate", (params) => {
+    const { id, patch } = (params ?? {}) as { id?: number; patch?: { name?: string; sort?: number } };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.updateColumn(id, patch);
+  });
+
+  客户端.onRequest("mkg.card.columnDelete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.deleteColumn(id);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.card.create", (params) => {
+    const { title, content, columnId, tagIds } = (params ?? {}) as {
+      title?: string; content?: string; columnId?: number | null; tagIds?: number[];
+    };
+    if (!title) throw new Error("缺少 title");
+    return mkg.createCard({ title, content, columnId, tagIds });
+  });
+
+  客户端.onRequest("mkg.card.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    return mkg.getCard(id);
+  });
+
+  客户端.onRequest("mkg.card.list", (params) => {
+    const { columnId } = (params ?? {}) as { columnId?: number | null };
+    return mkg.listCards(columnId);
+  });
+
+  客户端.onRequest("mkg.card.update", (params) => {
+    const { id, patch } = (params ?? {}) as {
+      id?: number;
+      patch?: { title?: string; content?: string; columnId?: number | null; tagIds?: number[] };
+    };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.updateCard(id, patch);
+  });
+
+  客户端.onRequest("mkg.card.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.deleteCard(id);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.node.list", (params) => {
+    const { type, options } = (params ?? {}) as { type?: "file" | "directory" | "note" | "material" | "card"; options?: { limit?: number; offset?: number } };
+    return mkg.listNodes(type, options);
+  });
+
+  客户端.onRequest("mkg.node.search", (params) => {
+    const { keyword, options } = (params ?? {}) as { keyword?: string; options?: { limit?: number; offset?: number } };
+    if (!keyword) throw new Error("缺少 keyword");
+    return mkg.searchNodes(keyword, options);
+  });
+
+  客户端.onRequest("mkg.node.setTags", (params) => {
+    const { nodeId, tagIds } = (params ?? {}) as { nodeId?: number; tagIds?: number[] };
+    if (nodeId === undefined || !Array.isArray(tagIds)) throw new Error("缺少 nodeId 或 tagIds（数组）");
+    return mkg.setNodeTags(nodeId, tagIds);
+  });
+
+  客户端.onRequest("mkg.node.listAll", (params) => {
+    const p = (params ?? {}) as {
+      keyword?: string;
+      categories?: string[];
+      noTag?: boolean;
+      sort?: "import" | "name" | "updated";
+      limit?: number;
+    };
+    return mkg.listAllContent({
+      keyword: p.keyword,
+      categories: p.categories as 内容分类[] | undefined,
+      noTag: Boolean(p.noTag),
+      sort: p.sort,
+      limit: typeof p.limit === "number" ? p.limit : undefined,
+    });
+  });
+
+  客户端.onRequest("mkg.snippet.create", (params) => {
+    const { title, content, tagIds } = (params ?? {}) as { title?: string; content?: string; tagIds?: number[] };
+    if (!title) throw new Error("缺少 title");
+    return mkg.createSnippet(title, content ?? "", tagIds ?? []);
+  });
+
+  客户端.onRequest("mkg.snippet.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    return mkg.getSnippet(id);
+  });
+
+  客户端.onRequest("mkg.snippet.list", () => mkg.listSnippets());
+
+  客户端.onRequest("mkg.snippet.update", (params) => {
+    const { id, patch } = (params ?? {}) as { id?: number; patch?: { title?: string; content?: string; tagIds?: number[] } };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.updateSnippet(id, patch);
+  });
+
+  客户端.onRequest("mkg.snippet.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.deleteSnippet(id);
+    return { success: true };
   });
 
   await 客户端.connect();

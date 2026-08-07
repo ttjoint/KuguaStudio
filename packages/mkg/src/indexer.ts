@@ -63,11 +63,16 @@ export async function 索引目录(
 
   const 当前时间 = Math.floor(Date.now() / 1000);
 
-  const 查询资源 = db.prepare("SELECT id, sha256 FROM resources WHERE path = ?");
+  const 查询资源 = db.prepare("SELECT id, sha256, node_id FROM resources WHERE path = ?");
   const 插入资源 = db.prepare(`
     INSERT INTO resources (path, name, size, modified_time, sha256, kind, indexed_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
+  const 插入节点 = db.prepare(
+    "INSERT INTO nodes (type, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+  );
+  const 回填节点 = db.prepare("UPDATE resources SET node_id = ? WHERE id = ?");
+  const 更新节点 = db.prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?");
   const 更新资源 = db.prepare(`
     UPDATE resources
     SET name = ?, size = ?, modified_time = ?, sha256 = ?, kind = ?, indexed_at = ?
@@ -102,13 +107,20 @@ export async function 索引目录(
     const kind = 是目录 ? "directory" : "file";
     const modifiedTime = Math.floor(信息.mtimeMs / 1000);
 
-    const existing = 查询资源.get(路径) as { id: number; sha256: string } | undefined;
+    const existing = 查询资源.get(路径) as { id: number; sha256: string; node_id: number | null } | undefined;
 
     if (existing) {
       const changed = existing.sha256 !== hash || 是目录;
       if (changed) {
         更新资源.run(名称, 是文件 ? 信息.size : 0, modifiedTime, hash, kind, 当前时间, existing.id);
         updated++;
+      }
+      // 确保已有资源也接入节点（兼容旧库）
+      if (!existing.node_id) {
+        const nres = 插入节点.run(是目录 ? "directory" : "file", 名称, 当前时间, 当前时间);
+        回填节点.run(Number(nres.lastInsertRowid), existing.id);
+      } else {
+        更新节点.run(名称, 当前时间, existing.node_id);
       }
       if (是文件 && indexTextContent && 是文本文件(名称) && 信息.size <= maxTextSize) {
         try {
@@ -130,6 +142,9 @@ export async function 索引目录(
       );
       added++;
       const id = Number(result.lastInsertRowid);
+      // 创建统一内容节点并回填
+      const nres = 插入节点.run(是目录 ? "directory" : "file", 名称, 当前时间, 当前时间);
+      回填节点.run(Number(nres.lastInsertRowid), id);
       if (是文件 && indexTextContent && 是文本文件(名称) && 信息.size <= maxTextSize) {
         try {
           const content = await readFile(路径, "utf-8");

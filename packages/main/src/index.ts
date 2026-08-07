@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer as 创建探测服务器 } from "node:net";
 import {
   NiganeServer,
   type 模块信息,
@@ -47,6 +48,18 @@ function 加载配置(): 主控配置 {
   }
 }
 
+/** 探测指定端口是否已被占用（用于单实例守卫，避免重复启动主控） */
+function 端口被占用(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const 探测器 = 创建探测服务器();
+    探测器.once("error", (err: NodeJS.ErrnoException) => {
+      resolve(err.code === "EADDRINUSE");
+    });
+    探测器.once("listening", () => 探测器.close(() => resolve(false)));
+    探测器.listen(port, host);
+  });
+}
+
 /** 子进程运行时信息 */
 interface 子进程记录 {
   proc: ChildProcess;
@@ -64,6 +77,13 @@ let 服务端: NiganeServer | null = null;
 
 async function 启动(): Promise<void> {
   配置 = 加载配置();
+
+  // —— 单实例守卫：端口已被占用说明已有主控在运行，直接退出，避免重复启动模块 ——
+  if (await 端口被占用(配置.host, 配置.port)) {
+    console.log(`[主控] 检测到 ${配置.host}:${配置.port} 已有主控在运行，本实例退出（不重复启动）。`);
+    process.exit(0);
+  }
+
   服务端 = new NiganeServer(配置);
 
   // —— 注入模块描述表 ——

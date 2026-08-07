@@ -32,6 +32,13 @@
       "description": "今天吃什么推荐"
     },
     {
+      "name": "image",
+      "type": "process",
+      "entry": "packages/modules/image/dist/index.js",
+      "autoStart": true,
+      "description": "图片处理（Python+Pillow 复刻 ModImages：编辑/网格/做旧/抠图/像素字/验证码/取色/幻影坦克/拼接/GIF/抖动/滚动/摸摸）"
+    },
+    {
       "name": "napcat",
       "type": "process",
       "entry": "packages/modules/napcat/dist/index.js",
@@ -50,6 +57,48 @@
       "entry": "packages/modules/dream/dist/index.js",
       "autoStart": false,
       "description": "解梦模块：根据关键词解释梦境"
+    },
+    {
+      "name": "dice",
+      "type": "process",
+      "entry": "packages/modules/dice/dist/index.js",
+      "autoStart": true,
+      "description": "掷骰模块：随机掷骰子，支持个数与面数（r3d6）"
+    },
+    {
+      "name": "text",
+      "type": "process",
+      "entry": "packages/modules/text/dist/index.js",
+      "autoStart": true,
+      "description": "文本功能综合模块：反转/大小写/乱序/切分/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天"
+    },
+    {
+      "name": "proof",
+      "type": "process",
+      "entry": "packages/modules/proof/dist/index.js",
+      "autoStart": true,
+      "description": "数字论证模块：字符串/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）"
+    },
+    {
+      "name": "calendar",
+      "type": "process",
+      "entry": "packages/modules/calendar/dist/index.js",
+      "autoStart": true,
+      "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算"
+    },
+    {
+      "name": "translate",
+      "type": "process",
+      "entry": "packages/modules/translate/dist/index.js",
+      "autoStart": true,
+      "description": "翻译模块：Google 网页接口翻译，单语言翻译 + 译N次多语言接力"
+    },
+    {
+      "name": "infotool",
+      "type": "process",
+      "entry": "packages/modules/infotool/dist/index.js",
+      "autoStart": true,
+      "description": "信息工具模块：查IP属地（在线）、计算器、URL编/解码、字节/进制换算、体脂率"
     }
   ]
 }

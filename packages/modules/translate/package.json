@@ -1,0 +1,15 @@
+{
+  "name": "@kugua/module-translate",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "翻译模块：Google 网页接口翻译，支持单语言翻译与译N次多语言接力（复刻 ModTranslate）",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}

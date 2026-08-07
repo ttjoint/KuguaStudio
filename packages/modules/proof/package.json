@@ -1,0 +1,15 @@
+{
+  "name": "@kugua/module-proof",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "数字论证模块：字符串/数字证明为一串数字（复刻 MathProof 逆波兰表达式搜索）",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}

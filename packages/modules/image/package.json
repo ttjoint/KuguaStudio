@@ -1,0 +1,14 @@
+{
+  "name": "@kugua/module-image",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "图片处理模块：Python+Pillow 复刻 ModImages 全部能力（编辑/网格/做旧/抠图/像素字/验证码/取色/幻影坦克/拼接/GIF/抖动/滚动/摸摸），输入输出走 base64",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*"
+  }
+}
