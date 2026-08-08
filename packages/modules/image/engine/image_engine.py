@@ -17,9 +17,14 @@ import json
 import base64
 import math
 import random
+import os
+import shutil
+import subprocess
+import tempfile
 import traceback
 
 from PIL import Image, ImageOps, ImageDraw, ImageFont
+from PIL import ImageFilter
 
 # ---------------- 基础工具 ----------------
 
@@ -89,6 +94,116 @@ def _finish_multi(frames, durations, message="", fmt="gif"):
         "message": message,
         "format": fmt,
         "_durations": durations,
+    }
+
+
+# ---------------- 图片高清放大（超分） ----------------
+
+_ESRGAN_SCRIPT = os.environ.get(
+    "KUGUA_IMAGE_ESRGAN_SCRIPT",
+    r"D:\Projects\Real-ESRGAN\inference_realesrgan.py",
+)
+
+
+def _realesrgan_available():
+    """Real-ESRGAN 可用性：脚本存在且依赖可导入。"""
+    if not os.path.exists(_ESRGAN_SCRIPT):
+        return False
+    try:
+        import cv2  # noqa: F401
+        import numpy  # noqa: F401
+        import basicsr  # noqa: F401
+        import realesrgan  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _realesrgan_upscale_frame(pil_img, scale, face_enhance):
+    """调用 Real-ESRGAN 推理脚本做 2x/4x 超分（复刻参考项目 Esrgan.SingleImageEsrgan）。"""
+    tmp = tempfile.mkdtemp(prefix="kugua_esr_")
+    try:
+        src = os.path.join(tmp, "in.png")
+        pil_img.convert("RGB").save(src)
+        args = [
+            sys.executable,
+            _ESRGAN_SCRIPT,
+            "-n",
+            "RealESRGAN_x4plus",
+            "-i",
+            src,
+            "-o",
+            tmp,
+            "-s",
+            str(scale),
+        ]
+        if face_enhance:
+            args.append("--face_enhance")
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=300)
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()[-200:]
+            raise RuntimeError("Real-ESRGAN 推理失败：%s" % detail)
+        out = os.path.join(tmp, "in_out.png")
+        if not os.path.exists(out):
+            raise RuntimeError("Real-ESRGAN 未生成输出文件")
+        with open(out, "rb") as f:
+            return Image.open(io.BytesIO(f.read())).convert("RGBA")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _pillow_upscale_frame(pil_img, scale):
+    """降级方案：Lanczos 放大 + 轻度锐化。"""
+    w, h = pil_img.size
+    img = pil_img.resize((w * scale, h * scale), Image.LANCZOS)
+    return img.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=3))
+
+
+def op_upscale(img, params):
+    """图片高清放大：默认 Real-ESRGAN（4x），不可用时回退 Pillow Lanczos。
+    参考 ModImage2x.Get2X（高清/放大指令）。"""
+    try:
+        scale = int(params.get("scale", 4))
+    except (TypeError, ValueError):
+        scale = 4
+    if scale not in (2, 4):
+        scale = 4
+    provider = str(params.get("provider", "auto") or "auto").lower()
+    face_enhance = bool(params.get("faceEnhance", False))
+
+    use_esr = provider == "realesrgan" or (provider == "auto" and _realesrgan_available())
+    if provider == "realesrgan" and not _realesrgan_available():
+        raise ValueError("Real-ESRGAN 不可用（脚本或依赖缺失），请使用 provider=pillow")
+    method = "realesrgan" if use_esr else "pillow"
+
+    animated = bool(getattr(img, "is_animated", False))
+    if animated:
+        frames, durations = _iter_frames(img)
+        out_frames = []
+        for fr in frames:
+            if use_esr:
+                out_frames.append(_realesrgan_upscale_frame(fr, scale, face_enhance))
+            else:
+                out_frames.append(_pillow_upscale_frame(fr, scale))
+        w, h = out_frames[0].size
+        return {
+            "ok": True,
+            "base64": _gif_b64(out_frames, durations),
+            "width": w,
+            "height": h,
+            "format": "gif",
+            "message": method,
+        }
+
+    out = _realesrgan_upscale_frame(img, scale, face_enhance) if use_esr else _pillow_upscale_frame(img, scale)
+    w, h = out.size
+    return {
+        "ok": True,
+        "base64": _png_b64(out),
+        "width": w,
+        "height": h,
+        "format": "png",
+        "message": method,
     }
 
 
@@ -953,6 +1068,8 @@ OPS = {
     "shake": {"fn": op_shake, "input": "single"},
     "roll": {"fn": op_roll, "input": "single"},
     "touchBall": {"fn": op_touch_ball, "input": "single"},
+    # 高清放大（超分）
+    "upscale": {"fn": op_upscale, "input": "single"},
 }
 
 

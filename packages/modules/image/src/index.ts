@@ -9,6 +9,7 @@
  *   - 拼接：image.combineH / combineV
  *   - GIF 系列：image.gifSprite / gifUnzip / gifUnzipGrid / gifRemoveFrame / gifZip / gifShuffle / webpToGif / gifSpeed
  *   - 特效：image.shake / roll / touchBall
+ *   - 高清放大：image.upscale（Real-ESRGAN 超分，缺依赖时回退 Pillow Lanczos）
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -21,7 +22,7 @@ interface 模块配置 {
   host?: string;
   port?: number;
   token?: string;
-  /** Python 可执行文件路径；默认用 PATH 上的 python */
+  /** Python 可执行文件路径；默认用 KUGUA_IMAGE_PYTHON 或 PATH 上的 python */
   python?: string;
 }
 
@@ -29,7 +30,8 @@ function 加载配置(): 模块配置 {
   const 路径 = resolve(process.cwd(), "kugua.config.json");
   if (!existsSync(路径)) return {};
   try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
+  const 配置 = JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
+  return { ...配置, python: 配置.python ?? process.env.KUGUA_IMAGE_PYTHON };
   } catch {
     return {};
   }
@@ -196,6 +198,8 @@ async function 启动(): Promise<void> {
       "image.shake",
       "image.roll",
       "image.touchBall",
+      // 高清放大（超分）
+      "image.upscale",
     ],
   });
 
@@ -388,6 +392,16 @@ async function 启动(): Promise<void> {
   // —— 摸摸：弹性压扁回弹（参考 ToElasticBounceGif）——
   客户端.onRequest("image.touchBall", async (params) => {
     return 引擎.处理("touchBall", 取输入(params), {});
+  });
+
+  // —— 高清放大：Real-ESRGAN 超分（参考 ModImage2x.Get2X），缺依赖自动回退 Pillow ——
+  客户端.onRequest("image.upscale", async (params) => {
+    const p = (params ?? {}) as { scale?: number; provider?: string; faceEnhance?: boolean };
+    return 引擎.处理("upscale", 取输入(params), {
+      scale: p.scale ?? 4,
+      provider: p.provider ?? "auto",
+      faceEnhance: p.faceEnhance ?? false,
+    });
   });
 
   await 客户端.connect();

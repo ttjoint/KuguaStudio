@@ -491,6 +491,40 @@ function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | null {
     return { 目标: "tts", 动作: "tts.speak", 参数: { text: 语音匹配[2].trim() }, 描述: "语音合成" };
   }
 
+  // 积分系统（P3）
+  if (文本 === "积分" || 文本 === "我的积分" || 文本 === "余额") {
+    return { 目标: "bank", 动作: "bank.balance", 参数: { user: "local", name: "本地用户" }, 描述: "我的积分" };
+  }
+  if (文本 === "签到") {
+    return { 目标: "bank", 动作: "bank.sign", 参数: { user: "local", name: "本地用户" }, 描述: "每日签到" };
+  }
+  const 充值匹配 = 文本.match(/^(充值|发币)\s+(\d+(?:\.\d+)?)$/);
+  if (充值匹配) {
+    return { 目标: "bank", 动作: "bank.grant", 参数: { user: "local", amount: Number(充值匹配[2]) }, 描述: "充值积分" };
+  }
+  const 转账匹配 = 文本.match(/^转账\s+(\S+)\s+(\d+(?:\.\d+)?)$/);
+  if (转账匹配) {
+    return {
+      目标: "bank",
+      动作: "bank.transfer",
+      参数: { from: "local", to: 转账匹配[1], amount: Number(转账匹配[2]) },
+      描述: "积分转账",
+    };
+  }
+  const 捐款匹配 = 文本.match(/^捐款\s+(\d+(?:\.\d+)?)$/);
+  if (捐款匹配) {
+    return { 目标: "bank", 动作: "bank.donate", 参数: { user: "local", amount: Number(捐款匹配[1]) }, 描述: "捐款" };
+  }
+  if (文本 === "富豪榜" || 文本 === "积分排行") {
+    return { 目标: "bank", 动作: "bank.rank", 参数: { order: "rich", limit: 10 }, 描述: "富豪榜" };
+  }
+  if (文本 === "穷人榜") {
+    return { 目标: "bank", 动作: "bank.rank", 参数: { order: "poor", limit: 10 }, 描述: "穷人榜" };
+  }
+  if (文本 === "积分流水") {
+    return { 目标: "bank", 动作: "bank.ledger", 参数: { user: "local", limit: 20 }, 描述: "积分流水" };
+  }
+
   // 帮助
   if (文本 === "帮助" || 文本 === "help" || 文本 === "?") {
     添加消息(帮助文本(), "system");
@@ -520,6 +554,11 @@ function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | null {
     const 横 = 方向.includes("横") || 方向 === "";
     const 竖 = 方向.includes("竖") || 方向 === "";
     return 需图("image.resize", { scaleX: 横 ? 倍率 : 1, scaleY: 竖 ? 倍率 : 1 }, "图片缩放");
+  }
+  // —— 高清放大 / 超分（参考 ModImage2x.Get2X：Real-ESRGAN，缺依赖自动回退）——
+  const 超分匹配 = 文本.match(/^(高清|放大|超分)([24])?$/);
+  if (超分匹配) {
+    return 需图("image.upscale", { scale: 超分匹配[2] ? Number(超分匹配[2]) : 4 }, "图片高清放大");
   }
   // 兼容保留：放大N / 缩小N（百分比）
   const 放缩匹配 = 文本.match(/^(放大|缩小|缩放)\s*(\d+)?\s*%?$/);
@@ -955,6 +994,45 @@ function 格式化输出(路由: 路由结果, 结果: unknown): void {
       添加消息("AI 记忆已清空", "system");
       break;
     }
+    case "bank.balance": {
+      const r = 结果 as { 账户: { id: string; name: string; money: number; signTimes: number }; unit: string };
+      添加消息(
+        `账户「${r.账户.name}」余额：${r.账户.money}${r.unit}\n累计签到 ${r.账户.signTimes} 次`,
+        "system",
+        "我的积分",
+      );
+      break;
+    }
+    case "bank.sign":
+    case "bank.transfer":
+    case "bank.grant":
+    case "bank.donate": {
+      const r = 结果 as { message: string };
+      添加消息(r.message, "system");
+      break;
+    }
+    case "bank.rank": {
+      const r = 结果 as { list: Array<{ id: string; name: string; money: number }>; unit: string };
+      if (r.list.length === 0) {
+        添加消息("暂无账户", "system");
+        return;
+      }
+      const 列表 = r.list.map((a, i) => `${i + 1}. ${a.name}（${a.id}） ${a.money}${r.unit}`).join("\n");
+      添加消息(列表, "system", 路由.描述);
+      break;
+    }
+    case "bank.ledger": {
+      const r = 结果 as { list: Array<{ time: number; from: string; to: string; amount: number; message: string }>; unit: string };
+      if (r.list.length === 0) {
+        添加消息("暂无流水", "system");
+        return;
+      }
+      const 列表 = r.list
+        .map((l) => `${new Date(l.time).toLocaleString()} ${l.from} → ${l.to} ${l.amount}${r.unit}（${l.message}）`)
+        .join("\n");
+      添加消息(列表, "system", "积分流水");
+      break;
+    }
     case "dice.roll": {
       const d = 结果 as { 文本?: string; 描述?: string; 总和?: number };
       添加消息(d.文本 ?? `掷骰结果：${d.描述 ?? ""}`, "system", "掷骰");
@@ -975,7 +1053,7 @@ function 帮助文本(): string {
   return `可用指令：
 【图片】先拖拽图片到聊天框，再输入：
   灰度 / 反色 / 水平翻转 / 垂直翻转 / 镜像
-  旋转90度 / 放大 / 缩小 / 网格 / 切边 / 抠图 / 做旧 / 取色
+  旋转90度 / 高清（放大/超分，Real-ESRGAN）/ 缩小 / 网格 / 切边 / 抠图 / 做旧 / 取色
   像素字 [文字] / 验证码 [文字] / 随机像素 / 色块 [颜色]
 
 【生成类】
@@ -1007,6 +1085,15 @@ function 帮助文本(): string {
   AI图片 <描述>        — AI 生成图片
   清空AI记忆           — 清空当前对话记忆
   说话 <文字>          — 本地语音合成并播放
+
+【积分系统】
+  积分 / 余额          — 查看本地账户积分
+  签到                 — 每日签到领取低保
+  充值 <金额>          — 为本地账户充值积分
+  转账 <目标> <金额>   — 向目标账户转账
+  捐款 <金额>          — 捐款给系统
+  富豪榜 / 穷人榜      — 积分排行榜
+  积分流水             — 最近资金流水
 
 【数字论证】
   论证 [词语]

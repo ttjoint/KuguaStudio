@@ -127,6 +127,13 @@
       "entry": "packages/modules/tts/dist/index.js",
       "autoStart": true,
       "description": "语音合成（M6）：sherpa-onnx 离线 TTS / ChatTTS / Windows SAPI"
+    },
+    {
+      "name": "bank",
+      "type": "process",
+      "entry": "packages/modules/bank/dist/index.js",
+      "autoStart": true,
+      "description": "积分系统（P3）：签到低保/转账/充值/捐款/排行榜"
     }
   ]
 }
