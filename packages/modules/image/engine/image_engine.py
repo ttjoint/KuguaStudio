@@ -146,11 +146,13 @@ def op_rotate(img, params):
 
 
 def op_flipH(img, params):
-    return ImageOps.flip(img)
+    # 水平翻转（左右镜像，对应 C# Flop）
+    return ImageOps.mirror(img)
 
 
 def op_flipV(img, params):
-    return ImageOps.mirror(img)
+    # 垂直翻转（上下镜像，对应 C# Flip）
+    return ImageOps.flip(img)
 
 
 def op_resize(img, params):
@@ -180,19 +182,19 @@ def op_cut(img, params):
     percent = params.get("percent", False)
     w, h = img.size
 
-    def conv(v):
+    def conv(v, full):
         if v <= 0:
             return 0
         if percent:
-            return int(round(h * float(v)))
+            return int(round(full * float(v)))
         if abs(v) < 1:
-            return int(round(h * float(v)))
+            return int(round(full * float(v)))
         return int(round(float(v)))
 
-    t = conv(top) if top > 0 else 0
-    b = conv(bottom) if bottom > 0 else 0
-    l = conv(left) if left > 0 else 0
-    r = conv(right) if right > 0 else 0
+    t = conv(top, h) if top > 0 else 0
+    b = conv(bottom, h) if bottom > 0 else 0
+    l = conv(left, w) if left > 0 else 0
+    r = conv(right, w) if right > 0 else 0
     new_w = max(1, w - l - r)
     new_h = max(1, h - t - b)
     return img.crop((l, t, l + new_w, t + new_h))
@@ -205,20 +207,24 @@ def op_mirror(img, params):
     half_h = h // 2
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     if mode == 1:
+        # 保留左半，水平镜像到右半（对应 C# 裁左半 + Flop 覆盖右侧）
         left = img.crop((0, 0, half_w, h))
         canvas.paste(left, (0, 0))
-        canvas.paste(ImageOps.flip(left), (half_w, 0))
+        canvas.paste(ImageOps.mirror(left), (half_w, 0))
     elif mode == 2:
+        # 保留右半，水平镜像到左半（对应 C# 裁右半 + Flop 覆盖左侧）
         right = img.crop((half_w, 0, w, h))
-        canvas.paste(ImageOps.flip(right), (0, 0))
+        canvas.paste(ImageOps.mirror(right), (0, 0))
         canvas.paste(right, (half_w, 0))
     elif mode == 3:
+        # 保留上半，垂直镜像到下半（对应 C# 裁上半 + Flip 覆盖下方）
         top = img.crop((0, 0, w, half_h))
         canvas.paste(top, (0, 0))
-        canvas.paste(ImageOps.mirror(top), (0, half_h))
+        canvas.paste(ImageOps.flip(top), (0, half_h))
     elif mode == 4:
+        # 保留下半，垂直镜像到上半（对应 C# 裁下半 + Flip 覆盖上方）
         bottom = img.crop((0, half_h, w, h))
-        canvas.paste(ImageOps.mirror(bottom), (0, 0))
+        canvas.paste(ImageOps.flip(bottom), (0, 0))
         canvas.paste(bottom, (0, half_h))
     else:
         raise ValueError("不支持的镜像模式：%s（应为 1/2/3/4）" % mode)

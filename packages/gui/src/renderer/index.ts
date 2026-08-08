@@ -400,47 +400,141 @@ function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | null {
     return null;
   }
 
-  // ===== 图片模块（大多数需图片附件）=====
-  if (/^(灰度|灰度化|去色|黑白|遗像)$/.test(文本)) return 需图("image.grayscale", {}, "图片灰度");
+  // ===== 图片模块（严格按参考项目 ModImages 原指令输入方式复刻）=====
+  // —— 反色（参考 ^反色$）——
   if (/^(反色|负片|取反|颜色反转)$/.test(文本)) return 需图("image.negate", {}, "图片反色");
-  if (/^(水平翻转|左右翻转|水平镜像)$/.test(文本)) return 需图("image.flipH", {}, "水平翻转");
-  if (/^(垂直翻转|上下翻转|垂直镜像)$/.test(文本)) return 需图("image.flipV", {}, "垂直翻转");
-  if (/^(镜像|镜子)$/.test(文本)) return 需图("image.mirror", {}, "图片镜像");
-  const 旋转匹配 = 文本.match(/^旋转\s*(\d{1,3})?\s*度?$/);
+  // —— 水平翻转（参考 ^水平翻转(.*)）——
+  if (/^水平翻转/.test(文本)) return 需图("image.flipH", {}, "水平翻转");
+  // —— 垂直翻转（参考 ^垂直翻转(.*)）——
+  if (/^垂直翻转/.test(文本)) return 需图("image.flipV", {}, "垂直翻转");
+  // —— 镜像1~4，缺省 1（参考 ^镜像(.*)，1/2/3/4 保留不同部分）——
+  const 镜像匹配 = 文本.match(/^镜像([1-4])?$/);
+  if (镜像匹配) return 需图("image.mirror", { mode: 镜像匹配[1] ? Number(镜像匹配[1]) : 1 }, "图片镜像");
+  if (文本 === "镜子") return 需图("image.mirror", { mode: 1 }, "图片镜像");
+  // —— 旋转N度，缺省 90（参考 ^旋转(.*)，缺省参则 90）——
+  const 旋转匹配 = 文本.match(/^旋转\s*([\d.]+)?\s*度?$/);
   if (旋转匹配) return 需图("image.rotate", { degrees: 旋转匹配[1] ? Number(旋转匹配[1]) : 90 }, "图片旋转");
-  const 缩放匹配 = 文本.match(/^(放大|缩小|缩放)\s*(\d+)?\s*%?$/);
+  // —— 缩放：横缩放N / 竖缩放N / 横竖缩放N / 缩放N（比例，参考 ^([横竖]*)缩放(.+)）——
+  const 缩放匹配 = 文本.match(/^([横竖]*)缩放\s*([\d.]+)%?$/);
   if (缩放匹配) {
-    const 词 = 缩放匹配[1];
-    const 百分比 = 缩放匹配[2] ? Number(缩放匹配[2]) : (词 === "缩小" ? 50 : 词 === "放大" ? 150 : 100);
+    const 方向 = 缩放匹配[1];
+    let 倍率 = parseFloat(缩放匹配[2]);
+    if (倍率 <= 0) 倍率 = 0.1;
+    const 横 = 方向.includes("横") || 方向 === "";
+    const 竖 = 方向.includes("竖") || 方向 === "";
+    return 需图("image.resize", { scaleX: 横 ? 倍率 : 1, scaleY: 竖 ? 倍率 : 1 }, "图片缩放");
+  }
+  // 兼容保留：放大N / 缩小N（百分比）
+  const 放缩匹配 = 文本.match(/^(放大|缩小|缩放)\s*(\d+)?\s*%?$/);
+  if (放缩匹配) {
+    const 词 = 放缩匹配[1];
+    const 百分比 = 放缩匹配[2] ? Number(放缩匹配[2]) : (词 === "缩小" ? 50 : 词 === "放大" ? 150 : 100);
     return 需图("image.resize", { scaleX: 百分比 / 100, scaleY: 百分比 / 100 }, "图片缩放");
   }
-  const 网格匹配 = 文本.match(/^网格\s*(\d+)?$/);
-  if (网格匹配) return 需图("image.grid", { scale: 网格匹配[1] ? Number(网格匹配[1]) : 2 }, "图片网格化");
+  // —— 切：上下左右组合切 N / N%（参考 ^([上下左右]+)切(.+)）——
+  const 切匹配 = 文本.match(/^([上下左右]+)切\s*([\d.]+)%?$/);
+  if (切匹配) {
+    const 方向 = 切匹配[1];
+    const 数 = parseFloat(切匹配[2]);
+    const 参: Record<string, number | boolean> = { percent: 切匹配[0].endsWith("%") };
+    if (方向.includes("上")) 参.top = 数;
+    if (方向.includes("下")) 参.bottom = 数;
+    if (方向.includes("左")) 参.left = 数;
+    if (方向.includes("右")) 参.right = 数;
+    return 需图("image.cut", 参, "图片切割");
+  }
+  // 兼容保留：切边N（四边等切）
   const 切边匹配 = 文本.match(/^切边\s*(\d+)?$/);
   if (切边匹配) {
     const 边 = 切边匹配[1] ? Number(切边匹配[1]) : 10;
     return 需图("image.cut", { percent: false, top: 边, bottom: 边, left: 边, right: 边 }, "图片切边");
   }
-  if (/^(抠图|去背景|去底色)/.test(文本)) return 需图("image.removeBg", {}, "图片抠图");
-  if (/^做旧/.test(文本)) return 需图("image.oldJpg", {}, "图片做旧");
-  if (/^取色/.test(文本)) return 需图("image.colorExtract", {}, "图片取色");
-  if (/^网格孔/.test(文本)) return 需图("image.gridHole", {}, "图片网格孔");
-  const 拼接匹配 = 文本.match(/^(横向拼接|纵向拼接|拼接)/);
-  if (拼接匹配) {
-    const 纵向 = 文本.includes("纵向");
-    return 需图(纵向 ? "image.combineV" : "image.combineH", {}, 纵向 ? "纵向拼接" : "横向拼接");
+  // —— 抖动：抖N / 内抖N（参考 ^(内?)抖(.*)，数字为震级 0~1 小数，支持逗号小数点）——
+  if (/^(内?)抖/.test(文本)) {
+    const 抖匹配 = 文本.match(/^(内?)抖\s*([\d.,]+)?$/);
+    const 震级 = 抖匹配 && 抖匹配[2] ? parseFloat(抖匹配[2].replace(",", ".")) : 0.5;
+    return 需图("image.shake", { degree: 震级 }, "图片抖动");
   }
-  if (/^抖动/.test(文本)) return 需图("image.shake", {}, "图片抖动");
-  if (/^滚动/.test(文本)) return 需图("image.roll", {}, "图片滚动");
+  // —— 滚动N（参考 ^滚动(.*)，参数为方位角度）——
+  if (/^滚动/.test(文本)) {
+    const 滚匹配 = 文本.match(/^滚动\s*([\d.]+)?$/);
+    const 角度 = 滚匹配 && 滚匹配[1] ? parseFloat(滚匹配[1]) : 0;
+    return 需图("image.roll", { degree: 角度 }, "图片滚动");
+  }
+  // —— 网格化 / 网格化2（参考 ^网格化$ / ^网格化2$）——
+  if (文本 === "网格化2") return 需图("image.gridHole", {}, "图片网格孔");
+  if (文本 === "网格化") return 需图("image.grid", { scale: 2 }, "图片网格化");
+  // 兼容保留：网格N / 网格孔
+  const 网格匹配 = 文本.match(/^网格\s*(\d+)?$/);
+  if (网格匹配) return 需图("image.grid", { scale: 网格匹配[1] ? Number(网格匹配[1]) : 2 }, "图片网格化");
+  if (/^网格孔/.test(文本)) return 需图("image.gridHole", {}, "图片网格孔");
+  // —— 抠图（参考 ^抠图）——
+  if (/^抠图/.test(文本)) return 需图("image.removeBg", {}, "图片抠图");
+  // —— 做旧（参考 ^做旧(.*)）——
+  if (/^做旧/.test(文本)) return 需图("image.oldJpg", {}, "图片做旧");
+  // —— 取色（参考 ^取色）——
+  if (/^取色/.test(文本)) return 需图("image.colorExtract", {}, "图片取色");
+  // —— 竖拼 / 横拼（参考 ^竖拼$ / ^横拼$）——
+  if (文本 === "竖拼" || 文本 === "纵向拼接") return 需图("image.combineV", {}, "纵向拼接");
+  if (文本 === "横拼" || 文本 === "横向拼接") return 需图("image.combineH", {}, "横向拼接");
+  // 兼容保留：拼接（用横向拼接）
+  const 拼接匹配 = 文本.match(/^(拼接)/);
+  if (拼接匹配) return 需图("image.combineH", {}, "横向拼接");
+  // —— 摸摸（参考 ^摸摸$）——
+  if (文本 === "摸摸") return 需图("image.touchBall", {}, "图片摸摸");
+  // —— 幻影坦克（参考 ^(彩色)?幻影(坦克)?$）——
+  const 幻影匹配 = 文本.match(/^(彩色)?幻影(坦克)?$/);
+  if (幻影匹配) return 需图("image.hytk", { colorful: !!幻影匹配[1] }, "幻影坦克");
+
+  // —— GIF/图片序列系列（参考 ModImageGif.cs）——
+  // 拆NxM：拆成 col x row 碎片（参考 ^拆(.+)x(.+)$，col=param[1], row=param[2]）
+  const 拆格匹配 = 文本.match(/^拆\s*(\d+)\s*x\s*(\d+)$/);
+  if (拆格匹配) return 需图("image.gifUnzipGrid", { col: Number(拆格匹配[1]), row: Number(拆格匹配[2]) }, "拆图");
+  // 拆：拆成一组 PNG（参考 ^拆$）
+  if (文本 === "拆") return 需图("image.gifUnzip", {}, "拆帧");
+  // 拆帧：平铺成序列图（参考 ^拆帧(.*)$）
+  if (文本 === "拆帧") return 需图("image.gifSprite", {}, "拆帧平铺");
+  // 删N：删帧（参考 ^删(.+)），支持 "2"、"2,3"，第一个为起始帧、第二个为删除帧数
+  const 删匹配 = 文本.match(/^删\s*([\-0-9]+)\s*(?:[,， ]+\s*([\-0-9]+))?$/);
+  if (删匹配) {
+    const 起始 = Number(删匹配[1]);
+    const 数量 = 删匹配[2] ? Number(删匹配[2]) : 1;
+    return 需图("image.gifRemoveFrame", { begin: 起始, count: 数量 }, "删帧");
+  }
+  // 合NxM：单图序列帧合成 gif（参考 ^合(\S*)$）
+  const 合格匹配 = 文本.match(/^合\s*(\d+)\s*x\s*(\d+)$/);
+  if (合格匹配) return 需图("image.gifZip", { row: Number(合格匹配[1]), col: Number(合格匹配[2]) }, "合成GIF");
+  if (文本 === "合") return 需图("image.gifZip", { images: [] }, "合成GIF");
+  // 乱序：打乱 gif 帧顺序（参考 ^乱序$）
+  if (文本 === "乱序") return 需图("image.gifShuffle", {}, "乱序图");
+  // gif：webp 转 gif/png（参考 ^gif$）
+  if (文本 === "gif") return 需图("image.webpToGif", {}, "转GIF");
+  // N倍速：调整 gif 播放速率，负数倒放（参考 ^(.+)倍速$）
+  const 倍速匹配 = 文本.match(/^([\-0-9.]+)\s*倍速$/);
+  if (倍速匹配) return 需图("image.gifSpeed", { speed: Number(倍速匹配[1]) }, "GIF倍速");
 
   // 图片生成类（无需附件）
   const 像素字匹配 = 文本.match(/^像素字\s*(.+)?$/);
   if (像素字匹配) return { 目标: "image", 动作: "image.pixelWords", 参数: { text: (像素字匹配[1] ?? "").trim() }, 描述: "像素字" };
+  // 扭曲XX → 验证码风格 GIF（参考 ^扭曲(.+)）
+  const 扭曲匹配 = 文本.match(/^扭曲\s*(.+)/);
+  if (扭曲匹配) return { 目标: "image", 动作: "image.captcha", 参数: { text: 扭曲匹配[1].trim() }, 描述: "扭曲图片" };
+  // 噪声N → 随机像素图（参考 ^噪声([0-9]*)）
+  const 噪声匹配 = 文本.match(/^噪声\s*(\d*)?$/);
+  if (噪声匹配) return { 目标: "image", 动作: "image.randomPixel", 参数: { size: 噪声匹配[1] ? Number(噪声匹配[1]) : 100 }, 描述: "随机像素图" };
   const 验证码匹配 = 文本.match(/^验证码\s*(.+)?$/);
   if (验证码匹配) return { 目标: "image", 动作: "image.captcha", 参数: { text: (验证码匹配[1] ?? "").trim() }, 描述: "验证码图片" };
   if (/^随机像素/.test(文本)) return { 目标: "image", 动作: "image.randomPixel", 参数: { size: 100 }, 描述: "随机像素图" };
   const 色块匹配 = 文本.match(/^色块\s*(#?[0-9a-fA-F]{3,8})?$/);
   if (色块匹配) return { 目标: "image", 动作: "image.colorSample", 参数: { color: 色块匹配[1] ?? "#000000", size: 80 }, 描述: "色块" };
+
+  // —— 色卡：#RRGGBB 直接显示颜色（参考 ^#[0-9A-Fa-f]{6}$，showColor）——
+  if (/^#[0-9A-Fa-f]{6}$/.test(文本)) return { 目标: "image", 动作: "image.colorSample", 参数: { color: 文本, size: 80 }, 描述: "色块" };
+  // —— 遗像/遗照：灰度（参考 ^(遗像|遗照)$，getYixiang + Rec601Luminance）——
+  if (文本 === "遗像" || 文本 === "遗照") return 需图("image.grayscale", {}, "遗像");
+  // —— CIS 色卡：CIS x y Y（参考 ^CIS\s*(\S+)\s(\S+)\s(\S+)$，convertCIS + xyYtoRGB）——
+  const CIS匹配 = 文本.match(/^CIS\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)$/i);
+  if (CIS匹配) return { 目标: "image", 动作: "image.cisColor", 参数: { x: Number(CIS匹配[1]), y: Number(CIS匹配[2]), Y: Number(CIS匹配[3]) }, 描述: "CIS色卡" };
 
   // ===== 骰子模块 =====
   const 骰匹配 = 文本.match(/^r?(\d*)d(\d+)$/i);
@@ -777,7 +871,7 @@ async function 停止模块(名: string): Promise<boolean> {
 }
 
 async function 刷新模块列表(): Promise<void> {
-  const list = document.getElementById("module-list") as HTMLUListElement;
+  const list = document.getElementById("plugins-module-list") as HTMLUListElement;
   try {
     const modules = (await window.kugua.request("nigane", "nigane.registry.details", {})) as 模块详情[];
     list.innerHTML = "";
@@ -849,12 +943,12 @@ async function 刷新模块列表(): Promise<void> {
 async function 刷新统计(): Promise<void> {
   try {
     const s = (await window.kugua.request("mkg", "mkg.stats", {})) as 知识库统计;
-    document.getElementById("stat-total")!.textContent = String(s.资源总数);
-    document.getElementById("stat-files")!.textContent = String(s.文件数);
-    document.getElementById("stat-dirs")!.textContent = String(s.目录数);
-    document.getElementById("stat-tags")!.textContent = String(s.标签数);
-    document.getElementById("stat-links")!.textContent = String(s.关联数);
-    document.getElementById("stat-texts")!.textContent = String(s.文本内容数);
+    document.getElementById("oc-stat-total")!.textContent = String(s.资源总数);
+    document.getElementById("oc-stat-files")!.textContent = String(s.文件数);
+    document.getElementById("oc-stat-dirs")!.textContent = String(s.目录数);
+    document.getElementById("oc-stat-tags")!.textContent = String(s.标签数);
+    document.getElementById("oc-stat-links")!.textContent = String(s.关联数);
+    document.getElementById("oc-stat-texts")!.textContent = String(s.文本内容数);
   } catch {
     // 统计不可用时静默
   }
@@ -1128,9 +1222,8 @@ namespace Explorer {
     const 标签筛选ID = 当前标签ID;
     if (标签筛选ID === "all" && 无分类筛选) {
       items = items.filter((it) => it.tagIds.length === 0);
-    } else if (typeof 标签筛选ID === "number") {
-      items = items.filter((it) => it.tagIds.includes(标签筛选ID));
     }
+    // 按具体标签筛选已在服务端（含后代标签展开）完成，此处无需再次精确过滤
     if (排序方式 === "name") {
       items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
     } else if (排序方式 === "updated") {
@@ -1237,22 +1330,147 @@ namespace Explorer {
     });
   }
 
+  // ===== 标签导航与关联标签 =====
+  function 找到标签名(tagId: number): string {
+    const stack: 标签节点[] = [...标签树];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n.id === tagId) return n.name;
+      if (n.children) stack.push(...n.children);
+    }
+    return "标签";
+  }
+
+  /** 在标签树中按名称模糊查找标签 */
+  function 搜索标签节点(keyword: string): 标签节点[] {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return [];
+    const 命中: 标签节点[] = [];
+    const stack: 标签节点[] = [...标签树];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n.name.toLowerCase().includes(kw)) 命中.push(n);
+      if (n.children) stack.push(...n.children);
+    }
+    return 命中;
+  }
+
+  /** 导航到某个标签：更新当前标签、面包屑路径、刷新内容列表与标签树 */
+  function 导航到标签(tagId: number): void {
+    当前标签ID = tagId;
+    // 无分类与具体标签互斥：点击具体标签时清除「无分类」过滤，否则服务端按 noTag 会把带标签资源全部过滤掉
+    无分类筛选 = false;
+    const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
+    if (无分类框) 无分类框.checked = false;
+    选中内容 = null;
+    文件信息面板.classList.add("hidden");
+    const path: { name: string; id: number | "all" }[] = [{ name: "所有内容", id: "all" }];
+    const buildPath = (nodes: 标签节点[], targetId: number, crumbs: { name: string; id: number }[]): boolean => {
+      for (const n of nodes) {
+        if (n.id === targetId) { crumbs.push({ name: n.name, id: n.id }); return true; }
+        if (buildPath(n.children, targetId, crumbs)) { crumbs.unshift({ name: n.name, id: n.id }); return true; }
+      }
+      return false;
+    };
+    const crumbs: { name: string; id: number }[] = [];
+    buildPath(标签树, tagId, crumbs);
+    path.push(...crumbs.map((c) => ({ name: c.name, id: c.id as number | "all" })));
+    更新面包屑(path);
+    void 加载所有内容();
+    void 渲染关联标签();
+    渲染标签树();
+  }
+
+  /** 在面包屑路径下方渲染本标签及一串关联标签（基于共现频率） */
+  async function 渲染关联标签(): Promise<void> {
+    const 容器 = document.getElementById("ex-related-tags") as HTMLDivElement | null;
+    if (!容器) return;
+    容器.innerHTML = "";
+    // 搜索时：若关键词匹配到标签，展示匹配标签供跳转
+    if (当前标签ID === "all") {
+      const 匹配 = 搜索标签节点(搜索关键词);
+      if (匹配.length === 0) { 容器.classList.add("hidden"); return; }
+      容器.classList.remove("hidden");
+      const 标签 = document.createElement("span");
+      标签.className = "ex-rel-label";
+      标签.textContent = "匹配的标签";
+      容器.appendChild(标签);
+      for (const m of 匹配.slice(0, 12)) {
+        const chip = document.createElement("button");
+        chip.className = "ex-rel-tag";
+        chip.textContent = m.name;
+        chip.addEventListener("click", () => 导航到标签(m.id));
+        容器.appendChild(chip);
+      }
+      return;
+    }
+    try {
+      const 结果 = (await window.kugua.request("mkg", "mkg.tag.related", { tagId: 当前标签ID, limit: 12 })) as Array<{
+        tag: { id: number; name: string }; 共现: number;
+      }>;
+      容器.classList.remove("hidden");
+      容器.innerHTML = "";
+      const 标签 = document.createElement("span");
+      标签.className = "ex-rel-label";
+      标签.textContent = "关联标签";
+      容器.appendChild(标签);
+      const 当前chip = document.createElement("button");
+      当前chip.className = "ex-rel-tag current";
+      当前chip.textContent = 找到标签名(当前标签ID as number);
+      容器.appendChild(当前chip);
+      for (const r of 结果) {
+        const chip = document.createElement("button");
+        chip.className = "ex-rel-tag";
+        chip.title = "与当前标签共现 " + r.共现 + " 次";
+        chip.innerHTML = `<span>${r.tag.name}</span><span class="ex-rel-co">${r.共现}</span>`;
+        chip.addEventListener("click", () => 导航到标签(r.tag.id));
+        容器.appendChild(chip);
+      }
+    } catch {
+      容器.classList.add("hidden");
+    }
+  }
+
   function 渲染标签树(): void {
     标签树容器.innerHTML = "";
 
     const allItem = document.createElement("div");
     allItem.className = "ex-tag-all";
-    if (当前标签ID === "all") allItem.classList.add("active");
+    if (当前标签ID === "all" && !无分类筛选) allItem.classList.add("active");
     allItem.innerHTML = '<span class="ex-tag-icon">🗂️</span> 所有内容';
-    allItem.addEventListener("click", async () => {
+    allItem.addEventListener("click", () => {
       当前标签ID = "all";
+      无分类筛选 = false;
+      const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
+      if (无分类框) 无分类框.checked = false;
       选中内容 = null;
       更新面包屑([{ name: "所有内容", id: "all" }]);
       文件信息面板.classList.add("hidden");
-      await 加载所有内容();
+      void 渲染关联标签();
+      void 加载所有内容();
       渲染标签树();
     });
     标签树容器.appendChild(allItem);
+
+    // “未分类”恒为最外层分类，不参与父子嵌套
+    const 未分类项 = document.createElement("div");
+    未分类项.className = "ex-tag-item ex-tag-untagged" + (当前标签ID === "all" && 无分类筛选 ? " active" : "");
+    未分类项.style.paddingLeft = "0.5px";
+    未分类项.innerHTML = '<span class="ex-tag-expand empty">▶</span><span class="ex-tag-icon">📂</span> 未分类';
+    未分类项.title = "只看未分类（无标签）的内容";
+    未分类项.addEventListener("click", () => {
+      当前标签ID = "all";
+      无分类筛选 = true;
+      const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
+      if (无分类框) 无分类框.checked = true;
+      选中内容 = null;
+      更新面包屑([{ name: "未分类", id: "all" }]);
+      文件信息面板.classList.add("hidden");
+      void 渲染关联标签();
+      void 加载所有内容();
+      渲染标签树();
+    });
+    标签树容器.appendChild(未分类项);
 
     function renderNode(node: 标签节点, depth: number, parent: HTMLElement): void {
       const hasChildren = node.children.length > 0;
@@ -1294,25 +1512,9 @@ namespace Explorer {
         }
       });
 
-      item.addEventListener("click", async (e) => {
+      item.addEventListener("click", (e) => {
         if ((e.target as HTMLElement).classList.contains("ex-tag-expand")) return;
-        当前标签ID = node.id;
-        选中内容 = null;
-        const path: { name: string; id: number | "all" }[] = [{ name: "所有内容", id: "all" }];
-        const buildPath = (nodes: 标签节点[], targetId: number, crumbs: { name: string; id: number }[]): boolean => {
-          for (const n of nodes) {
-            if (n.id === targetId) { crumbs.push({ name: n.name, id: n.id }); return true; }
-            if (buildPath(n.children, targetId, crumbs)) { crumbs.unshift({ name: n.name, id: n.id }); return true; }
-          }
-          return false;
-        };
-        const crumbs: { name: string; id: number }[] = [];
-        buildPath(标签树, node.id, crumbs);
-        path.push(...crumbs.map((c) => ({ name: c.name, id: c.id as number | "all" })));
-        更新面包屑(path);
-        文件信息面板.classList.add("hidden");
-        await 加载所有内容();
-        渲染标签树();
+        导航到标签(node.id);
       });
 
       parent.appendChild(item);
@@ -1343,17 +1545,18 @@ namespace Explorer {
       if (i === path.length - 1) item.classList.add("current");
       item.textContent = p.name;
       item.dataset.tagId = String(p.id);
-      item.addEventListener("click", async () => {
+      item.addEventListener("click", () => {
         if (p.id === "all") {
           当前标签ID = "all";
+          选中内容 = null;
+          文件信息面板.classList.add("hidden");
+          更新面包屑([{ name: "所有内容", id: "all" }]);
+          void 渲染关联标签();
+          void 加载所有内容();
+          渲染标签树();
         } else {
-          当前标签ID = p.id as number;
+          导航到标签(p.id as number);
         }
-        选中内容 = null;
-        文件信息面板.classList.add("hidden");
-        更新面包屑(path.slice(0, i + 1));
-        await 加载所有内容();
-        渲染标签树();
       });
       面包屑.appendChild(item);
     });
@@ -1392,9 +1595,6 @@ namespace Explorer {
     }
 
     document.getElementById("ex-info-name")!.textContent = 显示名(f);
-    const aliasEl = document.getElementById("ex-info-alias")!;
-    aliasEl.textContent = 节点形式名(f.type);
-    document.getElementById("ex-info-type")!.textContent = f.category;
     document.getElementById("ex-info-size")!.textContent = 内容大小文本(f);
 
     // 信息栏预览：图片/视频显示缩略图，文本类显示内容摘要
@@ -1563,12 +1763,14 @@ namespace Explorer {
       const result = (await window.kugua.request("mkg", "mkg.node.listAll", {
         keyword: 搜索关键词 || undefined,
         categories,
+        tagId: typeof 当前标签ID === "number" ? 当前标签ID : undefined,
         noTag: 无分类筛选,
         sort: 排序方式,
         limit: 1000,
       })) as 内容条目[];
       所有内容 = result;
       渲染内容列表();
+      void 渲染关联标签();
     } catch {
       if (重试次数 < 5) {
         setTimeout(() => void 加载所有内容(重试次数 + 1), 800);
@@ -2828,6 +3030,8 @@ namespace Explorer {
     // 大图标视图滚轮缩放（1~10 列）
     大图标容器.addEventListener("wheel", (e) => {
       if (当前视图模式 !== "large") return;
+      // 仅 Ctrl+滚轮缩放网格列数；普通滚轮交给列表自然滚动
+      if (!e.ctrlKey) return;
       e.preventDefault();
       e.stopPropagation();
       大图标列数 = Math.max(1, Math.min(10, 大图标列数 + (e.deltaY > 0 ? 1 : -1)));
@@ -2992,29 +3196,32 @@ document.getElementById("win-close")?.addEventListener("click", () => void windo
 window.kugua.window.onMaximized(更新最大化按钮);
 void window.kugua.window.isMaximized().then(更新最大化按钮);
 
-// ===== 顶栏：插件管理页 =====
-const 插件页 = document.getElementById("plugins-view") as HTMLDivElement;
-const 设置页 = document.getElementById("settings-view") as HTMLDivElement;
-document.getElementById("btn-plugins")?.addEventListener("click", async () => {
-  设置页.classList.add("hidden");
-  插件页.classList.toggle("hidden");
-  if (!插件页.classList.contains("hidden")) {
-    await 刷新模块列表();
-    await 刷新统计();
+// ===== 顶栏：知识库 / 插件 / 设置 三视图切换 =====
+const 知识库视图 = document.getElementById("explorer-area") as HTMLElement;
+const 插件视图El = document.getElementById("plugins-view") as HTMLElement;
+const 设置视图El = document.getElementById("settings-view") as HTMLElement;
+const 视图映射: Record<string, { 视图: HTMLElement; 激活时?: () => void }> = {
+  "tab-kb": { 视图: 知识库视图 },
+  "tab-plugins": { 视图: 插件视图El, 激活时: async () => { await 刷新模块列表(); await 刷新统计(); } },
+  "tab-settings": { 视图: 设置视图El },
+};
+function 切换视图(tabId: string): void {
+  for (const id of Object.keys(视图映射)) {
+    const cfg = 视图映射[id];
+    cfg.视图.classList.toggle("hidden", id !== tabId);
+    const btn = document.getElementById(id) as HTMLButtonElement | null;
+    if (btn) btn.classList.toggle("active", id === tabId);
   }
-});
-document.getElementById("plugins-close")?.addEventListener("click", () => 插件页.classList.add("hidden"));
+  const cfg = 视图映射[tabId];
+  if (cfg?. 激活时) cfg.激活时();
+}
+document.getElementById("tab-kb")?.addEventListener("click", () => 切换视图("tab-kb"));
+document.getElementById("tab-plugins")?.addEventListener("click", () => 切换视图("tab-plugins"));
+document.getElementById("tab-settings")?.addEventListener("click", () => 切换视图("tab-settings"));
 document.getElementById("plugins-refresh")?.addEventListener("click", () => {
   void 刷新模块列表();
   void 刷新统计();
 });
-
-// ===== 顶栏：设置页 =====
-document.getElementById("btn-settings")?.addEventListener("click", () => {
-  插件页.classList.add("hidden");
-  设置页.classList.toggle("hidden");
-});
-document.getElementById("settings-close")?.addEventListener("click", () => 设置页.classList.add("hidden"));
 
 // ===== 主题切换（日间/夜间） =====
 function 应用主题(t: "dark" | "light"): void {

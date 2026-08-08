@@ -104,6 +104,10 @@ body {
 .tb-btn:hover { color: var(--accent); border-color: var(--border); background: var(--bg-hover); }
 .tb-btn.small { padding: 0.2rem 0.5rem; font-size: 0.72rem; }
 .tb-btn.active { color: var(--yellow); border-color: var(--border); }
+/* 顶栏视图切换标签（知识库 / 插件 / 设置） */
+.nav-tab { font-size: 0.8rem; padding: 0.3rem 0.9rem; }
+.nav-tab.active { color: var(--yellow); border-color: var(--border); background: var(--bg-hover); }
+.tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 6px; flex-shrink: 0; }
 .window-controls {
   display: flex;
   align-items: center;
@@ -974,6 +978,48 @@ body {
 .ex-bc-item:hover { color: var(--accent); background: rgba(78,154,241,0.1); }
 .ex-bc-item.current { color: var(--text); }
 .ex-bc-sep { color: var(--text-dim); font-size: 0.65rem; }
+
+/* 关联标签条：点击/搜索特定标签时，在面包屑路径下方列出本标签及一串关联标签 */
+.ex-related-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+.ex-rel-label {
+  color: var(--text-dim);
+  white-space: nowrap;
+  margin-right: 0.2rem;
+}
+.ex-rel-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.ex-rel-tag:hover { border-color: var(--accent); color: var(--accent); background: rgba(78,154,241,0.08); }
+.ex-rel-tag.current {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(78,154,241,0.15);
+  cursor: default;
+}
+.ex-rel-tag .ex-rel-co {
+  color: var(--text-dim);
+  font-size: 0.62rem;
+}
 .ex-view-group { display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .ex-view-btn {
   background: none;
@@ -1576,18 +1622,20 @@ body {
   -webkit-app-region: no-drag;
 }
 .ex-sub-tab {
-  width: 30px;
+  width: auto;
+  min-width: 30px;
   height: 30px;
-  padding: 0;
+  padding: 0 0.6rem;
   border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.8rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
   -webkit-app-region: no-drag;
 }
 .ex-sub-tab:hover { color: var(--text); background: var(--bg-hover); }
@@ -1681,18 +1729,15 @@ body {
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.4rem; margin-top: 0.8rem; }
 
 /* ===== 浮层页（插件管理 / 设置） ===== */
-.oc-page {
-  position: fixed;
-  top: 40px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1500;
-  background: var(--bg-terminal);
+.oc-view {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-terminal);
+  min-width: 0;
 }
-.oc-page.hidden { display: none; }
+.oc-view.hidden { display: none; }
 .oc-page-head {
   display: flex;
   align-items: center;

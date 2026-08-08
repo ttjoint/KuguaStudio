@@ -53,9 +53,9 @@
     },
     {
       "name": "dream",
-      "type": "library",
+      "type": "process",
       "entry": "packages/modules/dream/dist/index.js",
-      "autoStart": false,
+      "autoStart": true,
       "description": "解梦模块：根据关键词解释梦境"
     },
     {

@@ -339,11 +339,26 @@ async function 初始化(): Promise<void> {
   }
 }
 
-app.whenReady().then(() => {
-  初始化().catch((err) => {
-    console.error("[GUI] 初始化失败：", err);
+// 单实例：同一时刻只允许一个 UI 窗口
+const 单实例锁 = app.requestSingleInstanceLock();
+if (!单实例锁) {
+  app.quit();
+} else {
+  // 用户再次启动时，唤出已有窗口而不是另开新实例
+  app.on("second-instance", () => {
+    if (主窗口) {
+      if (!主窗口.isVisible()) 主窗口.show();
+      if (主窗口.isMinimized()) 主窗口.restore();
+      主窗口.focus();
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    初始化().catch((err) => {
+      console.error("[GUI] 初始化失败：", err);
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   // 如果托盘图标存在，则不退出程序，保持在后台运行

@@ -142,4 +142,23 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
+# 参考项目（尚未彻底迁移完毕，保留但不纳入版本管理）
 参考/
+
+# 运行时数据与本地知识库（不应提交）
+data/mkg.db
+data/mkg.db-shm
+data/mkg.db-wal
+data/library/
+
+# GUI 测试临时配置目录
+.gui-test-data/
+.ui-test-profile/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 一次性临时脚本 / 测试产物
+tmp_*.cjs
+tmp_*.mjs

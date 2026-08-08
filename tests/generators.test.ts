@@ -1,16 +1,16 @@
 /**
  * 生成类模块测试
- * 测试占卜模块的周易算法、运势，以及吃什么模块的模板填充
- * 同时验证 MKG readContent + mkg.data.read 数据读取链路
+ * - MKG readContent + mkg.data.read 数据读取链路
+ * - 今天吃什么模板填充逻辑（DScript 模板）
+ * 注：周易占卜算法已随 divination 模块重构为内联实现（经 nigane 协议暴露
+ * divination.zhouyi），不再有独立可导出的 zhouyi.ts / yarrow.ts，故移除相关单元测试。
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MKG } from "@kugua/mkg";
-import { 解析周易数据, 查找卦象 } from "../packages/modules/divination/src/zhouyi.js";
-import { 占六爻, 解读卦象 } from "../packages/modules/divination/src/yarrow.js";
 
 describe("MKG readContent 数据读取", () => {
   let 工作目录: string;
@@ -35,63 +35,6 @@ describe("MKG readContent 数据读取", () => {
 
   it("未索引的路径返回 null", () => {
     expect(mkg.readContent(join(工作目录, "不存在.txt"))).toBeNull();
-  });
-});
-
-describe("周易数据解析", () => {
-  const 示例数据 = `# 注释行
-1|乾|元亨利贞|潜龙勿用;见龙在田;终日乾乾;或跃在渊;飞龙在天;亢龙有悔
-2|坤|元亨牝马之贞|履霜坚冰;直方大;含章可贞;括囊;黄裳元吉;龙战于野`;
-
-  it("解析为卦象列表", () => {
-    const 列表 = 解析周易数据(示例数据);
-    expect(列表.length).toBe(2);
-    expect(列表[0].序号).toBe(1);
-    expect(列表[0].名称).toBe("乾");
-    expect(列表[0].卦辞).toBe("元亨利贞");
-    expect(列表[0].爻辞.length).toBe(6);
-    expect(列表[0].爻辞[0]).toBe("潜龙勿用");
-  });
-
-  it("按序号查找卦象", () => {
-    const 列表 = 解析周易数据(示例数据);
-    const 坤 = 查找卦象(列表, 2);
-    expect(坤).toBeDefined();
-    expect(坤?.名称).toBe("坤");
-    expect(查找卦象(列表, 99)).toBeUndefined();
-  });
-});
-
-describe("蓍草筮法", () => {
-  const 周易数据 = `1|乾|元亨利贞|初九潜龙勿用;九二见龙在田;九三终日乾乾;九四或跃在渊;九五飞龙在天;上九亢龙有悔
-2|坤|元亨牝马之贞|初六履霜坚冰;六二直方大;六三含章可贞;六四括囊;六五黄裳元吉;上六龙战于野`;
-  const 列表 = 解析周易数据(周易数据);
-
-  it("占六爻返回有效卦序", () => {
-    const { 本卦序, 变卦序, 爻位 } = 占六爻();
-    expect(本卦序).toBeGreaterThanOrEqual(1);
-    expect(本卦序).toBeLessThanOrEqual(64);
-    expect(变卦序).toBeGreaterThanOrEqual(1);
-    expect(变卦序).toBeLessThanOrEqual(64);
-    expect(爻位.length).toBe(6);
-    for (const n of 爻位) {
-      expect([6, 7, 8, 9]).toContain(n);
-    }
-  });
-
-  it("解读卦象包含卦名", () => {
-    const 本卦 = 列表[0];
-    const { 爻位 } = 占六爻();
-    const 解读 = 解读卦象(本卦, 列表[1], 爻位);
-    expect(解读).toContain("乾");
-  });
-
-  it("无变爻时返回卦辞", () => {
-    const 本卦 = 列表[0];
-    // 全是7和8（不变爻）
-    const 解读 = 解读卦象(本卦, undefined, [7, 8, 7, 8, 7, 8]);
-    expect(解读).toContain("卦辞");
-    expect(解读).toContain("元亨利贞");
   });
 });
 

@@ -550,9 +550,119 @@ export class MKG {
     return roots;
   }
 
+  /**
+   * 获取动态标签树：仅当某标签的对象集完全被另一标签涵盖时，才建立父子嵌套。
+   * 父为「最接近的、完全包含本标签对象集」的标签（即集合最小的超集）。
+   * 对象集为「资源 + 节点」的统一集合（资源用 R 前缀、节点用 N 前缀避免 id 撞车）。
+   * 该父子关系随带标签对象的增改而动态重算，不符合子节点关系时自动调整；
+   * "未分类" 恒为最外层分类，不参与父子嵌套（由前端作为根节点渲染）。
+   */
+  获取动态标签树(): Array<标签 & { children: 标签[] }> {
+    const resourcePairs = this.db
+      .prepare("SELECT tag_id, 'R' || resource_id AS objId FROM resource_tags")
+      .all() as { tag_id: number; objId: string }[];
+    const nodePairs = this.db
+      .prepare("SELECT tag_id, 'N' || node_id AS objId FROM node_tags")
+      .all() as { tag_id: number; objId: string }[];
+
+    const 标签对象 = new Map<number, Set<string>>();
+    for (const p of [...resourcePairs, ...nodePairs]) {
+      if (!标签对象.has(p.tag_id)) 标签对象.set(p.tag_id, new Set());
+      标签对象.get(p.tag_id)!.add(p.objId);
+    }
+    const 全部标签 = this.listTags();
+    // 补上无对象标签（空集），作为可显示的叶节点
+    for (const t of 全部标签) if (!标签对象.has(t.id)) 标签对象.set(t.id, new Set());
+
+    // 为每个标签找「最接近的完全超集」作为父
+    const 父 = new Map<number, number | null>();
+    for (const id of 标签对象.keys()) {
+      const setA = 标签对象.get(id)!;
+      if (setA.size === 0) { 父.set(id, null); continue; }
+      let 严格父: number | null = null;
+      let 严格父大小 = Infinity;
+      let 重合父: number | null = null; // 对象集完全重合时，以较小 id 者为父
+      for (const [pid, setB] of 标签对象) {
+        if (pid === id) continue;
+        if (setB.size < setA.size) continue;
+        let 包含 = true;
+        for (const o of setA) if (!setB.has(o)) { 包含 = false; break; }
+        if (!包含) continue;
+        if (setB.size > setA.size) {
+          if (setB.size < 严格父大小) { 严格父 = pid; 严格父大小 = setB.size; }
+        } else if (重合父 === null || pid < 重合父) {
+          重合父 = pid;
+        }
+      }
+      父.set(id, 严格父 !== null ? 严格父 : (重合父 !== null && 重合父 < id ? 重合父 : null));
+    }
+
+    const nodes = new Map<number, 标签 & { children: 标签[] }>();
+    for (const t of 全部标签) nodes.set(t.id, { ...t, children: [] });
+    const roots: Array<标签 & { children: 标签[] }> = [];
+    for (const id of 标签对象.keys()) {
+      const p = 父.get(id);
+      const node = nodes.get(id)!;
+      if (p == null || !nodes.has(p)) roots.push(node);
+      else nodes.get(p)!.children.push(node);
+    }
+    return roots;
+  }
+
   getResourceTagPaths(resourceId: number): string[][] {
     const tags = this.getResourceTags(resourceId);
     return tags.map(tag => this.获取标签路径(tag.id));
+  }
+
+  /**
+   * 获取与指定标签语义相关的标签（基于共现频率，tf-idf/PMI 风格加权）
+   * 相关度 = 共现对象数 × 信息量(PMI)，既体现共现频率，又抑制高频通用标签。
+   * 对象为「资源」与「节点」的统一集合：两标签被同一对象引用即视为一次共现。
+   */
+  getRelatedTags(tagId: number, limit = 12): Array<{ tag: 标签; 共现: number; 相关度: number }> {
+    // 收集所有「标签 → 对象」映射：资源与节点统一视为对象（用类型前缀区分，避免 id 撞车）
+    const resourcePairs = this.db
+      .prepare("SELECT tag_id, 'R' || resource_id AS objId FROM resource_tags")
+      .all() as { tag_id: number; objId: string }[];
+    const nodePairs = this.db
+      .prepare("SELECT tag_id, 'N' || node_id AS objId FROM node_tags")
+      .all() as { tag_id: number; objId: string }[];
+
+    const 标签对象 = new Map<number, Set<string>>();
+    const 全部对象 = new Set<string>();
+    for (const p of [...resourcePairs, ...nodePairs]) {
+      全部对象.add(p.objId);
+      if (!标签对象.has(p.tag_id)) 标签对象.set(p.tag_id, new Set());
+      标签对象.get(p.tag_id)!.add(p.objId);
+    }
+
+    const 对象A = 标签对象.get(tagId);
+    if (!对象A || 对象A.size === 0) return [];
+
+    const n = 全部对象.size; // 有标签的对象总数
+    const countA = 对象A.size;
+
+    const 候选: Array<{ tagId: number; co: number; score: number }> = [];
+    for (const [tid, 对象集] of 标签对象) {
+      if (tid === tagId) continue;
+      let co = 0;
+      for (const o of 对象A) if (对象集.has(o)) co++;
+      if (co === 0) continue;
+      const countB = 对象集.size;
+      // PMI：log( P(A∩B) / (P(A)·P(B)) )，再乘以共现次数作为权重
+      const pmi = Math.log((co * n) / (countA * countB));
+      候选.push({ tagId: tid, co, score: co * pmi });
+    }
+
+    候选.sort((a, b) => b.score - a.score);
+
+    const 标签表 = new Map<number, 标签>();
+    for (const t of this.listTags()) 标签表.set(t.id, t);
+
+    return 候选
+      .filter((c) => 标签表.has(c.tagId))
+      .slice(0, limit)
+      .map((c) => ({ tag: 标签表.get(c.tagId)!, 共现: c.co, 相关度: c.score }));
   }
 
   createTagTree(names: string[], description?: string): 标签 {
@@ -1421,15 +1531,42 @@ export class MKG {
     return "";
   }
 
-  /** 列出全部内容（统一浏览窗口：名称/内容/一系列标签），支持分类/无分类/关键词筛选与排序 */
+  /**
+   * 获取某标签自身及其所有后代标签的 id 集合。
+   * 用于按标签筛选时，命中父标签即可连同其子树下的资源一并展示。
+   */
+  private 获取标签及后代Ids(tagId: number): Set<number> {
+    const ids = new Set<number>([tagId]);
+    const childMap = new Map<number, number[]>();
+    for (const t of this.listTags()) {
+      if (t.parentId != null) {
+        const arr = childMap.get(t.parentId) ?? [];
+        arr.push(t.id);
+        childMap.set(t.parentId, arr);
+      }
+    }
+    const queue = [tagId];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      for (const cid of childMap.get(cur) ?? []) {
+        if (ids.has(cid)) continue;
+        ids.add(cid);
+        queue.push(cid);
+      }
+    }
+    return ids;
+  }
+
   listAllContent(opts: {
     keyword?: string;
     categories?: 内容分类[];
+    tagId?: number;
     noTag?: boolean;
     sort?: "import" | "name" | "updated";
     limit?: number;
   } = {}): 统一内容条目[] {
-    const { keyword, categories, noTag, sort = "import", limit = 1000 } = opts;
+    const { keyword, categories, tagId, noTag, sort = "import", limit = 1000 } = opts;
+    const 命中标签Ids = typeof tagId === "number" ? this.获取标签及后代Ids(tagId) : null;
     const rows = this.db.prepare("SELECT * FROM nodes ORDER BY id ASC").all() as {
       id: number; type: string; title: string; created_at: number; updated_at: number; meta: string;
     }[];
@@ -1445,6 +1582,7 @@ export class MKG {
       const category = this.获取内容分类(row.type, row.title);
       if (categories && categories.length > 0 && !categories.includes(category)) continue;
       if (noTag && tagIds.length > 0) continue;
+      if (命中标签Ids && !tagIds.some((tid) => 命中标签Ids.has(tid))) continue;
       if (keyword && keyword.trim()) {
         const kw = keyword.trim().toLowerCase();
         if (!row.title.toLowerCase().includes(kw) && !content.toLowerCase().includes(kw)) continue;

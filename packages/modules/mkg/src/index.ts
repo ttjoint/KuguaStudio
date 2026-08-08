@@ -75,6 +75,7 @@ async function 启动(): Promise<void> {
       "mkg.file.physicalPath",
       "mkg.tag.tree",
       "mkg.tag.createTree",
+      "mkg.tag.related",
       "mkg.resource.detail",
       "mkg.resource.listDetail",
       "mkg.resource.listByTagDetail",
@@ -337,13 +338,19 @@ async function 启动(): Promise<void> {
   });
 
   客户端.onRequest("mkg.tag.tree", () => {
-    return mkg.getTagTree();
+    return mkg.获取动态标签树();
   });
 
   客户端.onRequest("mkg.tag.createTree", (params) => {
     const { names, description } = (params ?? {}) as { names?: string[]; description?: string };
     if (!names || !Array.isArray(names) || names.length === 0) throw new Error("缺少 names 参数（非空数组）");
     return mkg.createTagTree(names, description);
+  });
+
+  客户端.onRequest("mkg.tag.related", (params) => {
+    const { tagId, limit } = (params ?? {}) as { tagId?: number; limit?: number };
+    if (tagId === undefined) throw new Error("缺少 tagId");
+    return mkg.getRelatedTags(tagId, typeof limit === "number" ? limit : 12);
   });
 
   客户端.onRequest("mkg.resource.detail", (params) => {
@@ -545,6 +552,7 @@ async function 启动(): Promise<void> {
     const p = (params ?? {}) as {
       keyword?: string;
       categories?: string[];
+      tagId?: number;
       noTag?: boolean;
       sort?: "import" | "name" | "updated";
       limit?: number;
@@ -552,6 +560,7 @@ async function 启动(): Promise<void> {
     return mkg.listAllContent({
       keyword: p.keyword,
       categories: p.categories as 内容分类[] | undefined,
+      tagId: p.tagId,
       noTag: Boolean(p.noTag),
       sort: p.sort,
       limit: typeof p.limit === "number" ? p.limit : undefined,
