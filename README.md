@@ -40,6 +40,8 @@ KuguaStudio/
 │       ├── dream           ── 解梦
 │       ├── scheduler       ── 定时任务调度（cron 触发模块请求/事件/命令）
 │       ├── monitor         ── 系统监控（CPU/内存/磁盘）
+│       ├── ai              ── AI 接入（OpenAI 兼容对话/图像生成）
+│       ├── tts             ── 语音合成（sherpa-onnx/ChatTTS/SAPI）
 │       ├── image           ── 图片处理（Python+Pillow：编辑/网格/做旧/抠图/像素字/验证码/幻影坦克/拼接/GIF/抖动等）
 │       ├── dice            ── 掷骰（r3d6）
 │       ├── text            ── 文本功能综合（反转/大小写/乱序/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天）
@@ -72,6 +74,13 @@ npm start            # 启动 GUI（首次会自动构建）
 - `host` / `port` / `token`：主控监听地址与认证令牌。
 - `modules[]`：模块注册表，`type` 分 `process`（独立进程）与 `library`（仅检测文件存在性）；`autoStart` 控制主控启动时是否自动拉起。
 
+### AI 与语音配置（环境变量）
+
+- `KUGUA_AI_BASE_URL`：OpenAI 兼容端点，如本地 Ollama `http://127.0.0.1:11434/v1`（默认官方端点）。
+- `KUGUA_AI_API_KEY` / `KUGUA_AI_CHAT_MODEL` / `KUGUA_AI_IMAGE_MODEL`：认证与模型。
+- `KUGUA_TTS_SHERP_ROOT`：sherpa-onnx 离线 TTS 根目录（默认 `D:\Downloads\sherpa-onnx-v1.12.14-win-x64-cuda`）。
+- `KUGUA_TTS_URL`：ChatTTS 本地 UI 服务地址（配置后可作为 TTS 提供方）。
+
 ## 里程碑状态
 
 | 里程碑 | 内容 | 状态 |
@@ -82,7 +91,7 @@ npm start            # 启动 GUI（首次会自动构建）
 | 扩展 | 本地工具模块群（占卜/吃什么/解梦/图片/掷骰/文本/论证/万年历/翻译/信息工具） | ✅ |
 | M2 | Napcat 接入（OneBot 11 解析） | ✅（桥接已就绪，默认不自动启动） |
 | M4 | 定时任务调度 + 系统监控模块 | ✅ |
-| M6 | AI 接入（LLM）与语音合成 | ⏳ 规划中 |
+| M6 | AI 接入（LLM）与语音合成 | ✅ |
 
 > 后续开发以**本地能力**为主，IM（Napcat/QQ）接入已具备桥接能力，暂不再前推。
 

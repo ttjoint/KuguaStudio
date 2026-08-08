@@ -9,7 +9,7 @@
     "packages/modules/*"
   ],
   "scripts": {
-    "build": "npm run build -w @kugua/nigane && npm run build -w @kugua/onebot11 && npm run build -w @kugua/mkg && npm run build -w @kugua/main && npm run build -w @kugua/module-echo && npm run build -w @kugua/module-mkg && npm run build -w @kugua/module-napcat && npm run build -w @kugua/module-divination && npm run build -w @kugua/module-food && npm run build -w @kugua/module-image && npm run build -w @kugua/module-dice && npm run build -w @kugua/module-text && npm run build -w @kugua/module-proof && npm run build -w @kugua/module-calendar && npm run build -w @kugua/module-translate && npm run build -w @kugua/module-infotool && npm run build -w @kugua/module-dream && npm run build -w @kugua/module-scheduler && npm run build -w @kugua/module-monitor && npm run build -w @kugua/gui",
+    "build": "npm run build -w @kugua/nigane && npm run build -w @kugua/onebot11 && npm run build -w @kugua/mkg && npm run build -w @kugua/main && npm run build -w @kugua/module-echo && npm run build -w @kugua/module-mkg && npm run build -w @kugua/module-napcat && npm run build -w @kugua/module-divination && npm run build -w @kugua/module-food && npm run build -w @kugua/module-image && npm run build -w @kugua/module-dice && npm run build -w @kugua/module-text && npm run build -w @kugua/module-proof && npm run build -w @kugua/module-calendar && npm run build -w @kugua/module-translate && npm run build -w @kugua/module-infotool && npm run build -w @kugua/module-dream && npm run build -w @kugua/module-scheduler && npm run build -w @kugua/module-monitor && npm run build -w @kugua/module-ai && npm run build -w @kugua/module-tts && npm run build -w @kugua/gui",
     "test": "vitest run",
     "main": "node packages/main/dist/index.js",
     "echo": "node packages/modules/echo/dist/index.js",
@@ -25,6 +25,8 @@
     "dream": "node packages/modules/dream/dist/index.js",
     "scheduler": "node packages/modules/scheduler/dist/index.js",
     "monitor": "node packages/modules/monitor/dist/index.js",
+    "ai": "node packages/modules/ai/dist/index.js",
+    "tts": "node packages/modules/tts/dist/index.js",
     "gui": "npm run build -w @kugua/gui && npm run start -w @kugua/gui"
   },
   "devDependencies": {

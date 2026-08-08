@@ -472,6 +472,25 @@ function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | null {
     return { 目标: "monitor", 动作: "monitor.stats", 描述: "系统状态" };
   }
 
+  // AI 问答 / 图像生成（M6）
+  const AI匹配 = 文本.match(/^(问AI|AI问答|ai)\s+(.+)$/);
+  if (AI匹配) {
+    return { 目标: "ai", 动作: "ai.chat", 参数: { prompt: AI匹配[2].trim() }, 描述: "AI 问答" };
+  }
+  const AI图片匹配 = 文本.match(/^AI图片\s+(.+)$/);
+  if (AI图片匹配) {
+    return { 目标: "ai", 动作: "ai.image", 参数: { prompt: AI图片匹配[1].trim() }, 描述: "AI 生成图片" };
+  }
+  if (文本 === "清空AI记忆" || 文本 === "清空AI") {
+    return { 目标: "ai", 动作: "ai.memory.clear", 描述: "清空 AI 记忆" };
+  }
+
+  // 语音合成（M6）
+  const 语音匹配 = 文本.match(/^(说话|语音|朗读)\s+(.+)$/);
+  if (语音匹配) {
+    return { 目标: "tts", 动作: "tts.speak", 参数: { text: 语音匹配[2].trim() }, 描述: "语音合成" };
+  }
+
   // 帮助
   if (文本 === "帮助" || 文本 === "help" || 文本 === "?") {
     添加消息(帮助文本(), "system");
@@ -728,6 +747,18 @@ function 模块结果文本(r: Record<string, unknown>): string {
 function 格式化输出(路由: 路由结果, 结果: unknown): void {
   const r = 结果 as Record<string, unknown>;
 
+  // 语音合成结果：渲染音频播放器
+  if (路由.动作 === "tts.speak") {
+    if (r && typeof r.base64 === "string" && r.base64) {
+      添加HTML(
+        `<div class="msg-sender">${路由.描述}</div><audio controls src="data:audio/wav;base64,${r.base64}" style="width:100%;max-width:320px"></audio>`,
+      );
+    } else {
+      添加消息("语音合成失败：无音频返回", "error");
+    }
+    return;
+  }
+
   // 图片结果：渲染 base64 图片（图文并茂）
   if (r && typeof r === "object" && typeof r.base64 === "string" && r.base64) {
     const fmt = String(r.format || "png").replace(/^image\//, "");
@@ -915,6 +946,15 @@ function 格式化输出(路由: 路由结果, 结果: unknown): void {
       添加消息(r.ok ? `执行成功：${r.message}` : `执行失败：${r.message}`, r.ok ? "system" : "error", "立即执行");
       break;
     }
+    case "ai.chat": {
+      const r = 结果 as { reply: string; model: string };
+      添加消息(r.reply, "system", `AI（${r.model}）`);
+      break;
+    }
+    case "ai.memory.clear": {
+      添加消息("AI 记忆已清空", "system");
+      break;
+    }
     case "dice.roll": {
       const d = 结果 as { 文本?: string; 描述?: string; 总和?: number };
       添加消息(d.文本 ?? `掷骰结果：${d.描述 ?? ""}`, "system", "掷骰");
@@ -961,6 +1001,12 @@ function 帮助文本(): string {
 
 【信息工具】
   计算 1+2*3 / 查IP 1.2.3.4 / url编码 / url解码 / 字节 / 转十六进制 / 十六进制转 / 体脂
+
+【AI 与语音】
+  问AI <问题>          — 向 AI 提问（OpenAI 兼容端点，可本地 Ollama）
+  AI图片 <描述>        — AI 生成图片
+  清空AI记忆           — 清空当前对话记忆
+  说话 <文字>          — 本地语音合成并播放
 
 【数字论证】
   论证 [词语]

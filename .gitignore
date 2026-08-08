@@ -151,6 +151,8 @@ data/mkg.db-shm
 data/mkg.db-wal
 data/library/
 data/scheduler/
+data/ai/
+data/tts/
 
 # GUI 测试临时配置目录
 .gui-test-data/
