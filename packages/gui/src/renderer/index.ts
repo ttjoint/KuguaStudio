@@ -24,6 +24,32 @@ interface 模块详情 extends 模块信息 {
   file?: string;
 }
 
+interface 定时任务动作 {
+  kind: "request" | "event" | "command";
+  to?: string;
+  action?: string;
+  command?: string;
+}
+
+interface 定时任务 {
+  id: string;
+  name: string;
+  cron: string;
+  enabled: boolean;
+  action: 定时任务动作;
+  createdAt: number;
+  nextRunAt?: number | null;
+  lastRunAt?: number | null;
+  lastResult?: { ok: boolean; message: string; time: number } | null;
+}
+
+interface 系统快照 {
+  time: number;
+  cpu: { usagePct: number; cores: number; model: string };
+  memory: { total: number; free: number; used: number; usagePct: number };
+  disk: Array<{ name: string; total: number; free: number; used: number; usagePct: number }>;
+}
+
 interface 知识库统计 {
   资源总数: number;
   文件数: number;
@@ -392,6 +418,58 @@ function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | null {
   const 停止匹配 = 文本.match(/^停止\s+(.+)$/);
   if (停止匹配) {
     return { 目标: "nigane", 动作: "nigane.registry.stop", 参数: { name: 停止匹配[1].trim() }, 描述: `停止模块 ${停止匹配[1].trim()}` };
+  }
+
+  // 定时任务调度（M4）
+  if (文本 === "定时任务" || 文本 === "定时任务列表" || 文本 === "任务列表") {
+    return { 目标: "scheduler", 动作: "scheduler.task.list", 描述: "定时任务" };
+  }
+  const 频率映射: Record<string, string> = {
+    每秒: "* * * * * *",
+    每分: "* * * * *",
+    每5分: "*/5 * * * *",
+    每10分: "*/10 * * * *",
+    每30分: "*/30 * * * *",
+    每小时: "0 * * * *",
+    每天: "0 0 * * *",
+    每周一: "0 0 * * 1",
+    每月: "0 0 1 * *",
+  };
+  const 添加任务匹配 = 文本.match(/^添加定时任务\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*$/);
+  if (添加任务匹配) {
+    const [, 名称, 频率, 模块, 动作名] = 添加任务匹配;
+    const cron = 频率映射[频率] ?? 频率;
+    return {
+      目标: "scheduler",
+      动作: "scheduler.task.create",
+      参数: { name: 名称, cron, action: { kind: "request", to: 模块, action: 动作名 } },
+      描述: `添加定时任务 ${名称}`,
+    };
+  }
+  const 查看任务匹配 = 文本.match(/^查看定时任务\s+(.+)$/);
+  if (查看任务匹配) {
+    return { 目标: "scheduler", 动作: "scheduler.task.get", 参数: { name: 查看任务匹配[1].trim() }, 描述: "查看定时任务" };
+  }
+  const 暂停任务匹配 = 文本.match(/^暂停定时任务\s+(.+)$/);
+  if (暂停任务匹配) {
+    return { 目标: "scheduler", 动作: "scheduler.task.enable", 参数: { name: 暂停任务匹配[1].trim(), enabled: false }, 描述: "暂停定时任务" };
+  }
+  const 恢复任务匹配 = 文本.match(/^恢复定时任务\s+(.+)$/);
+  if (恢复任务匹配) {
+    return { 目标: "scheduler", 动作: "scheduler.task.enable", 参数: { name: 恢复任务匹配[1].trim(), enabled: true }, 描述: "恢复定时任务" };
+  }
+  const 删除任务匹配 = 文本.match(/^删除定时任务\s+(.+)$/);
+  if (删除任务匹配) {
+    return { 目标: "scheduler", 动作: "scheduler.task.delete", 参数: { name: 删除任务匹配[1].trim() }, 描述: "删除定时任务" };
+  }
+  const 立即执行匹配 = 文本.match(/^立即执行定时任务\s+(.+)$/);
+  if (立即执行匹配) {
+    return { 目标: "scheduler", 动作: "scheduler.task.runNow", 参数: { name: 立即执行匹配[1].trim() }, 描述: "立即执行定时任务" };
+  }
+
+  // 系统监控
+  if (文本 === "监控" || 文本 === "系统状态" || 文本 === "资源监控") {
+    return { 目标: "monitor", 动作: "monitor.stats", 描述: "系统状态" };
   }
 
   // 帮助
@@ -777,6 +855,66 @@ function 格式化输出(路由: 路由结果, 结果: unknown): void {
       void 刷新模块列表();
       break;
     }
+    case "monitor.stats": {
+      const s = 结果 as 系统快照;
+      const 字节 = (n: number): string =>
+        n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
+      let 文本 = `CPU：${s.cpu.usagePct.toFixed(1)}%（${s.cpu.cores} 核）\n内存：${字节(s.memory.used)} / ${字节(s.memory.total)}（${s.memory.usagePct.toFixed(1)}%）`;
+      if (s.disk.length > 0) {
+        文本 += "\n磁盘：\n" + s.disk.map((d) => `  ${d.name} ${字节(d.used)} / ${字节(d.total)}（${d.usagePct.toFixed(1)}%）`).join("\n");
+      }
+      添加消息(文本, "system", "系统状态");
+      break;
+    }
+    case "scheduler.task.list": {
+      const tasks = 结果 as 定时任务[];
+      if (tasks.length === 0) {
+        添加消息('暂无定时任务，可用「添加定时任务 <名称> <频率> <模块> <动作>」创建。', "system");
+        return;
+      }
+      let html = `<div class="msg-sender">定时任务（${tasks.length} 个）</div>`;
+      for (const t of tasks) {
+        const 动作文本 = 任务动作描述(t.action);
+        const 下次 = t.nextRunAt ? new Date(t.nextRunAt).toLocaleString() : "—";
+        html += `<div>${t.enabled ? "🟢" : "⚪"} <b>${t.name}</b> · ${t.cron} → ${动作文本}<br><span style="color:var(--text-dim);padding-left:1.2rem">下次：${下次}${t.lastResult ? ` · 上次：${t.lastResult.ok ? "成功" : "失败"}` : ""}</span></div>`;
+      }
+      添加HTML(html);
+      break;
+    }
+    case "scheduler.task.get": {
+      const t = 结果 as 定时任务;
+      添加消息(
+        `定时任务「${t.name}」（${t.enabled ? "启用" : "停用"}）\ncron：${t.cron}\n动作：${任务动作描述(t.action)}\n下次运行：${t.nextRunAt ? new Date(t.nextRunAt).toLocaleString() : "—"}\n上次结果：${t.lastResult ? (t.lastResult.ok ? "成功：" + t.lastResult.message : "失败：" + t.lastResult.message) : "尚未执行"}`,
+        "system",
+        "查看定时任务",
+      );
+      break;
+    }
+    case "scheduler.task.create": {
+      const t = 结果 as 定时任务;
+      添加消息(
+        `已创建定时任务「${t.name}」（${t.enabled ? "启用" : "停用"}）\ncron：${t.cron}\n下次运行：${t.nextRunAt ? new Date(t.nextRunAt).toLocaleString() : "—"}`,
+        "system",
+        "添加定时任务",
+      );
+      break;
+    }
+    case "scheduler.task.update":
+    case "scheduler.task.enable": {
+      const t = 结果 as 定时任务;
+      添加消息(`定时任务「${t.name}」已${t.enabled ? "启用" : "停用"}`, "system");
+      break;
+    }
+    case "scheduler.task.delete": {
+      const r = 结果 as { removed: boolean };
+      添加消息(r.removed ? "已删除定时任务" : "定时任务不存在", "system");
+      break;
+    }
+    case "scheduler.task.runNow": {
+      const r = 结果 as { ok: boolean; message: string };
+      添加消息(r.ok ? `执行成功：${r.message}` : `执行失败：${r.message}`, r.ok ? "system" : "error", "立即执行");
+      break;
+    }
     case "dice.roll": {
       const d = 结果 as { 文本?: string; 描述?: string; 总和?: number };
       添加消息(d.文本 ?? `掷骰结果：${d.描述 ?? ""}`, "system", "掷骰");
@@ -785,6 +923,12 @@ function 格式化输出(路由: 路由结果, 结果: unknown): void {
     default:
       添加消息(JSON.stringify(结果, null, 2), "system");
   }
+}
+
+function 任务动作描述(a: 定时任务动作): string {
+  if (a.kind === "request") return `${a.to}/${a.action}`;
+  if (a.kind === "event") return `广播 ${a.action}`;
+  return `命令 ${a.command ?? ""}`;
 }
 
 function 帮助文本(): string {
@@ -833,6 +977,10 @@ function 帮助文本(): string {
   模块列表 / 模块详情 — 查看所有模块（含运行状态、类型、PID）
   启动 <模块名>       — 手动启动进程型模块
   停止 <模块名>       — 手动停止进程型模块
+  监控 / 系统状态     — 查看 CPU/内存/磁盘实时状态
+  定时任务列表        — 查看全部定时任务
+  添加定时任务 <名称> <频率> <模块> <动作>  — 频率：每秒/每分/每5分/每10分/每30分/每小时/每天/每周一/每月
+  查看/暂停/恢复/删除/立即执行定时任务 <名称>
   帮助                — 显示本帮助`;
 }
 

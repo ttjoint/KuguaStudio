@@ -1,0 +1,15 @@
+{
+  "name": "@kugua/module-scheduler",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "定时任务调度模块（M4）：按 cron 表达式触发模块请求/事件/本地命令",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  }
+}
