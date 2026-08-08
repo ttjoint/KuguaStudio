@@ -5,6 +5,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChildProcess, ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { Writable, Readable } from "node:stream";
 import {
@@ -118,7 +120,7 @@ describe("system.shutdown 广播", () => {
 });
 
 /** 启动主控独立进程，检测自动启动 echo 模块的功能 */
-function 启动主控(端口: number, waitMs = 6000): Promise<{ proc: ChildProcess; output: string }> {
+function 启动主控(端口: number, waitMs = 6000, 环境: Record<string, string> = {}): Promise<{ proc: ChildProcess; output: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
@@ -126,7 +128,7 @@ function 启动主控(端口: number, waitMs = 6000): Promise<{ proc: ChildProce
       {
         stdio: ["ignore", "pipe", "pipe"],
         cwd: process.cwd(),
-        env: { ...process.env },
+        env: { ...process.env, ...环境 },
       },
     ) as unknown as ChildProcessByStdio<Writable, Readable, Readable>;
     let resolved = false;
@@ -161,74 +163,65 @@ function 启动主控(端口: number, waitMs = 6000): Promise<{ proc: ChildProce
 describe("主控（真实进程）自动启动 echo", () => {
   it("写配置后启动主控，echo 作为子进程被拉起并注册", async () => {
     const port = ++端口序号;
-    // 备份 & 写入临时 kugua.config.json
-    const fs = require("node:fs") as typeof import("node:fs");
-    const cfgPath = resolve(process.cwd(), "kugua.config.json");
-    const 备份 = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : null;
-    let 主控输出 = "";
+    // 使用临时配置文件（KUGUA_CONFIG），避免改写仓库内真实配置
+    const 目录 = mkdtempSync(resolve(tmpdir(), "kugua-reg-"));
+    const 配置路径 = resolve(目录, "kugua.config.json");
+    writeFileSync(
+      配置路径,
+      JSON.stringify({
+        host: "127.0.0.1",
+        port,
+        token: "",
+        modules: [
+          {
+            name: "echo",
+            type: "process",
+            entry: "packages/modules/echo/dist/index.js",
+            autoStart: true,
+            description: "echo 示例模块",
+          },
+        ],
+      }),
+    );
+
+    const { proc, output } = await 启动主控(port, 8000, { KUGUA_CONFIG: 配置路径 });
+    let 主控输出 = output;
     try {
-      fs.writeFileSync(
-        cfgPath,
-        JSON.stringify({
-          host: "127.0.0.1",
-          port,
-          token: "",
-          modules: [
-            {
-              name: "echo",
-              type: "process",
-              entry: "packages/modules/echo/dist/index.js",
-              autoStart: true,
-              description: "echo 示例模块",
-            },
-          ],
-        }),
-      );
+      // 等 echo 注册完成（给 3 秒）
+      await new Promise<void>((r) => setTimeout(r, 3000));
 
-      const { proc, output } = await 启动主控(port, 8000);
-      主控输出 = output;
+      // 以一个新客户端连上去，查询模块详情
+      const 检查器 = new NiganeClient({
+        name: "测试检查器",
+        url: `ws://127.0.0.1:${port}`,
+      });
+      await 检查器.connect();
       try {
-        // 等 echo 注册完成（给 3 秒）
-        await new Promise<void>((r) => setTimeout(r, 3000));
-
-        // 以一个新客户端连上去，查询模块详情
-        const 检查器 = new NiganeClient({
-          name: "测试检查器",
-          url: `ws://127.0.0.1:${port}`,
-        });
-        await 检查器.connect();
-        try {
-          const 详情 = (await 检查器.request("nigane", "nigane.registry.details", {})) as 模块详情[];
-          const echo = 详情.find((x) => x.name === "echo");
-          expect(echo, `应找到 echo 模块。主控输出：${主控输出.slice(-400)}`).toBeDefined();
-          expect(echo!.type).toBe("process");
-          expect(echo!.autoStart).toBe(true);
-          expect(echo!.online, `echo 应在线。主控输出：${主控输出.slice(-400)}`).toBe(true);
-          expect(typeof echo!.pid === "number" && echo!.pid > 0).toBe(true);
-          // 尝试请求 echo
-          const 回 = await 检查器.request("echo", "echo", { hi: 1 });
-          expect(回).toEqual({ hi: 1 });
-        } finally {
-          检查器.close();
-        }
+        const 详情 = (await 检查器.request("nigane", "nigane.registry.details", {})) as 模块详情[];
+        const echo = 详情.find((x) => x.name === "echo");
+        expect(echo, `应找到 echo 模块。主控输出：${主控输出.slice(-400)}`).toBeDefined();
+        expect(echo!.type).toBe("process");
+        expect(echo!.autoStart).toBe(true);
+        expect(echo!.online, `echo 应在线。主控输出：${主控输出.slice(-400)}`).toBe(true);
+        expect(typeof echo!.pid === "number" && echo!.pid > 0).toBe(true);
+        // 尝试请求 echo
+        const 回 = await 检查器.request("echo", "echo", { hi: 1 });
+        expect(回).toEqual({ hi: 1 });
       } finally {
-        try {
-          proc.kill("SIGTERM");
-          await new Promise<void>((r) => setTimeout(r, 2000));
-          if (!proc.killed) proc.kill("SIGKILL");
-        } catch {
-          // ignore
-        }
+        检查器.close();
       }
     } finally {
-      if (备份 === null) {
-        try {
-          fs.unlinkSync(cfgPath);
-        } catch {
-          // ignore
-        }
-      } else {
-        fs.writeFileSync(cfgPath, 备份);
+      try {
+        proc.kill("SIGTERM");
+        await new Promise<void>((r) => setTimeout(r, 2000));
+        if (!proc.killed) proc.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      try {
+        rmSync(目录, { recursive: true, force: true });
+      } catch {
+        // ignore
       }
     }
   }, 20000);

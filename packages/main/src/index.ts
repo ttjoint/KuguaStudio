@@ -6,7 +6,7 @@
  *   - 对 library 型模块，检测文件存在性
  *   - 通过内置动作提供「模块详情 / 启动 / 停止」能力
  *   - 退出时广播 system.shutdown 事件，再依次关闭子进程
- * 配置：读取当前目录下 kugua.config.json（可选）
+ * 配置：读取 KUGUA_CONFIG 指定的文件，缺省为当前目录下 kugua.config.json（可选）
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -31,7 +31,9 @@ interface 主控配置 {
 /** 加载配置：文件缺失或非法时回落到默认值 */
 function 加载配置(): 主控配置 {
   const 默认: 主控配置 = { host: "127.0.0.1", port: 24601, token: "", modules: [] };
-  const 路径 = pathResolve(process.cwd(), "kugua.config.json");
+  const 路径 = process.env.KUGUA_CONFIG
+    ? pathResolve(process.cwd(), process.env.KUGUA_CONFIG)
+    : pathResolve(process.cwd(), "kugua.config.json");
   if (!existsSync(路径)) return 默认;
   try {
     const 文本 = readFileSync(路径, "utf-8");

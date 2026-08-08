@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { NiganeClient, NiganeServer, type 模块详情 } from "../packages/nigane/src/index.js";
@@ -266,12 +266,12 @@ describe("苦音总线集成（进程内）", () => {
 });
 
 /** 启动主控独立进程（真实链路） */
-function 启动主控(端口: number): Promise<{ proc: ChildProcess; output: string }> {
+function 启动主控(端口: number, 环境: Record<string, string> = {}): Promise<{ proc: ChildProcess; output: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ["packages/main/dist/index.js"], {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: process.cwd(),
-      env: { ...process.env, KUGUA_SCHEDULER_DATA: 临时文件("kugua-sched-e2e-") },
+      env: { ...process.env, ...环境 },
     });
     let resolved = false;
     const 输出: string[] = [];
@@ -301,12 +301,13 @@ function 启动主控(端口: number): Promise<{ proc: ChildProcess; output: str
 describe("真实主控端到端：scheduler + monitor + echo", () => {
   it("主控拉起三个模块，定时任务按秒触发、监控返回快照", async () => {
     const port = ++端口序号;
-    const fs = { readFileSync, writeFileSync };
-    const cfgPath = resolve(process.cwd(), "kugua.config.json");
-    const 备份 = existsSync(cfgPath) ? fs.readFileSync(cfgPath, "utf-8") : null;
+    // 使用临时配置文件（KUGUA_CONFIG），避免改写仓库内真实配置
+    const 目录 = mkdtempSync(resolve(tmpdir(), "kugua-sched-e2e-cfg-"));
+    const 配置路径 = resolve(目录, "kugua.config.json");
+    const 任务路径 = 临时文件("kugua-sched-e2e-");
     try {
       writeFileSync(
-        cfgPath,
+        配置路径,
         JSON.stringify({
           host: "127.0.0.1",
           port,
@@ -319,7 +320,7 @@ describe("真实主控端到端：scheduler + monitor + echo", () => {
         }),
       );
 
-      const { proc, output } = await 启动主控(port);
+      const { proc, output } = await 启动主控(port, { KUGUA_CONFIG: 配置路径, KUGUA_SCHEDULER_DATA: 任务路径 });
       try {
         // 主控按序拉起子进程（每个约 3 秒），等三个模块全部注册
         await new Promise<void>((r) => setTimeout(r, 8000));
@@ -377,14 +378,10 @@ describe("真实主控端到端：scheduler + monitor + echo", () => {
         }
       }
     } finally {
-      if (备份 === null) {
-        try {
-          rmSync(cfgPath, { force: true });
-        } catch {
-          // ignore
-        }
-      } else {
-        writeFileSync(cfgPath, 备份);
+      try {
+        rmSync(目录, { recursive: true, force: true });
+      } catch {
+        // ignore
       }
     }
   }, 30000);
