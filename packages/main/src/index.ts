@@ -123,16 +123,15 @@ async function 启动(): Promise<void> {
     }
   }
 
-  // —— 进程型模块：依次启动 autoStart=true 的项 ——
+  // —— 进程型模块：并行启动 autoStart=true 的项（不互相阻塞，注册即视为就绪） ——
   const 启动列表 = (配置.modules ?? []).filter((m) => m.type === "process" && m.autoStart);
   console.log(`[主控] 自动启动模块（${启动列表.length} 项）`);
-  for (const m of 启动列表) {
-    try {
-      await 启动模块(m);
-    } catch (err) {
-      console.error(`[主控] 自动启动失败：${m.name} — ${String(err)}`);
+  const 启动结果 = await Promise.allSettled(启动列表.map((m) => 启动模块(m)));
+  启动结果.forEach((r, i) => {
+    if (r.status === "rejected") {
+      console.error(`[主控] 自动启动失败：${启动列表[i].name} — ${String(r.reason)}`);
     }
-  }
+  });
 
   // —— 关闭 ——
   const 关闭 = async (): Promise<void> => {
@@ -240,9 +239,20 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
     子进程表.set(描述.name, 记录);
 
     let 已决议 = false;
+    // 模块完成 hello 注册即视为启动成功，无需等满 3 秒
+    const 注册监听 = (信息: 模块信息): void => {
+      if (信息.name === 描述.name && !已决议) {
+        已决议 = true;
+        clearTimeout(定时);
+        服务端?.removeListener("registered", 注册监听);
+        resolve(proc);
+      }
+    };
+    服务端?.on("registered", 注册监听);
     const 定时 = setTimeout(() => {
       if (!已决议) {
         已决议 = true;
+        服务端?.removeListener("registered", 注册监听);
         resolve(proc); // 3s 内未 exit 就算启动成功（后续 registered 会更新 online）
       }
     }, 3000);
@@ -262,6 +272,7 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
     proc.on("error", (err) => {
       console.error(`[主控] 启动 ${描述.name} 出错：${err.message}`);
       子进程表.delete(描述.name);
+      服务端?.removeListener("registered", 注册监听);
       if (!已决议) {
         已决议 = true;
         clearTimeout(定时);
@@ -272,10 +283,15 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
       console.log(`[主控] 子进程退出：${描述.name}（code=${code ?? "?"}，sig=${sig ?? "-"}）`);
       记录.registered = false;
       子进程表.delete(描述.name);
+      服务端?.removeListener("registered", 注册监听);
       if (!已决议 && code !== 0) {
         已决议 = true;
         clearTimeout(定时);
         reject(new Error(`启动 ${描述.name} 失败，退出码 ${code ?? "?"}`));
+      } else if (!已决议 && code === 0) {
+        已决议 = true;
+        clearTimeout(定时);
+        resolve(proc);
       }
     });
     void 已决议;
