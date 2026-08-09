@@ -547,6 +547,27 @@ body {
   align-items: center;
 }
 
+/* 指令输入提示下拉 */
+.chat-cmd-hint {
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--bg-terminal);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.chat-cmd-hint.hidden { display: none; }
+.cmd-hint-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.cmd-hint-item:hover, .cmd-hint-item.active { background: rgba(78, 154, 241, 0.18); }
+.cmd-hint-name { color: var(--accent); font-weight: 600; flex-shrink: 0; }
+.cmd-hint-desc { color: var(--text-dim); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 输入栏 */
 .chat-input-bar {
   display: flex;
@@ -703,17 +724,37 @@ body {
   display: flex;
   overflow: hidden;
 }
-.explorer-sidebar {
-  width: 260px;
-  min-width: 220px;
-  max-width: 350px;
+/* 分类栏（最左，可折叠） */
+.ex-cat-sidebar {
+  width: 210px;
+  min-width: 150px;
+  max-width: 320px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   flex-shrink: 0;
+  transition: width 0.15s ease, min-width 0.15s ease, opacity 0.15s ease;
 }
+.ex-cat-sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+  opacity: 0;
+  overflow: hidden;
+}
+/* 文件详细信息栏（独立于分类栏，未选中文件时隐藏） */
+.ex-file-info {
+  width: 250px;
+  min-width: 220px;
+  max-width: 360px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.ex-file-info.hidden { display: none; }
 .explorer-content {
   flex: 1;
   display: flex;
@@ -872,9 +913,12 @@ body {
   gap: 0.5rem;
 }
 .ex-info-label { color: var(--text-dim); flex-shrink: 0; }
-.ex-info-value { color: var(--text); text-align: right; word-break: break-all; cursor: default; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-info-label { min-width: 3.2rem; }
+.ex-info-value { color: var(--text); text-align: right; word-break: break-all; cursor: default; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ex-info-value.clickable { cursor: pointer; }
 .ex-info-value.clickable:hover { color: var(--accent); text-decoration: underline; }
+.ex-info-value.editable { cursor: text; }
+.ex-info-value.editable:hover { color: var(--accent); text-decoration: underline dotted; }
 .ex-info-tags-section { margin-top: 0.5rem; }
 .ex-info-tags {
   display: flex;
@@ -1054,6 +1098,14 @@ body {
   padding: 0.5rem;
   align-content: start;
 }
+.ex-items { position: relative; }
+.ex-selection-box {
+  position: absolute;
+  border: 1px dashed var(--accent);
+  background: rgba(78, 154, 241, 0.12);
+  pointer-events: none;
+  z-index: 5;
+}
 .ex-file-tile {
   min-width: 0;
   display: flex;
@@ -1148,6 +1200,7 @@ body {
 
 /* 列表视图 */
 .ex-items-list {
+  position: relative;
   padding: 0.25rem 0;
 }
 .ex-list-item {
@@ -1172,6 +1225,7 @@ body {
 
 /* 详细信息视图 */
 .ex-items-details { padding: 0; display: flex; flex-direction: column; }
+.ex-details-body { position: relative; }
 .ex-details-header {
   display: flex;
   background: var(--bg-sidebar);
@@ -1238,11 +1292,50 @@ body {
   color: var(--text);
 }
 .cm-item:hover { background: var(--accent-dim); color: var(--text-bright); }
+.cm-item.danger { color: var(--danger, #e06c75); }
+.cm-item.danger:hover { background: rgba(224, 108, 117, 0.15); color: #e06c75; }
 .cm-sep {
   height: 1px;
   background: var(--border);
   margin: 0.25rem 0;
 }
+
+/* 文件信息栏（重构：预览置顶，名称/真实文件名可编辑） */
+.ex-info-name {
+  cursor: text;
+}
+.ex-info-name:hover {
+  color: var(--accent);
+  text-decoration: underline dotted;
+}
+.ex-info-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-input, #1f2a37);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-bright);
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  outline: none;
+}
+.ex-info-edit-input:focus { border-color: var(--accent); }
+.ex-info-tag-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.35rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, #1f2a37);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-family: inherit;
+}
+.ex-info-tag-filter:focus { border-color: var(--accent); outline: none; }
+.import-tag-tree { max-height: 220px; overflow-y: auto; }
+.ex-info-realname { font-family: Consolas, "Courier New", monospace; font-size: 0.68rem; }
 
 /* 模态对话框 */
 .modal {

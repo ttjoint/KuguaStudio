@@ -44,6 +44,8 @@ export interface 索引结果 {
   updated: number;
   /** 移除资源数（已不存在于磁盘） */
   removed: number;
+  /** 导入去重命中：资料库已存在完全一致的文件（不同路径）时给出，此时不再导入 */
+  duplicate?: { id: number; path: string; name: string } | null;
 }
 
 /**

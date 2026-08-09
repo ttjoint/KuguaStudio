@@ -158,6 +158,8 @@ data/bank/
 # GUI 测试临时配置目录
 .gui-test-data/
 .ui-test-profile/
+.tmp-gui/
+.tmp-gui-gpu/
 
 # Python 缓存
 __pycache__/

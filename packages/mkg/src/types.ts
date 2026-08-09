@@ -116,9 +116,18 @@ export interface 统一内容条目 {
   path: string | null;
   size: number;
   modifiedTime: number;
+  /** 入库时间（资源 indexed_at，秒） */
+  indexedAt: number;
+  /** 真实文件名（文件系统上的名称）；非文件内容为 null */
+  realName: string | null;
   extension: string;
   meta: Record<string, unknown>;
 }
+
+/** 导入单个文件的结果：命中重复时返回去重信息，否则返回资源详情 */
+export type 导入文件结果 =
+  | { duplicate: true; existingId: number; existingPath: string; name: string }
+  | 资源详情;
 
 /** 节点详情（含标签与所属资源） */
 export interface 节点详情 {

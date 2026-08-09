@@ -112,6 +112,11 @@ async function 启动(): Promise<void> {
       "mkg.snippet.list",
       "mkg.snippet.update",
       "mkg.snippet.delete",
+      "mkg.node.remove",
+      "mkg.node.removeMany",
+      "mkg.node.trash",
+      "mkg.node.renameTitle",
+      "mkg.resource.renameFile",
     ],
   });
 
@@ -184,11 +189,62 @@ async function 启动(): Promise<void> {
     });
   });
 
-  客户端.onRequest("mkg.resource.delete", (params) => {
+ 客户端.onRequest("mkg.resource.delete", (params) => {
     const { id } = (params ?? {}) as { id?: number };
     if (id === undefined) throw new Error("缺少 id");
     mkg.deleteResource(id);
     return { success: true };
+  });
+
+  // 从知识库移除（节点及其资源一起删除，不影响物理文件）
+  客户端.onRequest("mkg.node.remove", (params) => {
+    const { nodeId } = (params ?? {}) as { nodeId?: number };
+    if (nodeId === undefined) throw new Error("缺少 nodeId");
+    mkg.deleteNode(nodeId);
+    return { success: true };
+  });
+
+  // 批量从知识库移除
+  客户端.onRequest("mkg.node.removeMany", (params) => {
+    const { nodeIds } = (params ?? {}) as { nodeIds?: number[] };
+    if (!Array.isArray(nodeIds) || nodeIds.length === 0) throw new Error("缺少 nodeIds（非空数组）");
+    for (const id of nodeIds) mkg.deleteNode(Number(id));
+    return { success: true, removed: nodeIds.length };
+  });
+
+  // 从知识库移除并删除到系统回收站（仅文件/目录）
+  客户端.onRequest("mkg.node.trash", async (params) => {
+    const { nodeId } = (params ?? {}) as { nodeId?: number };
+    if (nodeId === undefined) throw new Error("缺少 nodeId");
+    const 资源行 = mkg.getResourceByNode(nodeId);
+    if (!资源行) {
+      // 非文件内容（文本段/点子等）：仅从知识库移除
+      mkg.deleteNode(nodeId);
+      return { success: true, trashed: false, path: null, note: "非文件内容仅从知识库移除" };
+    }
+    return mkg.trashResource(资源行.id);
+  });
+
+  // 重命名真实物理文件（仅文件）
+  客户端.onRequest("mkg.resource.renameFile", (params) => {
+    const { resourceId, newName } = (params ?? {}) as { resourceId?: number; newName?: string };
+    if (resourceId === undefined || typeof newName !== "string") throw new Error("缺少 resourceId 或 newName");
+    return mkg.renameResourceFile(resourceId, newName);
+  });
+
+  // 重命名知识库内名称（统一节点标题；资源节点同时写入别名）
+  客户端.onRequest("mkg.node.renameTitle", (params) => {
+    const { nodeId, title } = (params ?? {}) as { nodeId?: number; title?: string };
+    if (nodeId === undefined || typeof title !== "string" || !title.trim()) {
+      throw new Error("缺少 nodeId 或 title");
+    }
+    const 资源行 = mkg.getResourceByNode(nodeId);
+    if (资源行) {
+      mkg.setAlias(资源行.id, title.trim());
+      return { success: true, title: title.trim() };
+    }
+    mkg.renameNodeTitle(nodeId, title.trim());
+    return { success: true, title: title.trim() };
   });
 
   客户端.onRequest("mkg.resource.list", (params) => {

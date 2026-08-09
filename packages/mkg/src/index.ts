@@ -1,6 +1,7 @@
-import { existsSync, statSync, mkdirSync, copyFileSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
-import { exec, spawn } from "node:child_process";
+import { existsSync, statSync, mkdirSync, copyFileSync, renameSync, readFileSync } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { exec, execFile, spawn } from "node:child_process";
 import { 初始化数据库 } from "./db.js";
 import { 索引目录, type 索引结果 } from "./indexer.js";
 import type Database from "better-sqlite3";
@@ -26,10 +27,27 @@ import type {
   统一内容条目,
   文本片段,
   文本片段更新,
+  导入文件结果,
 } from "./types.js";
 
 export * from "./types.js";
 export { 索引目录, 初始化数据库, type 索引结果 };
+
+/**
+ * 把文件/目录移到系统回收站（Windows 使用 VisualBasic 文件系统 API）
+ */
+function 移入回收站(路径: string, 是目录: boolean): Promise<boolean> {
+  return new Promise((resolve) => {
+    const 方法 = 是目录 ? "DeleteDirectory" : "DeleteFile";
+    const 命令 = `Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::${方法}('${路径.replace(/'/g, "''")}','OnlyErrorDialogs','SendToRecycleBin')`;
+    execFile(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-Command", 命令],
+      { timeout: 15000, windowsHide: true },
+      (err: Error | null) => resolve(!err),
+    );
+  });
+}
 
 /**
  * 苦瓜知识图谱主类
@@ -283,7 +301,105 @@ export class MKG {
    * 删除资源（级联删除标签、关系、文本内容）
    */
   deleteResource(id: number): void {
+    // 同步删除关联的统一内容节点（resources.node_id 无外键，需显式删除）
+    const row = this.db.prepare("SELECT node_id FROM resources WHERE id = ?").get(id) as
+      | { node_id: number | null }
+      | undefined;
     this.db.prepare("DELETE FROM resources WHERE id = ?").run(id);
+    if (row?.node_id != null) {
+      this.db.prepare("DELETE FROM nodes WHERE id = ?").run(row.node_id);
+    }
+  }
+
+  /** 按节点删除（节点及其资源一起移除，支持统一浏览窗口的批量删除） */
+  deleteNode(nodeId: number): void {
+    const row = this.db.prepare("SELECT id FROM resources WHERE node_id = ?").get(nodeId) as
+      | { id: number }
+      | undefined;
+    if (row) {
+      this.deleteResource(row.id);
+      return;
+    }
+    this.db.prepare("DELETE FROM nodes WHERE id = ?").run(nodeId);
+  }
+
+  /** 按节点查询关联资源（无资源返回 undefined） */
+  getResourceByNode(nodeId: number): 资源 | undefined {
+    return this.db
+      .prepare(
+        "SELECT id, path, name, size, modified_time as modifiedTime, sha256, kind, indexed_at as indexedAt FROM resources WHERE node_id = ?",
+      )
+      .get(nodeId) as 资源 | undefined;
+  }
+
+  /** 重命名节点标题（非资源节点，如文本段/点子/素材） */
+  renameNodeTitle(nodeId: number, title: string): void {
+    this.db
+      .prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?")
+      .run(title, Math.floor(Date.now() / 1000), nodeId);
+  }
+
+  /** 按 sha256 查询资料库中已存在的完全一致文件（同路径重扫不算重复） */
+  查询重复文件(hash: string, 排除路径?: string): 资源 | undefined {
+    if (!hash) return undefined;
+    const row = this.db
+      .prepare(
+        "SELECT id, path, name, size, modified_time as modifiedTime, sha256, kind, indexed_at as indexedAt FROM resources WHERE sha256 = ? AND kind = 'file' LIMIT 1",
+      )
+      .get(hash) as 资源 | undefined;
+    if (!row) return undefined;
+    if (排除路径 && row.path === 排除路径) return undefined;
+    return row;
+  }
+
+  /** 重命名真实物理文件（仅文件），更新数据库路径/名称与节点标题；出错时抛出与资源管理器类似的错误 */
+  renameResourceFile(resourceId: number, newName: string): 资源详情 {
+    const 资源 = this.getResource(resourceId);
+    if (!资源) throw new Error("资源不存在");
+    if (资源.kind !== "file") throw new Error("只有文件可以重命名真实文件名");
+    const 名称 = newName.trim();
+    if (!名称) throw new Error("文件名不能为空");
+    if (名称.includes("/") || 名称.includes("\\") || 名称.includes(":") || 名称.includes("*") || 名称.includes("?") || 名称.includes('"') || 名称.includes("<") || 名称.includes(">") || 名称.includes("|")) {
+      throw new Error("文件名不能包含以下字符：\\ / : * ? \" < > |");
+    }
+    if (名称 === 资源.name) return this.getResourceDetail(resourceId)!;
+    const 新路径 = join(dirname(资源.path), 名称);
+    if (existsSync(新路径)) {
+      throw new Error(`无法完成操作，因为包含名为“${名称}”的项已存在。请指定其他名称。`);
+    }
+    try {
+      renameSync(资源.path, 新路径);
+    } catch (err) {
+      const 消息 = err instanceof Error ? err.message : String(err);
+      throw new Error(`重命名文件失败（可能被占用或无权限）：${消息}`);
+    }
+    const 当前时间 = Math.floor(Date.now() / 1000);
+    this.db
+      .prepare("UPDATE resources SET path = ?, name = ?, modified_time = ? WHERE id = ?")
+      .run(新路径, 名称, 当前时间, resourceId);
+    const 节点ID = this.db.prepare("SELECT node_id FROM resources WHERE id = ?").get(resourceId) as
+      | { node_id: number | null }
+      | undefined;
+    // 知识库名称（别名）若已被用户定制则保留，否则跟随真实文件名
+    const 已有别名 = this.getAlias(resourceId);
+    if (节点ID?.node_id != null && 已有别名 === null) {
+      this.db.prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?").run(名称, 当前时间, 节点ID.node_id);
+    }
+    return this.getResourceDetail(resourceId)!;
+  }
+
+  /** 从知识库移除并删除到系统回收站（仅文件/目录；Windows 走 VisualBasic 回收站） */
+  async trashResource(resourceId: number): Promise<{ success: boolean; trashed: boolean; path: string }> {
+    const 资源 = this.getResource(resourceId);
+    if (!资源) throw new Error("资源不存在");
+    if (资源.kind !== "file" && 资源.kind !== "directory") throw new Error("仅文件/目录可移到回收站");
+    let trashed = false;
+    if (existsSync(资源.path)) {
+      trashed = await 移入回收站(资源.path, 资源.kind === "directory");
+      if (!trashed) throw new Error("移入回收站失败（可能被占用或无权限）");
+    }
+    this.deleteResource(resourceId);
+    return { success: true, trashed, path: 资源.path };
   }
 
   /**
@@ -325,6 +441,17 @@ export class MKG {
     if (!existsSync(path)) throw new Error(`路径不存在：${path}`);
     const stat = statSync(path);
     if (stat.isFile()) {
+      // 导入去重：资料库已有完全一致的文件（sha256 相同且路径不同）则不再导入
+      const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
+      const 重复 = this.查询重复文件(hash, path);
+      if (重复) {
+        return {
+          added: 0,
+          updated: 0,
+          removed: 0,
+          duplicate: { id: 重复.id, path: 重复.path, name: 重复.name },
+        };
+      }
       return 索引目录(this.db, path, { ...options, maxDepth: 0 });
     }
     if (stat.isDirectory()) {
@@ -416,6 +543,15 @@ export class MKG {
         ON CONFLICT(resource_id) DO UPDATE SET alias = excluded.alias
       `)
       .run(resourceId, alias);
+    // 知识库内命名：同步到统一内容节点的展示标题
+    const 节点ID = this.db.prepare("SELECT node_id FROM resources WHERE id = ?").get(resourceId) as
+      | { node_id: number | null }
+      | undefined;
+    if (节点ID?.node_id != null) {
+      this.db
+        .prepare("UPDATE nodes SET title = ?, updated_at = ? WHERE id = ?")
+        .run(alias, Math.floor(Date.now() / 1000), 节点ID.node_id);
+    }
   }
 
   getAlias(resourceId: number): string | null {
@@ -798,11 +934,18 @@ export class MKG {
     name?: string;
     alias?: string;
     tagIds?: number[];
-  }): Promise<资源详情> {
+  }): Promise<导入文件结果> {
     const { sourcePath, destDir, name, alias, tagIds = [] } = params;
     if (!existsSync(sourcePath)) throw new Error(`源文件不存在：${sourcePath}`);
     const stat = statSync(sourcePath);
     if (!stat.isFile()) throw new Error(`源路径不是文件：${sourcePath}`);
+
+    // 导入去重：按 sha256 比对资料库已有文件，完全一致则不再复制导入
+    const hash = createHash("sha256").update(readFileSync(sourcePath)).digest("hex");
+    const 重复 = this.查询重复文件(hash);
+    if (重复) {
+      return { duplicate: true, existingId: 重复.id, existingPath: 重复.path, name: 重复.name };
+    }
 
     // 默认知识库根目录：db 所在目录下的 library 文件夹
     let 目标目录 = destDir;
@@ -842,8 +985,8 @@ export class MKG {
   async importFiles(params: {
     items: Array<{ sourcePath: string; name?: string; alias?: string; tagIds?: number[] }>;
     destDir?: string;
-  }): Promise<资源详情[]> {
-    const 结果: 资源详情[] = [];
+  }): Promise<导入文件结果[]> {
+    const 结果: 导入文件结果[] = [];
     for (const item of params.items) {
       结果.push(await this.importFile({ ...item, destDir: params.destDir }));
     }
@@ -1588,7 +1731,7 @@ export class MKG {
         if (!row.title.toLowerCase().includes(kw) && !content.toLowerCase().includes(kw)) continue;
       }
       const 资源行 = this.db.prepare("SELECT * FROM resources WHERE node_id = ?").get(row.id) as {
-        id: number; path: string; size: number; modified_time: number;
+        id: number; path: string; size: number; modified_time: number; indexed_at: number;
       } | undefined;
       items.push({
         id: row.id,
@@ -1604,6 +1747,8 @@ export class MKG {
         path: 资源行?.path ?? null,
         size: 资源行?.size ?? 0,
         modifiedTime: 资源行?.modified_time ?? 0,
+        indexedAt: 资源行?.indexed_at ?? 0,
+        realName: 资源行?.path ? basename(资源行.path) : null,
         extension: this.获取扩展名(row.title),
         meta,
       });

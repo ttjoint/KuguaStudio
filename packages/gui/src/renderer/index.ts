@@ -166,6 +166,153 @@ interface Window {
 
 const 聊天日志 = document.getElementById("chat-log") as HTMLDivElement;
 const 输入框 = document.getElementById("chat-input") as HTMLInputElement;
+// ===== 指令输入提示 =====
+/** 已注册的模块指令库：命令前缀 + 说明，用于输入斜杠或指令前缀时给出提示 */
+interface 指令提示项 { 命令: string; 说明: string }
+const 指令库: 指令提示项[] = [
+  { 命令: "帮助", 说明: "查看可用指令" },
+  { 命令: "占卜", 说明: "周易占卜" },
+  { 命令: "运势", 说明: "今日运势" },
+  { 命令: "吃什么", 说明: "推荐吃什么" },
+  { 命令: "搜索", 说明: "按路径/文件名搜索资源" },
+  { 命令: "搜索内容", 说明: "按内容搜索资源" },
+  { 命令: "导入", 说明: "导入路径到知识库" },
+  { 命令: "资源列表", 说明: "列出知识库资源" },
+  { 命令: "标签列表", 说明: "列出所有标签" },
+  { 命令: "统计", 说明: "知识库统计" },
+  { 命令: "模块列表", 说明: "查看模块注册详情" },
+  { 命令: "启动", 说明: "启动模块" },
+  { 命令: "停止", 说明: "停止模块" },
+  { 命令: "定时任务", 说明: "查看定时任务" },
+  { 命令: "添加定时任务", 说明: "添加定时任务" },
+  { 命令: "暂停定时任务", 说明: "暂停定时任务" },
+  { 命令: "恢复定时任务", 说明: "恢复定时任务" },
+  { 命令: "删除定时任务", 说明: "删除定时任务" },
+  { 命令: "立即执行定时任务", 说明: "立即执行定时任务" },
+  { 命令: "监控", 说明: "系统状态监控" },
+  { 命令: "问AI", 说明: "AI 问答" },
+  { 命令: "AI图片", 说明: "AI 生成图片" },
+  { 命令: "清空AI", 说明: "清空 AI 记忆" },
+  { 命令: "说话", 说明: "语音合成朗读" },
+  { 命令: "积分", 说明: "查询我的积分" },
+  { 命令: "签到", 说明: "每日签到" },
+  { 命令: "充值", 说明: "充值积分" },
+  { 命令: "转账", 说明: "积分转账" },
+  { 命令: "捐款", 说明: "爱心捐款" },
+  { 命令: "富豪榜", 说明: "积分富豪榜" },
+  { 命令: "穷人榜", 说明: "积分穷人榜" },
+  { 命令: "积分流水", 说明: "积分流水账" },
+  { 命令: "灰度", 说明: "图片灰度" },
+  { 命令: "反色", 说明: "图片反色/负片" },
+  { 命令: "水平翻转", 说明: "图片水平翻转" },
+  { 命令: "垂直翻转", 说明: "图片垂直翻转" },
+  { 命令: "镜像", 说明: "图片镜像" },
+  { 命令: "旋转", 说明: "图片旋转 N 度" },
+  { 命令: "缩放", 说明: "图片缩放" },
+  { 命令: "放大", 说明: "图片放大" },
+  { 命令: "缩小", 说明: "图片缩小" },
+  { 命令: "高清", 说明: "图片高清放大" },
+  { 命令: "切", 说明: "图片上下左右切割" },
+  { 命令: "切边", 说明: "图片四边等切" },
+  { 命令: "抖", 说明: "图片抖动" },
+  { 命令: "内抖", 说明: "图片内抖" },
+  { 命令: "滚动", 说明: "图片滚动" },
+  { 命令: "网格化", 说明: "图片网格化" },
+  { 命令: "抠图", 说明: "图片抠图去背景" },
+  { 命令: "做旧", 说明: "图片做旧" },
+  { 命令: "取色", 说明: "图片取色" },
+  { 命令: "竖拼", 说明: "图片纵向拼接" },
+  { 命令: "横拼", 说明: "图片横向拼接" },
+  { 命令: "摸摸", 说明: "图片摸摸" },
+  { 命令: "幻影", 说明: "幻影坦克" },
+  { 命令: "拆", 说明: "拆帧拆格" },
+  { 命令: "拆帧", 说明: "拆帧平铺" },
+  { 命令: "删", 说明: "删帧" },
+  { 命令: "合", 说明: "合成 GIF" },
+  { 命令: "乱序", 说明: "打乱 GIF 帧序" },
+  { 命令: "gif", 说明: "webp 转 GIF PNG" },
+  { 命令: "倍速", 说明: "GIF 倍速" },
+  { 命令: "像素字", 说明: "像素字生成" },
+  { 命令: "扭曲", 说明: "扭曲文字 GIF" },
+  { 命令: "噪声", 说明: "随机像素图" },
+  { 命令: "验证码", 说明: "验证码图片" },
+  { 命令: "色块", 说明: "纯色色块" },
+  { 命令: "遗像", 说明: "图片灰度遗像" },
+  { 命令: "CIS", 说明: "CIS 色卡" },
+  { 命令: "掷骰", 说明: "掷骰子" },
+  { 命令: "d6", 说明: "掷骰 r3d6 式" },
+  { 命令: "反转", 说明: "文本反转" },
+  { 命令: "大写", 说明: "文本转大写" },
+  { 命令: "小写", 说明: "文本转小写" },
+  { 命令: "乱序", 说明: "文本乱序" },
+  { 命令: "攻受", 说明: "攻受文生成" },
+  { 命令: "讽刺", 说明: "苏联笑话讽刺" },
+  { 命令: "什么是", 说明: "概念流水账" },
+  { 命令: "狗屁不通", 说明: "狗屁不通文章" },
+  { 命令: "云杰说道", 说明: "云杰说道文章" },
+  { 命令: "营销号", 说明: "营销号短文" },
+  { 命令: "火星文", 说明: "文本转火星文" },
+  { 命令: "随机汉字", 说明: "随机汉字" },
+  { 命令: "历史上的今天", 说明: "历史上的今天" },
+  { 命令: "今天", 说明: "今夕是何年" },
+  { 命令: "黄历", 说明: "今日黄历" },
+  { 命令: "蒸汽", 说明: "蒸汽芸历换算" },
+  { 命令: "创世", 说明: "创世芸历换算" },
+  { 命令: "翻译", 说明: "翻译成英语" },
+  { 命令: "翻译成", 说明: "翻译成指定语言" },
+  { 命令: "译", 说明: "多轮翻译接力" },
+  { 命令: "计算", 说明: "数学计算" },
+  { 命令: "查IP", 说明: "查询 IP 属地" },
+  { 命令: "url编码", 说明: "URL 编码" },
+  { 命令: "url解码", 说明: "URL 解码" },
+  { 命令: "字节", 说明: "字节大小换算" },
+  { 命令: "转十六进制", 说明: "十进制转十六进制" },
+  { 命令: "十六进制转", 说明: "十六进制转十进制" },
+  { 命令: "体脂", 说明: "体脂估算" },
+  { 命令: "论证", 说明: "数字论证" },
+];
+const 指令提示框 = document.getElementById("chat-cmd-hint") as HTMLDivElement;
+let 提示过滤列表: string[] = [];
+let 提示选中索引 = 0;
+
+function 隐藏指令提示(): void {
+  指令提示框.classList.add("hidden");
+  指令提示框.innerHTML = "";
+  提示过滤列表 = [];
+  提示选中索引 = 0;
+}
+
+function 渲染指令提示(): void {
+  if (提示过滤列表.length === 0) { 隐藏指令提示(); return; }
+  指令提示框.innerHTML = "";
+  提示过滤列表.forEach((命令, i) => {
+    const 项 = document.createElement("div");
+    项.className = "cmd-hint-item" + (i === 提示选中索引 ? " active" : "");
+    项.textContent = 命令;
+    项.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      输入框.value = 命令;
+      输入框.focus();
+      隐藏指令提示();
+    });
+    指令提示框.appendChild(项);
+  });
+  指令提示框.classList.remove("hidden");
+}
+
+function 更新指令提示(): void {
+  const v = 输入框.value;
+  if (v === "") { 隐藏指令提示(); return; }
+  const 以斜杠 = v.startsWith("/");
+  const q = (以斜杠 ? v.slice(1) : v).trim();
+  if (!q) { 隐藏指令提示(); return; }
+  const 匹配 = 指令库.filter((c) => c.命令.startsWith(q));
+  if (匹配.length === 0) { 隐藏指令提示(); return; }
+  提示过滤列表 = 匹配.map((c) => c.命令);
+  提示选中索引 = 0;
+  渲染指令提示();
+}
+
 
 /** 多模态附件：拖拽图片到聊天时暂存，发送时随指令传给模块 */
 interface 附件 {
@@ -841,7 +988,12 @@ function 格式化输出(路由: 路由结果, 结果: unknown): void {
       break;
     }
     case "mkg.resource.import": {
-      添加消息(`导入完成：新增 ${r.added}，更新 ${r.updated}，移除 ${r.removed}`, "system", "导入结果");
+      const r2 = 结果 as { added: number; updated: number; removed: number; duplicate?: { name: string; path: string } };
+      if (r2.duplicate) {
+        添加消息(`资料库中已存在完全一致的文件，未重复导入：${r2.duplicate.name}（${r2.duplicate.path}）`, "system", "导入结果");
+      } else {
+        添加消息(`导入完成：新增 ${r2.added}，更新 ${r2.updated}，移除 ${r2.removed}`, "system", "导入结果");
+      }
       void 刷新统计();
       break;
     }
@@ -1254,6 +1406,8 @@ namespace Explorer {
     path: string | null;
     size: number;
     modifiedTime: number;
+    indexedAt: number;
+    realName: string | null;
     extension: string;
     meta: Record<string, unknown>;
   }
@@ -1267,7 +1421,13 @@ namespace Explorer {
   let 所有内容: 内容条目[] = [];
   let 标签树: 标签节点[] = [];
   let 选中内容: 内容条目 | null = null;
+  /** 批量选中（节点 id 集合）：支持框选 / Ctrl 多选 / Shift 范围选择 */
+  let 选中节点ID = new Set<number>();
+  let 上次点击ID: number | null = null;
+  let 内联标签筛选 = "";
   let 打开方式列表: 打开方式配置[] = [];
+  /** 打开方式对话框（由下方事件初始化区块赋值；命名空间级声明便于右键菜单引用） */
+  let 显示打开方式对话框: (file: 内容条目) => void = () => {};
   let 搜索防抖: number | null = null;
   let 大图标列数 = 6;
   // 内联标签编辑（详情栏）
@@ -1295,6 +1455,22 @@ namespace Explorer {
   const 详情容器 = document.getElementById("ex-details-body") as HTMLDivElement;
   const 标签树容器 = document.getElementById("ex-tag-tree") as HTMLDivElement;
   const 文件信息面板 = document.getElementById("ex-file-info") as HTMLDivElement;
+  // ===== 分类栏折叠/展开 =====
+  const 分类栏 = document.getElementById("ex-cat-sidebar") as HTMLElement;
+  const 分类切换按钮 = document.getElementById("ex-cat-toggle") as HTMLButtonElement | null;
+  function 应用分类折叠状态(): void {
+    const 折叠 = 分类栏.classList.contains("collapsed");
+    if (分类切换按钮) {
+      分类切换按钮.innerHTML = 折叠 ? "&#x25B6;" : "&#x25C0;";
+      分类切换按钮.title = 折叠 ? "展开分类栏" : "折叠分类栏";
+    }
+  }
+  分类切换按钮?.addEventListener("click", () => {
+    分类栏.classList.toggle("collapsed");
+    应用分类折叠状态();
+  });
+  应用分类折叠状态();
+
   const 右键菜单 = document.getElementById("context-menu") as HTMLDivElement;
   const 状态栏计数 = document.getElementById("ex-status-count") as HTMLSpanElement;
   const 面包屑 = document.getElementById("ex-breadcrumb") as HTMLDivElement;
@@ -1523,7 +1699,7 @@ namespace Explorer {
     for (const file of files) {
       const tile = document.createElement("div");
       tile.className = "ex-file-tile";
-      if (选中内容?.id === file.id) tile.classList.add("selected");
+      if (选中节点ID.has(file.id)) tile.classList.add("selected");
       tile.dataset.id = String(file.id);
       const icon = 创建大图标内容(file);
       const name = document.createElement("div");
@@ -1539,7 +1715,7 @@ namespace Explorer {
     for (const file of files) {
       const item = document.createElement("div");
       item.className = "ex-list-item";
-      if (选中内容?.id === file.id) item.classList.add("selected");
+      if (选中节点ID.has(file.id)) item.classList.add("selected");
       item.dataset.id = String(file.id);
       const icon = 创建文件图标(file, "small");
       const name = document.createElement("div");
@@ -1555,7 +1731,7 @@ namespace Explorer {
     for (const file of files) {
       const row = document.createElement("div");
       row.className = "ex-detail-row";
-      if (选中内容?.id === file.id) row.classList.add("selected");
+      if (选中节点ID.has(file.id)) row.classList.add("selected");
       row.dataset.id = String(file.id);
       const nameCell = document.createElement("div");
       nameCell.className = "dr-name";
@@ -1586,14 +1762,42 @@ namespace Explorer {
   function 绑定内容项事件(el: HTMLElement, item: 内容条目): void {
     // 知识库条目可拖拽到聊天侧边栏（附资源路径引用）
     el.draggable = true;
+    el.addEventListener("mousedown", (e) => e.stopPropagation());
     el.addEventListener("dragstart", (e) => {
       e.dataTransfer?.setData("text/kugua-resource", JSON.stringify({ id: item.id, name: item.name, path: item.path ?? null }));
       if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
     });
     el.addEventListener("click", (e) => {
       e.stopPropagation();
-      选中内容 = item;
+      if (e.shiftKey) {
+        // Shift：以「上次点击」为锚点做范围选择
+        const 列表 = 筛选内容();
+        const 锚 = 上次点击ID != null ? 列表.findIndex((x) => x.id === 上次点击ID) : -1;
+        const 当前 = 列表.findIndex((x) => x.id === item.id);
+        if (锚 >= 0 && 当前 >= 0) {
+          const [起, 止] = 锚 <= 当前 ? [锚, 当前] : [当前, 锚];
+          for (let i = 起; i <= 止; i++) 选中节点ID.add(列表[i].id);
+        } else {
+          选中节点ID.add(item.id);
+        }
+        选中内容 = item;
+      } else if (e.ctrlKey || e.metaKey) {
+        // Ctrl：从已选中集合增删特定项
+        if (选中节点ID.has(item.id)) {
+          选中节点ID.delete(item.id);
+          const 余 = 筛选内容().filter((x) => 选中节点ID.has(x.id));
+          选中内容 = 余.length > 0 ? 余[余.length - 1] : null;
+        } else {
+          选中节点ID.add(item.id);
+          选中内容 = item;
+        }
+      } else {
+        选中节点ID = new Set([item.id]);
+        选中内容 = item;
+      }
+      上次点击ID = item.id;
       更新内容信息面板();
+      更新批量删除按钮();
       渲染内容列表();
       隐藏右键菜单();
     });
@@ -1604,10 +1808,37 @@ namespace Explorer {
     el.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      选中内容 = item;
+      // 右键未选中项时先单选；右键已选中项时保持多选（菜单作用于整个选择集）
+      if (!选中节点ID.has(item.id)) {
+        选中节点ID = new Set([item.id]);
+        选中内容 = item;
+        上次点击ID = item.id;
+      }
       更新内容信息面板();
+      更新批量删除按钮();
       渲染内容列表();
-      显示右键菜单(e.clientX, e.clientY);
+      const 是文件 = item.resourceId != null && item.category !== "目录";
+      const 是目录 = item.category === "目录";
+      const 可物理操作 = 是文件 || 是目录;
+      显示上下文菜单(e.clientX, e.clientY, [
+        { label: "打开", icon: "📂", onClick: () => void 打开内容(item) },
+        { label: "选择打开方式...", icon: "➕", onClick: () => { void 加载打开方式列表(item.extension); 显示打开方式对话框(item); } },
+        null,
+        { label: "重命名知识库名称", icon: "✏️", onClick: () => 开始内联编辑名称() },
+        ...(是文件 ? [{ label: "重命名物理文件", icon: "📝", onClick: () => 开始内联编辑真实文件名() }] : []),
+        ...(可物理操作
+          ? [
+              null,
+              { label: "在资源管理器中显示", icon: "🗂️", onClick: () => void 在资源管理器中显示(item) },
+              { label: "复制路径", icon: "📋", onClick: () => void 复制物理路径(item) },
+            ]
+          : []),
+        { label: "复制知识库名称", icon: "📋", onClick: () => void 复制文本(item.name) },
+        ...(item.realName ? [{ label: "复制真实文件名", icon: "📋", onClick: () => void 复制文本(item.realName!) }] : []),
+        null,
+        { label: 选中节点ID.size > 1 ? `从知识库移除选中（${选中节点ID.size} 项）` : "从知识库移除", icon: "🗑️", danger: true, onClick: () => void 删除选中内容() },
+        ...(可物理操作 ? [{ label: "删除到回收站", icon: "⚠️", danger: true, onClick: () => void 删除到回收站(item) }] : []),
+      ]);
     });
   }
 
@@ -1851,32 +2082,6 @@ namespace Explorer {
     文件信息面板.classList.remove("hidden");
 
     const f = 选中内容;
-    const iconEl = document.getElementById("ex-info-icon") as HTMLDivElement;
-    iconEl.className = "ex-info-icon " + 获取内容图标类(f.category);
-    if (f.category === "目录") {
-      iconEl.textContent = "📁";
-      iconEl.style.background = "";
-      iconEl.style.fontSize = "2rem";
-    } else if (f.category === "点子") {
-      iconEl.textContent = "💡";
-      iconEl.style.background = "";
-      iconEl.style.fontSize = "2rem";
-    } else if (f.category === "素材") {
-      iconEl.textContent = "🖼️";
-      iconEl.style.background = "";
-      iconEl.style.fontSize = "2rem";
-    } else if (f.category === "文本段") {
-      iconEl.textContent = "📝";
-      iconEl.style.background = "";
-      iconEl.style.fontSize = "2rem";
-    } else {
-      const ext = f.extension;
-      iconEl.textContent = ext ? ext.slice(0, 3) : "…";
-      iconEl.style.fontSize = "1rem";
-    }
-
-    document.getElementById("ex-info-name")!.textContent = 显示名(f);
-    document.getElementById("ex-info-size")!.textContent = 内容大小文本(f);
 
     // 信息栏预览：图片/视频显示缩略图，文本类显示内容摘要
     const 预览元素 = document.getElementById("ex-info-preview") as HTMLDivElement;
@@ -1907,10 +2112,62 @@ namespace Explorer {
     } else {
       预览元素.classList.add("hidden");
     }
+
+    // 知识库名称（双击重命名，右键复制/重命名）
+    const nameEl = document.getElementById("ex-info-name") as HTMLDivElement;
+    nameEl.textContent = 显示名(f);
+    nameEl.title = "双击重命名（仅知识库内名称），右键复制名称";
+    nameEl.ondblclick = () => 开始内联编辑名称();
+    nameEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      显示上下文菜单(e.clientX, e.clientY, [
+        { label: "复制知识库名称", icon: "📋", onClick: () => void 复制文本(显示名(f)) },
+        { label: "重命名知识库名称", icon: "✏️", onClick: () => 开始内联编辑名称() },
+      ]);
+    };
+
+    document.getElementById("ex-info-size")!.textContent = 内容大小文本(f);
+
+    // 真实文件名（双击重命名物理文件，右键复制）
+    const realEl = document.getElementById("ex-info-realname") as HTMLSpanElement;
+    const 是文件节点 = f.resourceId != null;
+    realEl.textContent = f.realName ?? (是文件节点 ? "-" : "—");
+    realEl.title = f.realName ? "双击重命名本地文件，右键复制真实文件名" : "非文件内容没有真实文件名";
+    realEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const 项: Array<菜单项 | null> = [];
+      if (f.realName) 项.push({ label: "复制真实文件名", icon: "📋", onClick: () => void 复制文本(f.realName!) });
+      if (f.realName) 项.push({ label: "重命名物理文件", icon: "📝", onClick: () => 开始内联编辑真实文件名() });
+      if (项.length > 0) 显示上下文菜单(e.clientX, e.clientY, 项);
+    };
+    if (f.realName) {
+      realEl.classList.add("editable");
+      realEl.ondblclick = () => 开始内联编辑真实文件名();
+    } else {
+      realEl.classList.remove("editable");
+      realEl.ondblclick = null;
+    }
+
+    // 路径（右键复制/在资源管理器中打开）
     const pathEl = document.getElementById("ex-info-path") as HTMLSpanElement;
     pathEl.textContent = f.path || (f.type === "resource" || f.type === "directory" ? "-" : "（" + 节点形式名(f.type) + "）");
-    pathEl.title = "点击复制物理路径";
+    pathEl.title = "右键复制路径或在资源管理器中打开";
+    pathEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const 项: Array<菜单项 | null> = [];
+      if (f.path) {
+        项.push({ label: "复制路径", icon: "📋", onClick: () => void 复制文本(f.path!) });
+        if (是文件节点) 项.push({ label: "在资源管理器中显示", icon: "🗂️", onClick: () => void 在资源管理器中显示(f) });
+      }
+      if (项.length > 0) 显示上下文菜单(e.clientX, e.clientY, 项);
+    };
+
+    // 修改时间（文件最后修改）与入库时间
     document.getElementById("ex-info-modified")!.textContent = 格式化时间(f.modifiedTime || f.updatedAt);
+    document.getElementById("ex-info-indexed")!.textContent = 格式化时间(f.indexedAt || f.createdAt);
 
     // 内联标签：chips（可移除）+ 添加按钮 + 可勾选标签树
     内联标签编辑ID = new Set(f.tagIds);
@@ -1956,7 +2213,9 @@ namespace Explorer {
   function 渲染内联标签树(): void {
     const container = document.getElementById("ex-info-tag-tree") as HTMLDivElement | null;
     if (!container) return;
-    渲染可勾选标签树(标签树, {
+    const kw = 内联标签筛选.trim().toLowerCase();
+    const 树 = kw ? 过滤标签树(标签树, kw) : 标签树;
+    渲染可勾选标签树(树, {
       containerId: "ex-info-tag-tree",
       选中的标签ID: 内联标签编辑ID,
       onToggle: () => void 内联保存标签(),
@@ -1965,9 +2224,24 @@ namespace Explorer {
       // 顶部提示
       const hint = document.createElement("div");
       hint.className = "inline-tag-hint";
-      hint.textContent = "勾选以添加标签，点击详情中标签的 × 可移除";
+      hint.textContent = kw
+        ? `「${内联标签筛选.trim()}」筛选结果（勾选以添加标签）`
+        : "勾选以添加标签，点击详情中标签的 × 可移除";
       container.insertBefore(hint, container.firstChild);
     }
+  }
+
+  /** 按关键词过滤标签树：命中的标签连同其祖先一起保留 */
+  function 过滤标签树(nodes: 标签节点[], kw: string): 标签节点[] {
+    const 结果: 标签节点[] = [];
+    for (const n of nodes) {
+      const 命中 = n.name.toLowerCase().includes(kw);
+      const children = 过滤标签树(n.children ?? [], kw);
+      if (命中 || children.length > 0) {
+        结果.push({ ...n, children: 命中 ? (n.children ?? []) : children });
+      }
+    }
+    return 结果;
   }
 
   /** 保存内联标签（详情栏） */
@@ -2087,6 +2361,223 @@ namespace Explorer {
     右键菜单.classList.add("hidden");
   }
 
+  // ===== 动态右键菜单 =====
+  interface 菜单项 {
+    label: string;
+    icon?: string;
+    danger?: boolean;
+    onClick: () => void;
+  }
+  function 显示上下文菜单(x: number, y: number, items: Array<菜单项 | null>): void {
+    右键菜单.innerHTML = "";
+    for (const it of items) {
+      if (it === null) {
+        const sep = document.createElement("div");
+        sep.className = "cm-sep";
+        右键菜单.appendChild(sep);
+        continue;
+      }
+      const div = document.createElement("div");
+      div.className = "cm-item" + (it.danger ? " danger" : "");
+      div.textContent = (it.icon ? it.icon + " " : "") + it.label;
+      div.addEventListener("click", () => {
+        隐藏右键菜单();
+        it.onClick();
+      });
+      右键菜单.appendChild(div);
+    }
+    // 边界保护：避免菜单超出视口
+    const 宽 = Math.min(240, 右键菜单.offsetWidth);
+    const 高 = 右键菜单.offsetHeight;
+    右键菜单.style.left = Math.min(x, window.innerWidth - 宽 - 4) + "px";
+    右键菜单.style.top = Math.min(y, window.innerHeight - 高 - 4) + "px";
+    右键菜单.classList.remove("hidden");
+  }
+
+  /** 复制文本到剪贴板 */
+  async function 复制文本(文本: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(文本);
+      状态栏计数.textContent = "已复制：" + (文本.length > 24 ? 文本.slice(0, 24) + "…" : 文本);
+      setTimeout(() => { 状态栏计数.textContent = 筛选内容().length + " 个项目"; }, 2000);
+    } catch (err) {
+      添加消息("复制失败：" + String(err), "error");
+    }
+  }
+
+  /** 更新批量删除按钮（选中数） */
+  function 更新批量删除按钮(): void {
+    const btn = document.getElementById("ex-btn-delete-selected") as HTMLButtonElement | null;
+    if (!btn) return;
+    const n = 选中节点ID.size;
+    btn.classList.toggle("hidden", n === 0);
+    btn.title = n > 0 ? `删除选中的 ${n} 项（从知识库移除，不影响物理文件）` : "删除选中的内容";
+    btn.textContent = n > 0 ? "🗑 " + n : "🗑";
+  }
+
+  /** 从知识库批量移除选中内容（物理文件不受影响） */
+  async function 删除选中内容(): Promise<void> {
+    const ids = [...选中节点ID];
+    if (ids.length === 0) return;
+    const 列表 = 筛选内容();
+    const 名 = ids.length === 1 ? 列表.find((x) => x.id === ids[0])?.name ?? "该项" : `${ids.length} 项`;
+    if (!window.confirm(`确定从知识库移除「${名}」？物理文件不受影响。`)) return;
+    try {
+      await window.kugua.request("mkg", "mkg.node.removeMany", { nodeIds: ids });
+      添加消息(`已从知识库移除 ${ids.length} 项（物理文件未受影响）`, "system", "批量删除");
+      选中节点ID.clear();
+      选中内容 = null;
+      上次点击ID = null;
+      更新内容信息面板();
+      更新批量删除按钮();
+      await 加载所有内容();
+      void 刷新统计();
+    } catch (err) {
+      添加消息("批量移除失败：" + String(err), "error");
+    }
+  }
+
+  /** 从知识库移除并把物理文件删除到系统回收站 */
+  async function 删除到回收站(item: 内容条目): Promise<void> {
+    if (item.resourceId == null) {
+      添加消息("该内容不是文件，仅支持从知识库移除", "system");
+      return;
+    }
+    if (!window.confirm(`确定将「${item.name}」从知识库移除，并把文件删除到系统回收站？\n${item.path ?? ""}`)) return;
+    try {
+      const r = (await window.kugua.request("mkg", "mkg.node.trash", { nodeId: item.id })) as {
+        trashed: boolean;
+        note?: string;
+      };
+      添加消息(r.trashed ? `已删除到回收站：${item.name}` : `已从知识库移除：${item.name}${r.note ? "（" + r.note + "）" : ""}`, "system", "删除到回收站");
+      选中节点ID.delete(item.id);
+      if (选中内容?.id === item.id) 选中内容 = null;
+      更新内容信息面板();
+      更新批量删除按钮();
+      await 加载所有内容();
+      void 刷新统计();
+    } catch (err) {
+      添加消息("删除失败：" + String(err), "error");
+    }
+  }
+
+  // ===== 信息面板内联编辑（知识库名称 / 真实文件名） =====
+  function 开始内联编辑(el: HTMLElement, 初始值: string, onSave: (v: string) => Promise<void>): void {
+    if (el.querySelector(".ex-info-edit-input")) return;
+    const input = document.createElement("input");
+    input.className = "ex-info-edit-input";
+    input.value = 初始值;
+    el.textContent = "";
+    el.appendChild(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const 完成 = async (保存: boolean): Promise<void> => {
+      if (done) return;
+      done = true;
+      const v = input.value.trim();
+      if (保存 && v && v !== 初始值) {
+        try {
+          await onSave(v);
+        } catch (err) {
+          添加消息(String(err), "error");
+        }
+      }
+      更新内容信息面板();
+      await 加载所有内容();
+      // 重载后把信息面板同步到最新条目
+      if (选中内容) {
+        const 最新 = 所有内容.find((x) => x.id === 选中内容!.id);
+        if (最新) 选中内容 = 最新;
+      }
+      更新内容信息面板();
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") void 完成(true);
+      if (e.key === "Escape") void 完成(false);
+    });
+    input.addEventListener("blur", () => void 完成(true));
+    input.addEventListener("click", (e) => e.stopPropagation());
+    input.addEventListener("contextmenu", (e) => e.stopPropagation());
+  }
+
+  function 开始内联编辑名称(): void {
+    if (!选中内容) return;
+    const 目标 = 选中内容;
+    const el = document.getElementById("ex-info-name") as HTMLElement;
+    开始内联编辑(el, 目标.name, async (v) => {
+      if (目标.resourceId != null) {
+        await window.kugua.request("mkg", "mkg.alias.set", { resourceId: 目标.resourceId, alias: v });
+      } else {
+        await window.kugua.request("mkg", "mkg.node.renameTitle", { nodeId: 目标.id, title: v });
+      }
+    });
+  }
+
+  function 开始内联编辑真实文件名(): void {
+    if (!选中内容?.resourceId || !选中内容.realName) return;
+    const el = document.getElementById("ex-info-realname") as HTMLElement;
+    开始内联编辑(el, 选中内容.realName, async (v) => {
+      if (选中内容?.resourceId == null) return;
+      await window.kugua.request("mkg", "mkg.resource.renameFile", { resourceId: 选中内容.resourceId, newName: v });
+    });
+  }
+
+  // ===== 框选（拖拽矩形批量选择） =====
+  function 绑定框选(容器: HTMLElement): void {
+    容器.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest("[data-id]")) return;
+      const 容器Rect = 容器.getBoundingClientRect();
+      const 起始X = e.clientX - 容器Rect.left;
+      const 起始Y = e.clientY - 容器Rect.top;
+      const box = document.createElement("div");
+      box.className = "ex-selection-box";
+      容器.appendChild(box);
+      const 初始选择 = new Set(选中节点ID);
+      const 增选 = e.ctrlKey || e.metaKey;
+      const 命中ID = new Set<number>();
+      const onMove = (ev: MouseEvent): void => {
+        const left = Math.min(起始X, ev.clientX - 容器Rect.left);
+        const top = Math.min(起始Y, ev.clientY - 容器Rect.top);
+        const w = Math.abs(ev.clientX - 容器Rect.left - 起始X);
+        const h = Math.abs(ev.clientY - 容器Rect.top - 起始Y);
+        box.style.left = left + "px";
+        box.style.top = top + "px";
+        box.style.width = w + "px";
+        box.style.height = h + "px";
+        const 框 = { left, top, right: left + w, bottom: top + h };
+        命中ID.clear();
+        容器.querySelectorAll<HTMLElement>("[data-id]").forEach((el) => {
+          const r = el.getBoundingClientRect();
+          const rr = { left: r.left - 容器Rect.left, top: r.top - 容器Rect.top, right: r.right - 容器Rect.left, bottom: r.bottom - 容器Rect.top };
+          const 命中 = !(rr.right < 框.left || rr.left > 框.right || rr.bottom < 框.top || rr.top > 框.bottom);
+          el.classList.toggle("selected", 命中);
+          if (命中) 命中ID.add(Number(el.dataset.id));
+        });
+      };
+      const onUp = (): void => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        box.remove();
+        if (增选) {
+          for (const id of 命中ID) 选中节点ID.add(id);
+        } else {
+          选中节点ID = 命中ID;
+        }
+        const 列表 = 筛选内容();
+        选中内容 = 选中节点ID.size > 0 ? 列表.find((x) => 选中节点ID.has(x.id)) ?? null : null;
+        if (选中节点ID.size > 0) 上次点击ID = [...选中节点ID][选中节点ID.size - 1];
+        更新内容信息面板();
+        更新批量删除按钮();
+        渲染内容列表();
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
   function 切换视图(mode: "large" | "list" | "details"): void {
     当前视图模式 = mode;
     大图标容器.classList.toggle("hidden", mode !== "large");
@@ -2175,8 +2666,15 @@ namespace Explorer {
     if (!paths || paths.length === 0) return;
     try {
       const items = paths.map((p) => ({ sourcePath: p }));
-      const r = (await window.kugua.request("mkg", "mkg.resource.importFiles", { items })) as { count: number };
-      添加消息("成功导入 " + r.count + " 个内容", "system");
+      const r = (await window.kugua.request("mkg", "mkg.resource.importFiles", { items })) as Array<{
+        duplicate?: boolean;
+        name?: string;
+      }>;
+      const 重复数 = r.filter((x) => x && (x as { duplicate?: boolean }).duplicate).length;
+      添加消息(
+        `成功导入 ${r.length - 重复数} 个内容${重复数 > 0 ? `，跳过 ${重复数} 个已存在的重复文件` : ""}`,
+        "system",
+      );
       await 加载所有内容();
     } catch (err) {
       添加消息("导入失败：" + String(err), "error");
@@ -3018,43 +3516,30 @@ namespace Explorer {
     });
 
     document.addEventListener("click", () => 隐藏右键菜单());
-    右键菜单.addEventListener("click", async (e) => {
-      const action = (e.target as HTMLElement).dataset.action;
-      if (!action || !选中内容) return;
-      switch (action) {
-        case "open":
-          await 打开内容(选中内容);
-          break;
-        case "explorer":
-          await 在资源管理器中显示(选中内容);
-          break;
-        case "copyPath":
-          await 复制物理路径(选中内容);
-          break;
-        case "rename":
-          显示重命名对话框(选中内容);
-          break;
-        case "openWith":
-          await 加载打开方式列表(选中内容.extension);
-          显示打开方式对话框(选中内容);
-          break;
-      }
-      隐藏右键菜单();
-    });
-
-    document.getElementById("ex-btn-open")?.addEventListener("click", () => {
-      if (选中内容) void 打开内容(选中内容);
-    });
-    document.getElementById("ex-btn-explorer")?.addEventListener("click", () => {
-      if (选中内容) void 在资源管理器中显示(选中内容);
-    });
-    document.getElementById("ex-info-path")?.addEventListener("click", () => {
-      if (选中内容) void 复制物理路径(选中内容);
-    });
 
     // ========== 统一导入 + 新建片段 ==========
     document.getElementById("ex-btn-import")?.addEventListener("click", () => void 直接导入());
     document.getElementById("ex-btn-new-snippet")?.addEventListener("click", () => 打开新建片段对话框());
+    document.getElementById("ex-btn-delete-selected")?.addEventListener("click", () => void 删除选中内容());
+
+    // 框选绑定（三种视图）
+    [大图标容器, 列表容器, 详情容器].forEach((容器) => 绑定框选(容器));
+
+    // 键盘删除（Delete/Backspace，输入框聚焦时不触发）
+    document.addEventListener("keydown", (e) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && 选中节点ID.size > 0) {
+        e.preventDefault();
+        void 删除选中内容();
+      }
+    });
+
+    // 详情栏标签筛选（适配大量标签）
+    document.getElementById("ex-info-tag-filter")?.addEventListener("input", (e) => {
+      内联标签筛选 = (e.target as HTMLInputElement).value;
+      渲染内联标签树();
+    });
 
     // 类型筛选 / 排序 / 无分类
     const 类型筛选框 = document.getElementById("ex-type-filter") as HTMLSelectElement;
@@ -3103,7 +3588,7 @@ namespace Explorer {
     const owLabel = document.getElementById("ow-label") as HTMLInputElement;
     const owSetDefault = document.getElementById("ow-set-default") as HTMLInputElement;
 
-    function 显示打开方式对话框(file: 内容条目): void {
+    显示打开方式对话框 = (file: 内容条目): void => {
       owList.innerHTML = "";
       for (const ow of 打开方式列表) {
         const item = document.createElement("div");
@@ -3120,7 +3605,7 @@ namespace Explorer {
       owLabel.value = "";
       owSetDefault.checked = false;
       owDialog.classList.remove("hidden");
-    }
+    };
 
     document.getElementById("ow-cancel")?.addEventListener("click", () => {
       owDialog.classList.add("hidden");
@@ -3333,10 +3818,34 @@ function 发送当前输入(): void {
 
 document.getElementById("chat-send")?.addEventListener("click", 发送当前输入);
 
+输入框.addEventListener("input", () => 更新指令提示());
+输入框.addEventListener("focus", () => 更新指令提示());
+输入框.addEventListener("blur", () => { setTimeout(() => 隐藏指令提示(), 120); });
 输入框.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    发送当前输入();
+  if (提示过滤列表.length > 0) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      提示选中索引 = (提示选中索引 + 1) % 提示过滤列表.length;
+      渲染指令提示();
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      提示选中索引 = (提示选中索引 - 1 + 提示过滤列表.length) % 提示过滤列表.length;
+      渲染指令提示();
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      const 选中 = 提示过滤列表[提示选中索引];
+      if (选中) {
+        输入框.value = 选中;
+        隐藏指令提示();
+        return;
+      }
+    }
   }
+  if (e.key === "Enter") { 发送当前输入(); }
 });
 
 // ===== 聊天搜索与清除 =====
@@ -3637,44 +4146,56 @@ const 导入提示 = document.getElementById("explorer-drop-hint") as HTMLDivEle
   e.preventDefault();
   知识库区域.classList.remove("drop-target");
   导入提示.classList.add("hidden");
-  let 资源路径: string | null = null;
+  // 收集所有可导入项：知识库资源、聊天文件引用、及外部文件的物理路径
+  const 路径项: string[] = [];
   const 资源 = e.dataTransfer?.getData("text/kugua-resource");
   if (资源) {
-    try { 资源路径 = (JSON.parse(资源) as { path: string | null }).path; } catch { /* 忽略 */ }
+    try {
+      const p = (JSON.parse(资源) as { path: string | null }).path;
+      if (p) 路径项.push(p);
+    } catch { /* 忽略 */ }
   }
   const 聊天文件 = e.dataTransfer?.getData("text/kugua-file");
-  const files = e.dataTransfer?.files;
-  const f = files && files.length > 0 ? (files[0] as File & { path?: string }) : null;
-  const 外部路径 = f?.path ?? null;
-  const 有路径目标 = 资源路径 || 聊天文件 || 外部路径;
-  if (有路径目标) {
-    添加消息("正在把「" + 有路径目标 + "」导入知识库…", "system");
-    try {
-      await window.kugua.request("mkg", "mkg.resource.import", { path: 有路径目标 });
-      添加消息("已导入知识库：" + 有路径目标, "system");
-      void Explorer.刷新();
-      void 刷新统计();
-    } catch (err) {
-      添加消息("导入失败：" + String(err), "error");
-    }
-    return;
+  if (聊天文件) 路径项.push(聊天文件);
+  const files = Array.from(e.dataTransfer?.files ?? []);
+  for (const fl of files) {
+    const 路径 = (fl as File & { path?: string }).path;
+    if (路径) 路径项.push(路径);
   }
-  // 无本地路径（如从浏览器拖入）：写入临时文件后按原名（无文件名则用时间编码）导入
-  if (f && f.type) {
+  // 无本地路径的外部内容（如从浏览器拖入）：写入临时文件后导入
+  const 临时项: Array<{ sourcePath: string; name: string }> = [];
+  for (const fl of files) {
+    const 路径 = (fl as File & { path?: string }).path;
+    if (路径) continue;
+    if (!fl.type) continue;
     try {
-      const 读 = await 读文件DataURL(f);
+      const 读 = await 读文件DataURL(fl);
       const ext = (读.mime.split("/")[1] || "bin").replace(/\+.*$/, "").toLowerCase();
       const 原名 = 读.name || "";
       const 最终名 = 原名 || (时间编码() + "." + ext);
-      添加消息("正在把外部内容「" + 最终名 + "」导入知识库…", "system");
       const 临时路径 = await window.kugua.writeTempFile({ base64: 读.base64, name: 最终名 });
-      await window.kugua.request("mkg", "mkg.resource.importFile", { sourcePath: 临时路径, name: 最终名 });
-      添加消息("已导入知识库：" + 最终名, "system");
-      void Explorer.刷新();
-      void 刷新统计();
+      临时项.push({ sourcePath: 临时路径, name: 最终名 });
     } catch (err) {
-      添加消息("导入失败：" + String(err), "error");
+      添加消息("读取外部文件失败：" + String(err), "error");
     }
+  }
+  const 全部项 = 路径项.map((p) => ({ sourcePath: p })).concat(临时项);
+  if (全部项.length === 0) return;
+  添加消息("正在把 " + 全部项.length + " 个内容导入知识库…", "system");
+  try {
+    const r = (await window.kugua.request("mkg", "mkg.resource.importFiles", { items: 全部项 })) as Array<{
+      duplicate?: boolean;
+      name?: string;
+    }>;
+    const 重复数 = r.filter((x) => x && (x as { duplicate?: boolean }).duplicate).length;
+    添加消息(
+      `已导入 ${r.length - 重复数} 个内容到知识库${重复数 > 0 ? `，跳过 ${重复数} 个重复文件（资料库中已有完全一致的）` : ""}`,
+      "system",
+    );
+    void Explorer.刷新();
+    void 刷新统计();
+  } catch (err) {
+    添加消息("批量导入失败：" + String(err), "error");
   }
 });
 

@@ -36,8 +36,8 @@
         <div id="explorer-drop-hint" class="explorer-drop-hint hidden">松开以导入知识库</div>
         <div class="ex-pane ex-pane-files">
         <div class="explorer-layout">
-          <!-- 左侧面板：搜索 + 标签树 + 文件信息 -->
-          <div class="explorer-sidebar">
+          <!-- 分类栏（最左，可折叠）：搜索 + 标签树 -->
+          <div id="ex-cat-sidebar" class="ex-cat-sidebar">
             <div class="ex-search-box">
               <input type="text" id="ex-search" placeholder="搜索文件...">
             </div>
@@ -48,41 +48,38 @@
               </div>
               <div id="ex-tag-tree" class="ex-tag-tree"></div>
             </div>
+          </div>
 
-            <div id="ex-file-info" class="ex-section ex-file-info hidden">
-              <div class="ex-section-title">
-                <span>&#x1F4C4;</span> 文件信息
-              </div>
+          <!-- 文件详细信息栏（未选中文件时隐藏） -->
+          <div id="ex-file-info" class="ex-section ex-file-info hidden">
               <div class="ex-info-content">
-                <div class="ex-info-icon" id="ex-info-icon"></div>
                 <div class="ex-info-preview hidden" id="ex-info-preview"></div>
-                <div class="ex-info-name" id="ex-info-name"></div>
+                <div class="ex-info-name" id="ex-info-name" title="双击重命名（仅知识库内名称），右键复制名称"></div>
                 <div class="ex-info-row"><span class="ex-info-label">大小</span><span class="ex-info-value" id="ex-info-size"></span></div>
-                <div class="ex-info-row"><span class="ex-info-label">路径</span><span class="ex-info-value" id="ex-info-path" title="点击复制物理路径"></span></div>
-                <div class="ex-info-row"><span class="ex-info-label">修改</span><span class="ex-info-value" id="ex-info-modified"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">真实文件名</span><span class="ex-info-value ex-info-realname" id="ex-info-realname" title="双击重命名本地文件，右键复制真实文件名"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">路径</span><span class="ex-info-value" id="ex-info-path" title="右键复制路径或在资源管理器中打开"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">修改时间</span><span class="ex-info-value" id="ex-info-modified"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">入库时间</span><span class="ex-info-value" id="ex-info-indexed"></span></div>
                 <div class="ex-info-tags-section">
                   <div class="ex-info-tags-header">
                     <div class="ex-info-label">标签</div>
                   </div>
                   <div id="ex-info-tags" class="ex-info-tags"></div>
+                  <input type="text" id="ex-info-tag-filter" class="ex-info-tag-filter" placeholder="搜索标签（支持成百上千标签时快速定位）">
                   <div class="ex-info-tag-add">
                     <input type="text" id="ex-info-tag-input" placeholder="输入标签路径，用 / 分隔，回车添加">
                     <button class="ex-link-btn" id="ex-info-tag-add-btn">添加</button>
                   </div>
                   <div id="ex-info-tag-tree" class="import-tag-tree"></div>
                 </div>
-                <div class="ex-info-actions">
-                  <button class="ex-action-btn" id="ex-btn-open" title="打开内容">&#x1F4C2;</button>
-                  <button class="ex-action-btn" id="ex-btn-explorer" title="在资源管理器中显示">&#x1F5C2;</button>
-                </div>
               </div>
             </div>
-          </div>
 
           <!-- 右侧面板：工具栏 + 文件列表 -->
           <div class="explorer-content">
             <div class="ex-toolbar">
               <div class="ex-toolbar-left">
+                <button class="ex-nav-btn" id="ex-cat-toggle" title="折叠分类栏">&#x25C0;</button>
                 <button class="ex-nav-btn" id="ex-nav-up" title="向上">&#x1F4C2;&#x2B06;</button>
                 <button class="ex-nav-btn" id="ex-nav-refresh" title="刷新">&#x21BB;</button>
                 <div class="ex-breadcrumb" id="ex-breadcrumb">
@@ -92,6 +89,7 @@
               <div class="ex-toolbar-right">
                 <div class="ex-toolbar-filters">
                   <button class="ex-nav-btn" id="ex-btn-import" title="导入文件/图片到知识库">&#x1F4E5;</button>
+                  <button class="ex-nav-btn hidden" id="ex-btn-delete-selected" title="删除选中的内容（从知识库移除）">&#x1F5D1;</button>
                   <button class="ex-nav-btn" id="ex-btn-new-snippet" title="新建文本片段">&#x2795;</button>
                   <select id="ex-type-filter" class="ex-filter-select" title="按类型筛选">
                     <option value="all">全部类型</option>
@@ -214,6 +212,7 @@
           <div id="chat-log" class="chat-log"></div>
           <div class="chat-input-bar">
             <div id="chat-attachments" class="chat-attachments hidden"></div>
+            <div id="chat-cmd-hint" class="chat-cmd-hint hidden"></div>
             <div class="chat-input-row">
               <input id="chat-input" type="text" placeholder="输入指令或对话，或拖拽资源到此处让机器人处理…" autocomplete="off">
               <button id="chat-send" class="send-btn">&#x1F680; 发送</button>
@@ -226,13 +225,6 @@
 
   <!-- 右键菜单 -->
   <div id="context-menu" class="context-menu hidden">
-    <div class="cm-item" data-action="open">&#x1F4C2; 打开</div>
-    <div class="cm-item" data-action="openWith">&#x2795; 选择打开方式...</div>
-    <div class="cm-sep"></div>
-    <div class="cm-item" data-action="rename">&#x270F; 重命名</div>
-    <div class="cm-sep"></div>
-    <div class="cm-item" data-action="explorer">&#x1F5C2; 在资源管理器中显示</div>
-    <div class="cm-item" data-action="copyPath">&#x1F4CB; 复制文件物理地址</div>
   </div>
 
   <!-- 打开方式对话框 -->
