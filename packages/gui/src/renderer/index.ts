@@ -1505,8 +1505,7 @@ namespace Explorer {
   let 搜索关键词 = "";
   let 类型筛选: string = "all";
   let 排序方式: "import" | "name" | "updated" = "import";
-  let 无分类筛选 = false;
-  let 所有内容: 内容条目[] = [];
+    let 所有内容: 内容条目[] = [];
   let 标签树: 标签节点[] = [];
   let 选中内容: 内容条目 | null = null;
   /** 批量选中（节点 id 集合）：支持框选 / Ctrl 多选 / Shift 范围选择 */
@@ -1560,7 +1559,6 @@ namespace Explorer {
 
   const 右键菜单 = document.getElementById("context-menu") as HTMLDivElement;
   const 状态栏计数 = document.getElementById("ex-status-count") as HTMLSpanElement;
-  const 面包屑 = document.getElementById("ex-breadcrumb") as HTMLDivElement;
   const 搜索框 = document.getElementById("ex-search") as HTMLInputElement;
 
   function 获取文件图标类(name: string, kind: string): string {
@@ -1764,9 +1762,6 @@ namespace Explorer {
       items = items.filter((it) => it.category === 类型筛选);
     }
     const 标签筛选ID = 当前标签ID;
-    if (标签筛选ID === "all" && 无分类筛选) {
-      items = items.filter((it) => it.tagIds.length === 0);
-    }
     // 按具体标签筛选已在服务端（含后代标签展开）完成，此处无需再次精确过滤
     if (排序方式 === "name") {
       items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
@@ -1954,33 +1949,141 @@ namespace Explorer {
     return 命中;
   }
 
-  /** 导航到某个标签：更新当前标签、面包屑路径、刷新内容列表与标签树 */
+  /** 导航到某个标签：更新当前标签、刷新内容列表与标签树 */
   function 导航到标签(tagId: number): void {
     当前标签ID = tagId;
-    // 无分类与具体标签互斥：点击具体标签时清除「无分类」过滤，否则服务端按 noTag 会把带标签资源全部过滤掉
-    无分类筛选 = false;
-    const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
-    if (无分类框) 无分类框.checked = false;
     选中内容 = null;
     文件信息面板.classList.add("hidden");
-    const path: { name: string; id: number | "all" }[] = [{ name: "所有内容", id: "all" }];
-    const buildPath = (nodes: 标签节点[], targetId: number, crumbs: { name: string; id: number }[]): boolean => {
-      for (const n of nodes) {
-        if (n.id === targetId) { crumbs.push({ name: n.name, id: n.id }); return true; }
-        if (buildPath(n.children, targetId, crumbs)) { crumbs.unshift({ name: n.name, id: n.id }); return true; }
-      }
-      return false;
-    };
-    const crumbs: { name: string; id: number }[] = [];
-    buildPath(标签树, tagId, crumbs);
-    path.push(...crumbs.map((c) => ({ name: c.name, id: c.id as number | "all" })));
-    更新面包屑(path);
     void 加载所有内容();
     void 渲染关联标签();
     渲染标签树();
   }
 
-  /** 在面包屑路径下方渲染本标签及一串关联标签（基于共现频率） */
+
+  function 更新内容信息面板(): void {
+    if (!选中内容) {
+      文件信息面板.classList.add("hidden");
+      return;
+    }
+    文件信息面板.classList.remove("hidden");
+
+    const f = 选中内容;
+
+    // 信息栏预览：图片/视频显示缩略图，文本类显示内容摘要
+    const 预览元素 = document.getElementById("ex-info-preview") as HTMLDivElement;
+    预览元素.innerHTML = "";
+    预览元素.classList.remove("hidden");
+    if (f.category === "图片" && f.path) {
+      const 图 = document.createElement("img");
+      图.className = "ex-info-preview-img";
+      图.src = 转文件URL(f.path);
+      图.alt = f.name;
+      图.onerror = () => { 预览元素.classList.add("hidden"); };
+      预览元素.appendChild(图);
+    } else if (f.category === "视频" && f.path) {
+      const 视 = document.createElement("video");
+      视.className = "ex-info-preview-video";
+      视.src = 转文件URL(f.path);
+      视.muted = true;
+      视.preload = "metadata";
+      视.playsInline = true;
+      视.controls = true;
+      视.onerror = () => { 预览元素.classList.add("hidden"); };
+      预览元素.appendChild(视);
+    } else if (["文本", "文本段", "点子", "素材"].includes(f.category) && f.content) {
+      const 摘要 = document.createElement("div");
+      摘要.className = "ex-info-preview-text";
+      摘要.innerHTML = 渲染Markdown(f.content.replace(/\s+/g, " ").trim() || "（无内容）");
+      预览元素.appendChild(摘要);
+    } else {
+      预览元素.classList.add("hidden");
+    }
+
+    // 知识库名称（双击重命名，右键复制/重命名）- 扩展名独立显示不可编辑
+    const nameEl = document.getElementById("ex-info-name") as HTMLDivElement;
+    const 真实扩展名 = f.realName?.includes(".") ? f.realName.slice(f.realName.lastIndexOf(".")) : "";
+    let 显示名Val = 显示名(f);
+    if (真实扩展名 && 显示名Val.endsWith(真实扩展名)) {
+      显示名Val = 显示名Val.slice(0, -真实扩展名.length);
+    }
+    nameEl.textContent = 显示名Val;
+    // 扩展名追加显示
+    const extEl = document.getElementById("ex-info-name-ext") as HTMLSpanElement | null;
+    if (extEl) extEl.textContent = 真实扩展名;
+    nameEl.title = "双击重命名（仅知识库内名称），右键复制名称";
+    nameEl.ondblclick = () => 开始内联编辑名称();
+    nameEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      显示上下文菜单(e.clientX, e.clientY, [
+        { label: "复制知识库名称", icon: "📋", onClick: () => void 复制文本(显示名(f)) },
+        { label: "重命名知识库名称", icon: "✏️", onClick: () => 开始内联编辑名称() },
+      ]);
+    };
+
+    document.getElementById("ex-info-size")!.textContent = 内容大小文本(f);
+
+    // 真实文件名（双击重命名物理文件，右键复制）
+    const realEl = document.getElementById("ex-info-realname") as HTMLSpanElement;
+    const 是文件节点 = f.resourceId != null;
+    realEl.textContent = f.realName ?? (是文件节点 ? "-" : "—");
+    realEl.title = f.realName ? "双击重命名本地文件，右键复制真实文件名" : "非文件内容没有真实文件名";
+    realEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const 项: Array<菜单项 | null> = [];
+      if (f.realName) 项.push({ label: "复制真实文件名", icon: "📋", onClick: () => void 复制文本(f.realName!) });
+      if (f.realName) 项.push({ label: "重命名物理文件", icon: "📝", onClick: () => 开始内联编辑真实文件名() });
+      if (项.length > 0) 显示上下文菜单(e.clientX, e.clientY, 项);
+    };
+    if (f.realName) {
+      realEl.classList.add("editable");
+      realEl.ondblclick = () => 开始内联编辑真实文件名();
+    } else {
+      realEl.classList.remove("editable");
+      realEl.ondblclick = null;
+    }
+
+    // 路径（右键复制/在资源管理器中打开）
+    const pathEl = document.getElementById("ex-info-path") as HTMLSpanElement;
+    pathEl.textContent = f.path || (f.type === "resource" || f.type === "directory" ? "-" : "（" + 节点形式名(f.type) + "）");
+    pathEl.title = "右键复制路径或在资源管理器中打开";
+    pathEl.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const 项: Array<菜单项 | null> = [];
+      if (f.path) {
+        项.push({ label: "复制路径", icon: "📋", onClick: () => void 复制文本(f.path!) });
+        if (是文件节点) 项.push({ label: "在资源管理器中显示", icon: "🗂️", onClick: () => void 在资源管理器中显示(f) });
+      }
+      if (项.length > 0) 显示上下文菜单(e.clientX, e.clientY, 项);
+    };
+
+    // 修改时间（文件最后修改）与入库时间
+    document.getElementById("ex-info-modified")!.textContent = 格式化时间(f.modifiedTime || f.updatedAt);
+    document.getElementById("ex-info-indexed")!.textContent = 格式化时间(f.indexedAt || f.createdAt);
+
+    // 内联标签：chips（点击整个 chip 可移除）+ 联想输入
+    内联标签编辑ID = new Set(f.tagIds);
+    渲染标签chips("ex-info-tags", 内联标签编辑ID, (tid) => {
+      内联标签编辑ID.delete(tid);
+      void 内联保存标签();
+    });
+    // 渲染可勾选标签树（信息面板内）
+    渲染可勾选标签树(标签树, {
+      containerId: "ex-info-tag-tree",
+      选中的标签ID: 内联标签编辑ID,
+      onToggle: () => {
+        渲染标签chips("ex-info-tags", 内联标签编辑ID, (tid) => {
+          内联标签编辑ID.delete(tid);
+          void 内联保存标签();
+        });
+        void 内联保存标签();
+      },
+    });
+  }
+
+  /** 渲染本标签及一串关联标签（基于共现频率） */
   async function 渲染关联标签(): Promise<void> {
     const 容器 = document.getElementById("ex-related-tags") as HTMLDivElement | null;
     if (!容器) return;
@@ -2035,41 +2138,17 @@ namespace Explorer {
 
     const allItem = document.createElement("div");
     allItem.className = "ex-tag-all";
-    if (当前标签ID === "all" && !无分类筛选) allItem.classList.add("active");
+    if (当前标签ID === "all") allItem.classList.add("active");
     allItem.innerHTML = '<span class="ex-tag-icon">🗂️</span> 所有内容';
     allItem.addEventListener("click", () => {
       当前标签ID = "all";
-      无分类筛选 = false;
-      const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
-      if (无分类框) 无分类框.checked = false;
       选中内容 = null;
-      更新面包屑([{ name: "所有内容", id: "all" }]);
       文件信息面板.classList.add("hidden");
       void 渲染关联标签();
       void 加载所有内容();
       渲染标签树();
     });
     标签树容器.appendChild(allItem);
-
-    // “未分类”恒为最外层分类，不参与父子嵌套
-    const 未分类项 = document.createElement("div");
-    未分类项.className = "ex-tag-item ex-tag-untagged" + (当前标签ID === "all" && 无分类筛选 ? " active" : "");
-    未分类项.style.paddingLeft = "0.5px";
-    未分类项.innerHTML = '<span class="ex-tag-expand empty">▶</span><span class="ex-tag-icon">📂</span> 未分类';
-    未分类项.title = "只看未分类（无标签）的内容";
-    未分类项.addEventListener("click", () => {
-      当前标签ID = "all";
-      无分类筛选 = true;
-      const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
-      if (无分类框) 无分类框.checked = true;
-      选中内容 = null;
-      更新面包屑([{ name: "未分类", id: "all" }]);
-      文件信息面板.classList.add("hidden");
-      void 渲染关联标签();
-      void 加载所有内容();
-      渲染标签树();
-    });
-    标签树容器.appendChild(未分类项);
 
     function renderNode(node: 标签节点, depth: number, parent: HTMLElement): void {
       const hasChildren = node.children.length > 0;
@@ -2130,141 +2209,7 @@ namespace Explorer {
     }
   }
 
-  function 更新面包屑(path: { name: string; id: number | "all" }[]): void {
-    面包屑.innerHTML = "";
-    path.forEach((p, i) => {
-      if (i > 0) {
-        const sep = document.createElement("span");
-        sep.className = "ex-bc-sep";
-        sep.textContent = "›";
-        面包屑.appendChild(sep);
-      }
-      const item = document.createElement("span");
-      item.className = "ex-bc-item";
-      if (i === path.length - 1) item.classList.add("current");
-      item.textContent = p.name;
-      item.dataset.tagId = String(p.id);
-      item.addEventListener("click", () => {
-        if (p.id === "all") {
-          当前标签ID = "all";
-          选中内容 = null;
-          文件信息面板.classList.add("hidden");
-          更新面包屑([{ name: "所有内容", id: "all" }]);
-          void 渲染关联标签();
-          void 加载所有内容();
-          渲染标签树();
-        } else {
-          导航到标签(p.id as number);
-        }
-      });
-      面包屑.appendChild(item);
-    });
-  }
-
-  function 更新内容信息面板(): void {
-    if (!选中内容) {
-      文件信息面板.classList.add("hidden");
-      return;
-    }
-    文件信息面板.classList.remove("hidden");
-
-    const f = 选中内容;
-
-    // 信息栏预览：图片/视频显示缩略图，文本类显示内容摘要
-    const 预览元素 = document.getElementById("ex-info-preview") as HTMLDivElement;
-    预览元素.innerHTML = "";
-    预览元素.classList.remove("hidden");
-    if (f.category === "图片" && f.path) {
-      const 图 = document.createElement("img");
-      图.className = "ex-info-preview-img";
-      图.src = 转文件URL(f.path);
-      图.alt = f.name;
-      图.onerror = () => { 预览元素.classList.add("hidden"); };
-      预览元素.appendChild(图);
-    } else if (f.category === "视频" && f.path) {
-      const 视 = document.createElement("video");
-      视.className = "ex-info-preview-video";
-      视.src = 转文件URL(f.path);
-      视.muted = true;
-      视.preload = "metadata";
-      视.playsInline = true;
-      视.controls = true;
-      视.onerror = () => { 预览元素.classList.add("hidden"); };
-      预览元素.appendChild(视);
-    } else if (["文本", "文本段", "点子", "素材"].includes(f.category) && f.content) {
-      const 摘要 = document.createElement("div");
-      摘要.className = "ex-info-preview-text";
-      摘要.innerHTML = 渲染Markdown(f.content.replace(/\s+/g, " ").trim() || "（无内容）");
-      预览元素.appendChild(摘要);
-    } else {
-      预览元素.classList.add("hidden");
-    }
-
-    // 知识库名称（双击重命名，右键复制/重命名）
-    const nameEl = document.getElementById("ex-info-name") as HTMLDivElement;
-    nameEl.textContent = 显示名(f);
-    nameEl.title = "双击重命名（仅知识库内名称），右键复制名称";
-    nameEl.ondblclick = () => 开始内联编辑名称();
-    nameEl.oncontextmenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      显示上下文菜单(e.clientX, e.clientY, [
-        { label: "复制知识库名称", icon: "📋", onClick: () => void 复制文本(显示名(f)) },
-        { label: "重命名知识库名称", icon: "✏️", onClick: () => 开始内联编辑名称() },
-      ]);
-    };
-
-    document.getElementById("ex-info-size")!.textContent = 内容大小文本(f);
-
-    // 真实文件名（双击重命名物理文件，右键复制）
-    const realEl = document.getElementById("ex-info-realname") as HTMLSpanElement;
-    const 是文件节点 = f.resourceId != null;
-    realEl.textContent = f.realName ?? (是文件节点 ? "-" : "—");
-    realEl.title = f.realName ? "双击重命名本地文件，右键复制真实文件名" : "非文件内容没有真实文件名";
-    realEl.oncontextmenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const 项: Array<菜单项 | null> = [];
-      if (f.realName) 项.push({ label: "复制真实文件名", icon: "📋", onClick: () => void 复制文本(f.realName!) });
-      if (f.realName) 项.push({ label: "重命名物理文件", icon: "📝", onClick: () => 开始内联编辑真实文件名() });
-      if (项.length > 0) 显示上下文菜单(e.clientX, e.clientY, 项);
-    };
-    if (f.realName) {
-      realEl.classList.add("editable");
-      realEl.ondblclick = () => 开始内联编辑真实文件名();
-    } else {
-      realEl.classList.remove("editable");
-      realEl.ondblclick = null;
-    }
-
-    // 路径（右键复制/在资源管理器中打开）
-    const pathEl = document.getElementById("ex-info-path") as HTMLSpanElement;
-    pathEl.textContent = f.path || (f.type === "resource" || f.type === "directory" ? "-" : "（" + 节点形式名(f.type) + "）");
-    pathEl.title = "右键复制路径或在资源管理器中打开";
-    pathEl.oncontextmenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const 项: Array<菜单项 | null> = [];
-      if (f.path) {
-        项.push({ label: "复制路径", icon: "📋", onClick: () => void 复制文本(f.path!) });
-        if (是文件节点) 项.push({ label: "在资源管理器中显示", icon: "🗂️", onClick: () => void 在资源管理器中显示(f) });
-      }
-      if (项.length > 0) 显示上下文菜单(e.clientX, e.clientY, 项);
-    };
-
-    // 修改时间（文件最后修改）与入库时间
-    document.getElementById("ex-info-modified")!.textContent = 格式化时间(f.modifiedTime || f.updatedAt);
-    document.getElementById("ex-info-indexed")!.textContent = 格式化时间(f.indexedAt || f.createdAt);
-
-    // 内联标签：chips（点击整个 chip 可移除）+ 联想输入
-    内联标签编辑ID = new Set(f.tagIds);
-    渲染标签chips("ex-info-tags", 内联标签编辑ID, (tid) => {
-      内联标签编辑ID.delete(tid);
-      void 内联保存标签();
-    });
-  }
-
-  /** 渲染标签 chips（点击整个 chip 可移除） */
+    /** 渲染标签 chips（点击整个 chip 可移除） */
   function 渲染标签chips(容器ID: string, 已选: Set<number>, onRemove: (id: number) => void): void {
     const 容器 = document.getElementById(容器ID) as HTMLDivElement | null;
     if (!容器) return;
@@ -2317,8 +2262,6 @@ namespace Explorer {
       walk(标签树, []);
       return 结果;
     };
-    const 全部 = 全部标签();
-
     const 采纳 = (t: { id: number; name: string; path: string }): void => {
       已选.add(t.id);
       input.value = "";
@@ -2349,7 +2292,7 @@ namespace Explorer {
         下拉.classList.add("hidden");
         return;
       }
-      过滤列表 = 全部
+      过滤列表 = 全部标签()
         .filter((t) => t.name.toLowerCase().includes(q) || t.path.toLowerCase().includes(q))
         .slice(0, 8);
       if (过滤列表.length === 0) {
@@ -2467,7 +2410,6 @@ namespace Explorer {
         keyword: 搜索关键词 || undefined,
         categories,
         tagId: typeof 当前标签ID === "number" ? 当前标签ID : undefined,
-        noTag: 无分类筛选,
         sort: 排序方式,
         limit: 1000,
       })) as 内容条目[];
@@ -2660,11 +2602,18 @@ namespace Explorer {
     if (!选中内容) return;
     const 目标 = 选中内容;
     const el = document.getElementById("ex-info-name") as HTMLElement;
-    开始内联编辑(el, 目标.name, async (v) => {
+    // 分离基础名和扩展名：后缀不可编辑
+    const 真实扩展名 = 目标.realName?.includes(".") ? 目标.realName.slice(目标.realName.lastIndexOf(".")) : "";
+    let 基础名 = 目标.name;
+    if (真实扩展名 && 目标.name.endsWith(真实扩展名)) {
+      基础名 = 目标.name.slice(0, -真实扩展名.length);
+    }
+    开始内联编辑(el, 基础名, async (v) => {
+      const 最终名 = v + 真实扩展名;
       if (目标.resourceId != null) {
-        await window.kugua.request("mkg", "mkg.alias.set", { resourceId: 目标.resourceId, alias: v });
+        await window.kugua.request("mkg", "mkg.alias.set", { resourceId: 目标.resourceId, alias: 最终名 });
       } else {
-        await window.kugua.request("mkg", "mkg.node.renameTitle", { nodeId: 目标.id, title: v });
+        await window.kugua.request("mkg", "mkg.node.renameTitle", { nodeId: 目标.id, title: 最终名 });
       }
     });
   }
@@ -2672,9 +2621,12 @@ namespace Explorer {
   function 开始内联编辑真实文件名(): void {
     if (!选中内容?.resourceId || !选中内容.realName) return;
     const el = document.getElementById("ex-info-realname") as HTMLElement;
-    开始内联编辑(el, 选中内容.realName, async (v) => {
+    // 分离基础名和扩展名：后缀不可编辑
+    const 真实扩展名 = 选中内容.realName.includes(".") ? 选中内容.realName.slice(选中内容.realName.lastIndexOf(".")) : "";
+    const 基础名 = 真实扩展名 ? 选中内容.realName.slice(0, -真实扩展名.length) : 选中内容.realName;
+    开始内联编辑(el, 基础名, async (v) => {
       if (选中内容?.resourceId == null) return;
-      await window.kugua.request("mkg", "mkg.resource.renameFile", { resourceId: 选中内容.resourceId, newName: v });
+      await window.kugua.request("mkg", "mkg.resource.renameFile", { resourceId: 选中内容.resourceId, newName: v + 真实扩展名 });
     });
   }
 
@@ -3654,17 +3606,33 @@ namespace Explorer {
       排序方式 = 排序框.value as "import" | "name" | "updated";
       void 加载所有内容();
     });
-    const 无分类框 = document.getElementById("ex-notag") as HTMLInputElement;
-    无分类框?.addEventListener("change", () => {
-      无分类筛选 = 无分类框.checked;
-      void 加载所有内容();
-    });
+
 
     // 详情栏内联标签：联想输入（回车添加、↑/↓ 联想、Tab 采纳、点击 chip 移除）
     const 详情标签输入 = document.getElementById("ex-info-tag-input") as HTMLInputElement | null;
     if (详情标签输入) {
       绑定标签联想输入(详情标签输入, 内联标签编辑ID, () => void 内联保存标签());
     }
+    // "添加" 按钮：把输入文字作为标签路径加入
+    const 详情标签添加按钮 = document.getElementById("ex-info-tag-add-btn") as HTMLButtonElement | null;
+    详情标签添加按钮?.addEventListener("click", async () => {
+      const v = 详情标签输入?.value.trim();
+      if (!v) return;
+      try {
+        const 标签 = (await window.kugua.request("mkg", "mkg.tag.createTree", {
+          names: v.split("/").filter(Boolean),
+        })) as { id: number };
+        内联标签编辑ID.add(标签.id);
+        if (详情标签输入) 详情标签输入.value = "";
+        渲染标签chips("ex-info-tags", 内联标签编辑ID, (tid) => {
+          内联标签编辑ID.delete(tid);
+          void 内联保存标签();
+        });
+        void 内联保存标签();
+      } catch (err) {
+        添加消息("添加标签失败：" + String(err), "error");
+      }
+    });
 
     // 新建片段对话框
     document.getElementById("snippet-cancel")?.addEventListener("click", () => document.getElementById("snippet-dialog")?.classList.add("hidden"));
@@ -3750,7 +3718,13 @@ namespace Explorer {
     function 显示重命名对话框(file: 内容条目): void {
       重命名目标 = file;
       renameHint.textContent = "原名称：" + 显示名(file) + "（" + file.name + "）";
-      renameInput.value = file.name;
+      // 分离基础名和扩展名：后缀不可编辑
+      const 真实扩展名 = file.realName?.includes(".") ? file.realName.slice(file.realName.lastIndexOf(".")) : "";
+      let 基础名 = file.name;
+      if (真实扩展名 && file.name.endsWith(真实扩展名)) {
+        基础名 = file.name.slice(0, -真实扩展名.length);
+      }
+      renameInput.value = 基础名;
       renameDialog.classList.remove("hidden");
       renameInput.focus();
       renameInput.select();
@@ -3762,10 +3736,15 @@ namespace Explorer {
     });
     document.getElementById("rename-confirm")?.addEventListener("click", async () => {
       if (!重命名目标) return;
-      const newName = renameInput.value.trim();
+      let newName = renameInput.value.trim();
       if (!newName) {
         添加消息("名称不能为空", "error");
         return;
+      }
+      // 拼接回扩展名
+      const 真实扩展名 = 重命名目标.realName?.includes(".") ? 重命名目标.realName.slice(重命名目标.realName.lastIndexOf(".")) : "";
+      if (真实扩展名 && !newName.endsWith(真实扩展名)) {
+        newName = newName + 真实扩展名;
       }
       await 设置别名(重命名目标, newName);
       renameDialog.classList.add("hidden");
@@ -3893,7 +3872,6 @@ namespace Explorer {
       });
     });
 
-    更新面包屑([{ name: "所有内容", id: "all" }]);
     await 加载标签树();
     await 加载所有内容();
     切换视图("large");

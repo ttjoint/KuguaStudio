@@ -54,7 +54,7 @@
           <div id="ex-file-info" class="ex-section ex-file-info hidden">
               <div class="ex-info-content">
                 <div class="ex-info-preview hidden" id="ex-info-preview"></div>
-                <div class="ex-info-name" id="ex-info-name" title="双击重命名（仅知识库内名称），右键复制名称"></div>
+                <div class="ex-info-name" id="ex-info-name" title="双击重命名（仅知识库内名称），右键复制名称"></div><span class="ex-info-name-ext" id="ex-info-name-ext"></span>
                 <div class="ex-info-row"><span class="ex-info-label">大小</span><span class="ex-info-value" id="ex-info-size"></span></div>
                 <div class="ex-info-row"><span class="ex-info-label">真实文件名</span><span class="ex-info-value ex-info-realname" id="ex-info-realname" title="双击重命名本地文件，右键复制真实文件名"></span></div>
                 <div class="ex-info-row"><span class="ex-info-label">路径</span><span class="ex-info-value" id="ex-info-path" title="右键复制路径或在资源管理器中打开"></span></div>
@@ -65,9 +65,11 @@
                     <div class="ex-info-label">标签</div>
                   </div>
                   <div id="ex-info-tags" class="ex-info-tags"></div>
-                  <div class="tag-autocomplete">
-                    <input type="text" id="ex-info-tag-input" placeholder="输入标签，回车添加；↑/↓ 联想，Tab 采纳">
+                  <div class="ex-info-tag-add">
+                    <input type="text" id="ex-info-tag-input" placeholder="输入标签，用逗号分隔，回车添加">
+                    <button class="ex-link-btn" id="ex-info-tag-add-btn">添加</button>
                   </div>
+                  <div id="ex-info-tag-tree" class="import-tag-tree"></div>
                 </div>
               </div>
             </div>
@@ -78,9 +80,6 @@
               <div class="ex-toolbar-left">
                 <button class="ex-nav-btn" id="ex-cat-toggle" title="折叠分类栏">&#x25C0;</button>
                 <button class="ex-nav-btn" id="ex-nav-refresh" title="刷新">&#x21BB;</button>
-                <div class="ex-breadcrumb" id="ex-breadcrumb">
-                  <span class="ex-bc-item" data-tag-id="all">所有文件</span>
-                </div>
               </div>
               <div class="ex-toolbar-right">
                 <div class="ex-toolbar-filters">
@@ -104,7 +103,6 @@
                     <option value="name">按名称</option>
                     <option value="updated">按修改时间</option>
                   </select>
-                  <label class="ex-notag-filter" title="只看无分类（无标签）的内容"><input type="checkbox" id="ex-notag"> 无分类</label>
                 </div>
                 <div class="ex-view-group" role="group">
                   <button class="ex-view-btn active" data-viewmode="large" title="大图标">&#x2630;&#x2630;</button>
@@ -276,7 +274,7 @@
         <label>标签（输入后回车添加；↑/↓ 选择联想，Tab 采纳；点击已选标签可移除）</label>
         <div class="ex-info-tags" id="snippet-tag-chips"></div>
         <div class="tag-autocomplete">
-          <input type="text" id="snippet-tag-input" placeholder="输入标签，如 美食/川菜">
+          <input type="text" id="snippet-tag-input" placeholder="输入标签，用逗号分隔，如 美食,川菜">
         </div>
       </div>
       <div class="modal-actions">

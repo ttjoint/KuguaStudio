@@ -1380,6 +1380,13 @@ body {
   color: var(--accent);
   text-decoration: underline dotted;
 }
+.ex-info-name-ext {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text-dim);
+  text-align: center;
+  word-break: break-all;
+}
 .ex-info-edit-input {
   width: 100%;
   box-sizing: border-box;
@@ -1731,6 +1738,7 @@ body {
   align-items: center;
   gap: 0.3rem;
   margin-top: 0.4rem;
+  position: relative;
 }
 .ex-info-tag-add input {
   flex: 1;

@@ -912,7 +912,11 @@ export class MKG {
   private 计算目标路径(源路径: string, 目标目录: string, 指定名称?: string): { 目标路径: string; 物理文件名: string } {
     const 源扩展名 = extname(源路径);
     const 源无扩展名 = basename(源路径, 源扩展名);
-    const 使用基础名 = 指定名称?.trim() || 源无扩展名;
+    let 使用基础名 = 指定名称?.trim() || 源无扩展名;
+    // 如果指定名称已包含源扩展名，去掉重复后缀
+    if (指定名称 && 使用基础名.endsWith(源扩展名)) {
+      使用基础名 = 使用基础名.slice(0, -源扩展名.length);
+    }
     let 候选名 = 使用基础名 + 源扩展名;
     let 索引 = 1;
     let 目标路径 = resolve(join(目标目录, 候选名));
