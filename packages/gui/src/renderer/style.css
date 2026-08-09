@@ -1455,6 +1455,7 @@ body {
 }
 .modal-body.small { width: 380px; }
 .modal-body.wide { width: 780px; max-height: 90vh; }
+.confirm-message { font-size: 0.82rem; line-height: 1.6; color: var(--text); white-space: pre-wrap; }
 
 /* 文件预览 */
 .preview-text-content {

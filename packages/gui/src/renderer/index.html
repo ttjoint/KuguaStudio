@@ -337,6 +337,21 @@
     </div>
   </div>
 
+  <!-- 通用确认对话框（替代原生 confirm，避免焦点被夺导致窗口无法输入） -->
+  <div id="confirm-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body small">
+      <div class="modal-title">确认操作</div>
+      <div class="modal-content">
+        <div id="confirm-message" class="confirm-message"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="confirm-cancel">取消</button>
+        <button class="modal-btn primary" id="confirm-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Debug 面板 -->
   <div id="debug-panel" class="debug-panel hidden">
     <div class="debug-header">

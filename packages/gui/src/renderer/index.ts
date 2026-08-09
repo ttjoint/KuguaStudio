@@ -1475,6 +1475,29 @@ async function 刷新统计(): Promise<void> {
   }
 }
 
+// ===== 通用确认对话框（应用内实现，替代原生 confirm，避免窗口失去键盘焦点后无法输入） =====
+let 确认回调: ((ok: boolean) => void) | null = null;
+
+function 显示确认对话框(message: string, onResult: (ok: boolean) => void): void {
+  确认回调 = onResult;
+  const 消息 = document.getElementById("confirm-message");
+  if (消息) 消息.textContent = message;
+  document.getElementById("confirm-dialog")?.classList.remove("hidden");
+  const 默认按钮 = document.getElementById("confirm-cancel") as HTMLButtonElement | null;
+  默认按钮?.focus();
+}
+
+function 关闭确认对话框(ok: boolean): void {
+  const 对话框 = document.getElementById("confirm-dialog");
+  if (!对话框 || 对话框.classList.contains("hidden")) return;
+  对话框.classList.add("hidden");
+  const cb = 确认回调;
+  确认回调 = null;
+  cb?.(ok);
+  // 关闭后把焦点归还页面主体，避免焦点停留在已隐藏元素上导致输入失效
+  (document.activeElement as HTMLElement | null)?.blur?.();
+}
+
 
 // ===== 资源管理器 =====
 
@@ -2275,10 +2298,15 @@ namespace Explorer {
       const v = input.value.trim();
       if (!v) return;
       try {
-        const 标签 = (await window.kugua.request("mkg", "mkg.tag.createTree", {
-          names: v.split(/[,，]/).filter(Boolean),
-        })) as { id: number };
-        已选.add(标签.id);
+        // 逗号分隔的是多个并列标签；createTree 的 names 是单条路径，
+        // 所以每一项单独创建，并把所有创建出的标签都加入已选
+        const 名称列表 = v.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+        for (const 名称 of 名称列表) {
+          const 标签 = (await window.kugua.request("mkg", "mkg.tag.createTree", {
+            names: [名称],
+          })) as { id: number };
+          已选.add(标签.id);
+        }
         input.value = "";
         下拉.classList.add("hidden");
         await 加载标签树();
@@ -2827,6 +2855,7 @@ namespace Explorer {
   // ===== 内置编辑器 =====
   let 编辑器当前文件: 内容条目 | null = null;
   let 编辑器原始内容 = "";
+  let 预览聚焦定时器: number | null = null;
 
   async function 打开内置编辑器(item: 内容条目): Promise<void> {
     const 对话框 = document.getElementById("preview-dialog") as HTMLDivElement;
@@ -2870,13 +2899,15 @@ namespace Explorer {
           // 解码失败则使用原始内容
         }
         编辑器当前文件 = item;
-        编辑器原始内容 = 文本;
         文本编辑区.value = 文本;
+        // 以 textarea 归一化后的值（CRLF/CR -> LF）作为原始基线，
+        // 否则 Windows 换行的文件一打开就会被误判为“已修改”
+        编辑器原始内容 = 文本编辑区.value;
         文本编辑区.readOnly = false;
         文本容器.classList.remove("hidden");
         保存按钮.classList.remove("hidden");
         标题.textContent = item.name;
-        setTimeout(() => 文本编辑区.focus(), 100);
+        预览聚焦定时器 = window.setTimeout(() => 文本编辑区.focus(), 100);
       } else if (类型结果.isImage) {
         // 图片：使用内置图片预览
         const 图片元素 = document.getElementById("preview-image") as HTMLImageElement;
@@ -2984,11 +3015,14 @@ namespace Explorer {
     }
   }
 
-  function 关闭内置编辑器(): void {
+  async function 关闭内置编辑器(): Promise<void> {
     const 对话框 = document.getElementById("preview-dialog") as HTMLDivElement;
     const 文本编辑区 = document.getElementById("preview-text") as HTMLTextAreaElement;
     if (编辑器当前文件 && 文本编辑区.value !== 编辑器原始内容) {
-      if (!confirm("内容已修改，是否放弃更改？")) return;
+      // 用应用内确认框替代原生 confirm：原生弹窗会把窗口键盘焦点夺走，
+      // 关闭后会导致所有输入框无法输入
+      const 放弃 = await new Promise<boolean>((resolve) => 显示确认对话框("内容已修改，是否放弃更改？", resolve));
+      if (!放弃) return;
     }
     // 停止媒体播放
     const 视频元素 = document.getElementById("preview-video") as HTMLVideoElement | null;
@@ -3000,6 +3034,13 @@ namespace Explorer {
     const 图片元素 = document.getElementById("preview-image") as HTMLImageElement | null;
     if (图片元素) 图片元素.src = "";
     对话框.classList.add("hidden");
+    // 取消未触发的延迟聚焦，避免焦点落在已隐藏的编辑区
+    if (预览聚焦定时器 !== null) {
+      clearTimeout(预览聚焦定时器);
+      预览聚焦定时器 = null;
+    }
+    // 焦点归还页面主体，避免停留在已隐藏的编辑区导致后续无法输入
+    (document.activeElement as HTMLElement | null)?.blur?.();
     编辑器当前文件 = null;
     编辑器原始内容 = "";
   }
@@ -3821,10 +3862,14 @@ namespace Explorer {
       const v = 详情标签输入?.value.trim();
       if (!v) return;
       try {
-        const 标签 = (await window.kugua.request("mkg", "mkg.tag.createTree", {
-          names: v.split(/[,，]/).filter(Boolean),
-        })) as { id: number };
-        内联标签编辑ID.add(标签.id);
+        // 逗号分隔的是多个并列标签，每一项单独创建并全部选中
+        const 名称列表 = v.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+        for (const 名称 of 名称列表) {
+          const 标签 = (await window.kugua.request("mkg", "mkg.tag.createTree", {
+            names: [名称],
+          })) as { id: number };
+          内联标签编辑ID.add(标签.id);
+        }
         await 加载标签树();
         if (详情标签输入) 详情标签输入.value = "";
         渲染标签chips("ex-info-tags", 内联标签编辑ID, (tid) => {
@@ -3847,15 +3892,15 @@ namespace Explorer {
     }
 
     // 内置编辑器对话框
-    document.getElementById("preview-close")?.addEventListener("click", () => 关闭内置编辑器());
+    document.getElementById("preview-close")?.addEventListener("click", () => void 关闭内置编辑器());
     document.getElementById("preview-save")?.addEventListener("click", () => void 保存编辑器内容());
     document.getElementById("preview-open-system")?.addEventListener("click", () => {
       if (编辑器当前文件) {
         void 系统默认打开(编辑器当前文件);
-        document.getElementById("preview-dialog")?.classList.add("hidden");
+        void 关闭内置编辑器();
       }
     });
-    document.getElementById("preview-dialog")?.querySelector(".modal-backdrop")?.addEventListener("click", () => 关闭内置编辑器());
+    document.getElementById("preview-dialog")?.querySelector(".modal-backdrop")?.addEventListener("click", () => void 关闭内置编辑器());
     // Ctrl+S 保存
     document.getElementById("preview-text")?.addEventListener("keydown", (e) => {
       if ((e as KeyboardEvent).ctrlKey && (e as KeyboardEvent).key === "s") {
@@ -3864,15 +3909,31 @@ namespace Explorer {
       }
     });
 
+    // 通用确认对话框
+    document.getElementById("confirm-ok")?.addEventListener("click", () => 关闭确认对话框(true));
+    document.getElementById("confirm-cancel")?.addEventListener("click", () => 关闭确认对话框(false));
+    document.getElementById("confirm-dialog")?.querySelector(".modal-backdrop")?.addEventListener("click", () => 关闭确认对话框(false));
+    document.getElementById("confirm-dialog")?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        关闭确认对话框(false);
+      } else if (e.key === "Enter") {
+        e.stopPropagation();
+        关闭确认对话框(true);
+      }
+    });
+
     // 全局 ESC 关闭所有浮动层
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
-      // 内置编辑器有未保存更改时，先确认
-      if (编辑器当前文件) {
-        const 文本编辑区 = document.getElementById("preview-text") as HTMLTextAreaElement;
-        if (文本编辑区 && 文本编辑区.value !== 编辑器原始内容) {
-          return;
-        }
+      // 确认框打开时由它自己处理 ESC
+      const 确认框 = document.getElementById("confirm-dialog");
+      if (确认框 && !确认框.classList.contains("hidden")) return;
+      // 预览框打开时走统一关闭流程（含未保存确认与焦点清理）
+      const 预览框 = document.getElementById("preview-dialog");
+      if (预览框 && !预览框.classList.contains("hidden")) {
+        void 关闭内置编辑器();
+        return;
       }
       隐藏右键菜单();
       document.getElementById("openwith-dialog")?.classList.add("hidden");
@@ -3880,7 +3941,6 @@ namespace Explorer {
       document.getElementById("snippet-dialog")?.classList.add("hidden");
       document.getElementById("note-dialog")?.classList.add("hidden");
       document.getElementById("material-dialog")?.classList.add("hidden");
-      document.getElementById("preview-dialog")?.classList.add("hidden");
     });
 
     const owDialog = document.getElementById("openwith-dialog") as HTMLDivElement;
