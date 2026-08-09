@@ -65,12 +65,9 @@
                     <div class="ex-info-label">标签</div>
                   </div>
                   <div id="ex-info-tags" class="ex-info-tags"></div>
-                  <input type="text" id="ex-info-tag-filter" class="ex-info-tag-filter" placeholder="搜索标签（支持成百上千标签时快速定位）">
-                  <div class="ex-info-tag-add">
-                    <input type="text" id="ex-info-tag-input" placeholder="输入标签路径，用 / 分隔，回车添加">
-                    <button class="ex-link-btn" id="ex-info-tag-add-btn">添加</button>
+                  <div class="tag-autocomplete">
+                    <input type="text" id="ex-info-tag-input" placeholder="输入标签，回车添加；↑/↓ 联想，Tab 采纳">
                   </div>
-                  <div id="ex-info-tag-tree" class="import-tag-tree"></div>
                 </div>
               </div>
             </div>
@@ -80,7 +77,6 @@
             <div class="ex-toolbar">
               <div class="ex-toolbar-left">
                 <button class="ex-nav-btn" id="ex-cat-toggle" title="折叠分类栏">&#x25C0;</button>
-                <button class="ex-nav-btn" id="ex-nav-up" title="向上">&#x1F4C2;&#x2B06;</button>
                 <button class="ex-nav-btn" id="ex-nav-refresh" title="刷新">&#x21BB;</button>
                 <div class="ex-breadcrumb" id="ex-breadcrumb">
                   <span class="ex-bc-item" data-tag-id="all">所有文件</span>
@@ -89,7 +85,7 @@
               <div class="ex-toolbar-right">
                 <div class="ex-toolbar-filters">
                   <button class="ex-nav-btn" id="ex-btn-import" title="导入文件/图片到知识库">&#x1F4E5;</button>
-                  <button class="ex-nav-btn hidden" id="ex-btn-delete-selected" title="删除选中的内容（从知识库移除）">&#x1F5D1;</button>
+                  <button class="ex-nav-btn hidden" id="ex-btn-delete-selected" title="删除选中的内容（从知识库移除）">&#x1F5D1;<span class="badge hidden" id="ex-delete-count"></span></button>
                   <button class="ex-nav-btn" id="ex-btn-new-snippet" title="新建文本片段">&#x2795;</button>
                   <select id="ex-type-filter" class="ex-filter-select" title="按类型筛选">
                     <option value="all">全部类型</option>
@@ -275,15 +271,13 @@
       <div class="modal-content">
         <label>标题</label>
         <input type="text" id="snippet-title" placeholder="片段标题">
-        <label>内容</label>
-        <textarea id="snippet-content" rows="5" placeholder="输入片段内容..."></textarea>
-        <label>选择标签</label>
+        <label>内容（支持 Markdown：图片 ![](路径或链接)、链接 [文字](地址)、加粗 **文字** 等）</label>
+        <textarea id="snippet-content" rows="5" placeholder="输入片段内容，支持 Markdown 语法..."></textarea>
+        <label>标签（输入后回车添加；↑/↓ 选择联想，Tab 采纳；点击已选标签可移除）</label>
         <div class="ex-info-tags" id="snippet-tag-chips"></div>
-        <div class="import-new-tag">
-          <input type="text" id="snippet-new-tag-path" placeholder="新建标签路径，用 / 分隔，例如 美食/川菜">
-          <button class="modal-btn" id="snippet-btn-create-tag">新建</button>
+        <div class="tag-autocomplete">
+          <input type="text" id="snippet-tag-input" placeholder="输入标签，如 美食/川菜">
         </div>
-        <div id="snippet-tag-tree" class="import-tag-tree"></div>
       </div>
       <div class="modal-actions">
         <button class="modal-btn" id="snippet-cancel">取消</button>

@@ -331,6 +331,34 @@ function 文件URL(路径: string | null | undefined): string {
   return "file://" + encodeURI(p);
 }
 
+/** 把片段内的本地/相对资源路径转成可显示的 URL */
+function 内容媒体URL(u: string): string {
+  if (/^(https?:|data:|file:)/i.test(u)) return u;
+  let p = u.replace(/\\/g, "/");
+  if (!p.startsWith("/")) p = "/" + p;
+  return "file://" + encodeURI(p);
+}
+
+/** 简易 Markdown 渲染：先转义 HTML，再支持图片/链接/加粗/行内代码（供多媒体片段预览） */
+function 渲染Markdown(文本: string): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  let html = esc(文本);
+  // 图片 ![alt](url)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt: string, url: string) => {
+    return `<img src="${内容媒体URL(url.trim())}" alt="${alt}" class="md-img">`;
+  });
+  // 链接 [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text: string, url: string) => {
+    return `<a href="${内容媒体URL(url.trim())}" target="_blank" rel="noopener" class="md-link">${text}</a>`;
+  });
+  // 加粗 **text**
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // 行内代码 `code`
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return html;
+}
+
 function 是图片路径(p: string | null | undefined): boolean {
   if (!p) return false;
   return /\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(p);
@@ -432,25 +460,85 @@ function 筛选聊天消息(div: HTMLElement): void {
 }
 
 function 添加消息(内容: string, 类型: "user" | "system" | "error" = "system", 发送者?: string): void {
-  const div = 创建消息节点(类型);
-  if (发送者) {
-    div.querySelector<HTMLDivElement>(".msg-meta")?.insertAdjacentHTML("beforeend", `<span class="msg-sender">${发送者}</span>`);
+  if (类型 === "user") {
+    const div = 创建消息节点("user");
+    const c = div.querySelector<HTMLDivElement>(".msg-content");
+    if (c) c.textContent = 内容;
+    div.dataset.text = 内容;
+    聊天日志.appendChild(div);
+    筛选聊天消息(div);
+    聊天日志.scrollTop = 聊天日志.scrollHeight;
+    return;
   }
-  const c = div.querySelector<HTMLDivElement>(".msg-content");
-  if (c) c.textContent = 内容;
+  if (发送者) {
+    添加回应(内容, 发送者, 类型 === "error");
+    return;
+  }
+  添加提示(内容, 类型 === "error");
+}
+
+/** 找到最近一条用户消息（用于把指令回应连在其下） */
+function 最近用户消息(): HTMLDivElement | null {
+  const 列表 = 聊天日志.querySelectorAll<HTMLDivElement>(".chat-msg.user");
+  return 列表.length > 0 ? 列表[列表.length - 1] : null;
+}
+
+/** 指令回应：追加到最近一条用户指令的气泡内（连在一起，不另起气泡） */
+function 添加回应(内容: string, 发送者?: string, 错误 = false): void {
+  const 用户 = 最近用户消息();
+  let 宿主: HTMLElement;
+  if (用户) {
+    宿主 = 用户;
+  } else {
+    const div = 创建消息节点("system");
+    聊天日志.appendChild(div);
+    宿主 = div;
+  }
+  const 块 = document.createElement("div");
+  块.className = "msg-reply" + (错误 ? " error" : "");
+  if (发送者) {
+    const 标签 = document.createElement("div");
+    标签.className = "msg-reply-sender";
+    标签.textContent = 发送者;
+    块.appendChild(标签);
+  }
+  const 内容块 = document.createElement("div");
+  内容块.className = "msg-reply-content";
+  内容块.textContent = 内容;
+  块.appendChild(内容块);
+  宿主.appendChild(块);
+  宿主.dataset.text = (宿主.dataset.text ? 宿主.dataset.text + "\n" : "") + 内容;
+  筛选聊天消息(宿主);
+  聊天日志.scrollTop = 聊天日志.scrollHeight;
+}
+
+/** 非指令回应的提示：不带气泡的小框（已导入/已上传等） */
+function 添加提示(内容: string, 错误 = false): void {
+  const div = document.createElement("div");
+  div.className = "chat-notice" + (错误 ? " error" : "");
+  div.textContent = 内容;
   div.dataset.text = 内容;
   聊天日志.appendChild(div);
   筛选聊天消息(div);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }
 
-function 添加HTML(html: string, 类型: "system" | "error" = "system"): void {
-  const div = 创建消息节点(类型);
-  const c = div.querySelector<HTMLDivElement>(".msg-content");
-  if (c) c.innerHTML = html;
-  div.dataset.text = c?.textContent ?? "";
-  聊天日志.appendChild(div);
-  筛选聊天消息(div);
+function 添加HTML(html: string): void {
+  const 用户 = 最近用户消息();
+  let 宿主: HTMLElement;
+  if (用户) {
+    宿主 = 用户;
+  } else {
+    const div = 创建消息节点("system");
+    聊天日志.appendChild(div);
+    宿主 = div;
+  }
+  const 块 = document.createElement("div");
+  块.className = "msg-reply";
+  块.innerHTML = html;
+  宿主.appendChild(块);
+  宿主.dataset.text = (宿主.dataset.text ? 宿主.dataset.text + " " : "") + (块.textContent ?? "");
+  筛选聊天消息(宿主);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }
 
@@ -917,7 +1005,7 @@ async function 执行路由(路由: 路由结果): Promise<void> {
     const 结果 = await window.kugua.request(路由.目标, 路由.动作, 路由.参数);
     格式化输出(路由, 结果);
   } catch (err) {
-    添加消息(`【${路由.描述}】失败：${String(err)}`, "error");
+    添加回应(`【${路由.描述}】失败：${String(err)}`, 路由.描述, true);
   }
 }
 
@@ -1424,7 +1512,6 @@ namespace Explorer {
   /** 批量选中（节点 id 集合）：支持框选 / Ctrl 多选 / Shift 范围选择 */
   let 选中节点ID = new Set<number>();
   let 上次点击ID: number | null = null;
-  let 内联标签筛选 = "";
   let 打开方式列表: 打开方式配置[] = [];
   /** 打开方式对话框（由下方事件初始化区块赋值；命名空间级声明便于右键菜单引用） */
   let 显示打开方式对话框: (file: 内容条目) => void = () => {};
@@ -1655,7 +1742,7 @@ namespace Explorer {
       const 片段 = (item.content || "").trim().replace(/\s+/g, " ") || "（无内容）";
       const pre = document.createElement("div");
       pre.className = "ex-thumb-text";
-      pre.textContent = 片段.slice(0, 60);
+      pre.innerHTML = 渲染Markdown(片段.slice(0, 300));
       wrap.appendChild(pre);
       return wrap;
     }
@@ -2107,7 +2194,7 @@ namespace Explorer {
     } else if (["文本", "文本段", "点子", "素材"].includes(f.category) && f.content) {
       const 摘要 = document.createElement("div");
       摘要.className = "ex-info-preview-text";
-      摘要.textContent = f.content.replace(/\s+/g, " ").trim() || "（无内容）";
+      摘要.innerHTML = 渲染Markdown(f.content.replace(/\s+/g, " ").trim() || "（无内容）");
       预览元素.appendChild(摘要);
     } else {
       预览元素.classList.add("hidden");
@@ -2169,79 +2256,156 @@ namespace Explorer {
     document.getElementById("ex-info-modified")!.textContent = 格式化时间(f.modifiedTime || f.updatedAt);
     document.getElementById("ex-info-indexed")!.textContent = 格式化时间(f.indexedAt || f.createdAt);
 
-    // 内联标签：chips（可移除）+ 添加按钮 + 可勾选标签树
+    // 内联标签：chips（点击整个 chip 可移除）+ 联想输入
     内联标签编辑ID = new Set(f.tagIds);
-    const tagsEl = document.getElementById("ex-info-tags") as HTMLDivElement;
-    tagsEl.innerHTML = "";
-    if (f.tagIds.length === 0) {
-      tagsEl.innerHTML = '<span style="color:var(--text-dim);font-size:0.7rem">(无标签)</span>';
-    } else {
-      const idToLeaf = new Map<number, string>();
-      const idToPath = new Map<number, string>();
-      function walk(nodes: 标签节点[], trail: string[]): void {
+    渲染标签chips("ex-info-tags", 内联标签编辑ID, (tid) => {
+      内联标签编辑ID.delete(tid);
+      void 内联保存标签();
+    });
+  }
+
+  /** 渲染标签 chips（点击整个 chip 可移除） */
+  function 渲染标签chips(容器ID: string, 已选: Set<number>, onRemove: (id: number) => void): void {
+    const 容器 = document.getElementById(容器ID) as HTMLDivElement | null;
+    if (!容器) return;
+    容器.innerHTML = "";
+    if (已选.size === 0) {
+      容器.innerHTML = '<span style="color:var(--text-dim);font-size:0.7rem">(无标签)</span>';
+      return;
+    }
+    const idToPath = new Map<number, string>();
+    const walk = (nodes: 标签节点[], trail: string[]): void => {
+      for (const n of nodes) {
+        const pp = [...trail, n.name];
+        idToPath.set(n.id, pp.join(" / "));
+        if (n.children) walk(n.children, pp);
+      }
+    };
+    walk(标签树, []);
+    for (const tid of 已选) {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip removable";
+      chip.title = idToPath.get(tid) || ("标签ID:" + tid) + "（点击移除）";
+      chip.textContent = (idToPath.get(tid) ?? "ID:" + tid) + " ×";
+      chip.addEventListener("click", () => onRemove(tid));
+      容器.appendChild(chip);
+    }
+  }
+
+  /**
+   * 标签联想输入（共享：新建片段对话框与文件详情页）
+   * - 输入后下拉联想（默认高亮首个）
+   * - ↑/↓ 移动高亮，Tab 采纳当前高亮项，鼠标点击直接采纳
+   * - 回车：把输入文字作为标签加入（不存在则创建）
+   */
+  function 绑定标签联想输入(input: HTMLInputElement, 已选: Set<number>, onChanged: () => void): void {
+    let 过滤列表: Array<{ id: number; name: string; path: string }> = [];
+    let 高亮 = 0;
+    const 下拉 = document.createElement("div");
+    下拉.className = "tag-suggest hidden";
+    (input.parentElement as HTMLElement).appendChild(下拉);
+
+    const 全部标签 = (): Array<{ id: number; name: string; path: string }> => {
+      const 结果: Array<{ id: number; name: string; path: string }> = [];
+      const walk = (nodes: 标签节点[], trail: string[]): void => {
         for (const n of nodes) {
           const pp = [...trail, n.name];
-          idToPath.set(n.id, pp.join(" / "));
-          idToLeaf.set(n.id, n.name);
+          结果.push({ id: n.id, name: n.name, path: pp.join("/") });
           if (n.children) walk(n.children, pp);
         }
-      }
+      };
       walk(标签树, []);
-      for (const tid of f.tagIds) {
-        const chip = document.createElement("span");
-        chip.className = "tag-chip";
-        chip.title = idToPath.get(tid) || ("标签ID:" + tid);
-        const leaf = document.createElement("span");
-        leaf.textContent = idToLeaf.get(tid) || ("ID:" + tid);
-        chip.appendChild(leaf);
-        const x = document.createElement("span");
-        x.className = "tc-remove";
-        x.textContent = "×";
-        x.title = "移除标签";
-        x.addEventListener("click", () => {
-          内联标签编辑ID.delete(tid);
-          void 内联保存标签();
+      return 结果;
+    };
+    const 全部 = 全部标签();
+
+    const 采纳 = (t: { id: number; name: string; path: string }): void => {
+      已选.add(t.id);
+      input.value = "";
+      下拉.classList.add("hidden");
+      onChanged();
+    };
+
+    const 添加输入 = async (): Promise<void> => {
+      const v = input.value.trim();
+      if (!v) return;
+      try {
+        const 标签 = (await window.kugua.request("mkg", "mkg.tag.createTree", {
+          names: v.split("/").filter(Boolean),
+        })) as { id: number };
+        已选.add(标签.id);
+        input.value = "";
+        下拉.classList.add("hidden");
+        onChanged();
+      } catch (err) {
+        添加消息("添加标签失败：" + String(err), "error");
+      }
+    };
+
+    const 渲染 = (): void => {
+      const q = input.value.trim().toLowerCase();
+      下拉.innerHTML = "";
+      if (!q) {
+        下拉.classList.add("hidden");
+        return;
+      }
+      过滤列表 = 全部
+        .filter((t) => t.name.toLowerCase().includes(q) || t.path.toLowerCase().includes(q))
+        .slice(0, 8);
+      if (过滤列表.length === 0) {
+        下拉.classList.add("hidden");
+        return;
+      }
+      高亮 = 0;
+      过滤列表.forEach((t, i) => {
+        const 项 = document.createElement("div");
+        项.className = "tag-suggest-item" + (i === 高亮 ? " active" : "");
+        项.textContent = t.path;
+        项.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          采纳(t);
         });
-        chip.appendChild(x);
-        tagsEl.appendChild(chip);
-      }
-    }
-    渲染内联标签树();
-  }
+        下拉.appendChild(项);
+      });
+      下拉.classList.remove("hidden");
+    };
 
-  /** 渲染详情栏内的可勾选标签树 */
-  function 渲染内联标签树(): void {
-    const container = document.getElementById("ex-info-tag-tree") as HTMLDivElement | null;
-    if (!container) return;
-    const kw = 内联标签筛选.trim().toLowerCase();
-    const 树 = kw ? 过滤标签树(标签树, kw) : 标签树;
-    渲染可勾选标签树(树, {
-      containerId: "ex-info-tag-tree",
-      选中的标签ID: 内联标签编辑ID,
-      onToggle: () => void 内联保存标签(),
+    const 更新高亮 = (): void => {
+      下拉.querySelectorAll<HTMLElement>(".tag-suggest-item").forEach((el, i) => {
+        el.classList.toggle("active", i === 高亮);
+      });
+    };
+
+    input.addEventListener("input", 渲染);
+    input.addEventListener("focus", 渲染);
+    input.addEventListener("keydown", (e) => {
+      const 开 = !下拉.classList.contains("hidden");
+      if (e.key === "ArrowDown" && 开) {
+        e.preventDefault();
+        高亮 = (高亮 + 1) % 过滤列表.length;
+        更新高亮();
+        return;
+      }
+      if (e.key === "ArrowUp" && 开) {
+        e.preventDefault();
+        高亮 = (高亮 - 1 + 过滤列表.length) % 过滤列表.length;
+        更新高亮();
+        return;
+      }
+      if (e.key === "Tab" && 开) {
+        e.preventDefault();
+        const t = 过滤列表[高亮];
+        if (t) 采纳(t);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void 添加输入();
+        return;
+      }
+      if (e.key === "Escape") 下拉.classList.add("hidden");
     });
-    if (container) {
-      // 顶部提示
-      const hint = document.createElement("div");
-      hint.className = "inline-tag-hint";
-      hint.textContent = kw
-        ? `「${内联标签筛选.trim()}」筛选结果（勾选以添加标签）`
-        : "勾选以添加标签，点击详情中标签的 × 可移除";
-      container.insertBefore(hint, container.firstChild);
-    }
-  }
-
-  /** 按关键词过滤标签树：命中的标签连同其祖先一起保留 */
-  function 过滤标签树(nodes: 标签节点[], kw: string): 标签节点[] {
-    const 结果: 标签节点[] = [];
-    for (const n of nodes) {
-      const 命中 = n.name.toLowerCase().includes(kw);
-      const children = 过滤标签树(n.children ?? [], kw);
-      if (命中 || children.length > 0) {
-        结果.push({ ...n, children: 命中 ? (n.children ?? []) : children });
-      }
-    }
-    return 结果;
+    input.addEventListener("blur", () => setTimeout(() => 下拉.classList.add("hidden"), 120));
   }
 
   /** 保存内联标签（详情栏） */
@@ -2253,22 +2417,6 @@ namespace Explorer {
       更新内容信息面板();
     } catch (err) {
       添加消息("保存标签失败：" + String(err), "error");
-    }
-  }
-
-  async function 内联新建标签(): Promise<void> {
-    const input = document.getElementById("ex-info-tag-input") as HTMLInputElement | null;
-    if (!input) return;
-    const p = input.value.trim();
-    if (!p) { 添加消息("请输入标签路径", "error"); return; }
-    try {
-      await window.kugua.request("mkg", "mkg.tag.createTree", { names: p.split("/").filter(Boolean) });
-      添加消息("已创建标签：" + p, "system");
-      input.value = "";
-      await 加载标签树();
-      渲染内联标签树();
-    } catch (err) {
-      添加消息("创建标签失败：" + String(err), "error");
     }
   }
 
@@ -2409,22 +2557,28 @@ namespace Explorer {
   function 更新批量删除按钮(): void {
     const btn = document.getElementById("ex-btn-delete-selected") as HTMLButtonElement | null;
     if (!btn) return;
+    const 计数 = document.getElementById("ex-delete-count") as HTMLSpanElement | null;
     const n = 选中节点ID.size;
     btn.classList.toggle("hidden", n === 0);
+    if (计数) {
+      计数.textContent = String(n);
+      计数.classList.toggle("hidden", n === 0);
+    }
     btn.title = n > 0 ? `删除选中的 ${n} 项（从知识库移除，不影响物理文件）` : "删除选中的内容";
-    btn.textContent = n > 0 ? "🗑 " + n : "🗑";
   }
 
   /** 从知识库批量移除选中内容（物理文件不受影响） */
   async function 删除选中内容(): Promise<void> {
     const ids = [...选中节点ID];
     if (ids.length === 0) return;
-    const 列表 = 筛选内容();
-    const 名 = ids.length === 1 ? 列表.find((x) => x.id === ids[0])?.name ?? "该项" : `${ids.length} 项`;
-    if (!window.confirm(`确定从知识库移除「${名}」？物理文件不受影响。`)) return;
+    // 直接处理，不弹确认框
+    (document.activeElement as HTMLElement)?.blur?.();
     try {
       await window.kugua.request("mkg", "mkg.node.removeMany", { nodeIds: ids });
       添加消息(`已从知识库移除 ${ids.length} 项（物理文件未受影响）`, "system", "批量删除");
+    } catch (err) {
+      添加消息("批量移除失败：" + String(err), "error");
+    } finally {
       选中节点ID.clear();
       选中内容 = null;
       上次点击ID = null;
@@ -2432,8 +2586,6 @@ namespace Explorer {
       更新批量删除按钮();
       await 加载所有内容();
       void 刷新统计();
-    } catch (err) {
-      添加消息("批量移除失败：" + String(err), "error");
     }
   }
 
@@ -2443,21 +2595,23 @@ namespace Explorer {
       添加消息("该内容不是文件，仅支持从知识库移除", "system");
       return;
     }
-    if (!window.confirm(`确定将「${item.name}」从知识库移除，并把文件删除到系统回收站？\n${item.path ?? ""}`)) return;
+    // 直接处理，不弹确认框
+    (document.activeElement as HTMLElement)?.blur?.();
     try {
       const r = (await window.kugua.request("mkg", "mkg.node.trash", { nodeId: item.id })) as {
         trashed: boolean;
         note?: string;
       };
       添加消息(r.trashed ? `已删除到回收站：${item.name}` : `已从知识库移除：${item.name}${r.note ? "（" + r.note + "）" : ""}`, "system", "删除到回收站");
+    } catch (err) {
+      添加消息("删除失败：" + String(err), "error");
+    } finally {
       选中节点ID.delete(item.id);
       if (选中内容?.id === item.id) 选中内容 = null;
       更新内容信息面板();
       更新批量删除按钮();
       await 加载所有内容();
       void 刷新统计();
-    } catch (err) {
-      添加消息("删除失败：" + String(err), "error");
     }
   }
 
@@ -2706,41 +2860,18 @@ namespace Explorer {
     (document.getElementById("snippet-dialog-title") as HTMLDivElement).textContent = "新建片段";
     (document.getElementById("snippet-title") as HTMLInputElement).value = "";
     (document.getElementById("snippet-content") as HTMLTextAreaElement).value = "";
-    (document.getElementById("snippet-new-tag-path") as HTMLInputElement).value = "";
+    const 标签输入 = document.getElementById("snippet-tag-input") as HTMLInputElement | null;
+    if (标签输入) 标签输入.value = "";
     片段编辑标签ID = new Set();
     渲染片段对话框标签();
-    渲染可勾选标签树(标签树, {
-      containerId: "snippet-tag-tree",
-      选中的标签ID: 片段编辑标签ID,
-      onToggle: () => 渲染片段对话框标签(),
-    });
     document.getElementById("snippet-dialog")?.classList.remove("hidden");
     (document.getElementById("snippet-title") as HTMLInputElement).focus();
   }
 
   function 渲染片段对话框标签(): void {
-    const tagsEl = document.getElementById("snippet-tag-chips") as HTMLDivElement;
-    if (!tagsEl) return;
-    tagsEl.innerHTML = "";
-    if (片段编辑标签ID.size === 0) {
-      tagsEl.innerHTML = '<span style="color:var(--text-dim);font-size:0.7rem">(未选择标签，从下方标签树勾选)</span>';
-      return;
-    }
-    片段编辑标签ID.forEach((id) => {
-      const chip = document.createElement("span");
-      chip.className = "tag-chip";
-      chip.textContent = 标签ID转名称(id);
-      const x = document.createElement("span");
-      x.className = "tc-remove";
-      x.textContent = "×";
-      x.title = "移除";
-      x.addEventListener("click", () => {
-        片段编辑标签ID.delete(id);
-        渲染片段对话框标签();
-        渲染可勾选标签树(标签树, { containerId: "snippet-tag-tree", 选中的标签ID: 片段编辑标签ID, onToggle: () => 渲染片段对话框标签() });
-      });
-      chip.appendChild(x);
-      tagsEl.appendChild(chip);
+    渲染标签chips("snippet-tag-chips", 片段编辑标签ID, (id) => {
+      片段编辑标签ID.delete(id);
+      渲染片段对话框标签();
     });
   }
 
@@ -2755,21 +2886,6 @@ namespace Explorer {
       await 加载所有内容();
     } catch (err) {
       添加消息("保存片段失败：" + String(err), "error");
-    }
-  }
-
-  async function 新建片段标签(): Promise<void> {
-    const input = document.getElementById("snippet-new-tag-path") as HTMLInputElement;
-    const p = input.value.trim();
-    if (!p) { 添加消息("请输入标签路径", "error"); return; }
-    try {
-      await window.kugua.request("mkg", "mkg.tag.createTree", { names: p.split("/").filter(Boolean) });
-      添加消息("已创建标签：" + p, "system");
-      input.value = "";
-      await 加载标签树();
-      渲染可勾选标签树(标签树, { containerId: "snippet-tag-tree", 选中的标签ID: 片段编辑标签ID, onToggle: () => 渲染片段对话框标签() });
-    } catch (err) {
-      添加消息("创建标签失败：" + String(err), "error");
     }
   }
 
@@ -3501,15 +3617,6 @@ namespace Explorer {
       });
     });
 
-    document.getElementById("ex-nav-up")?.addEventListener("click", async () => {
-      当前标签ID = "all";
-      选中内容 = null;
-      更新面包屑([{ name: "所有内容", id: "all" }]);
-      文件信息面板.classList.add("hidden");
-      await 加载所有内容();
-      渲染标签树();
-    });
-
     document.getElementById("ex-nav-refresh")?.addEventListener("click", async () => {
       await 加载标签树();
       await 加载所有内容();
@@ -3527,18 +3634,13 @@ namespace Explorer {
 
     // 键盘删除（Delete/Backspace，输入框聚焦时不触发）
     document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable) return;
       if ((e.key === "Delete" || e.key === "Backspace") && 选中节点ID.size > 0) {
         e.preventDefault();
         void 删除选中内容();
       }
-    });
-
-    // 详情栏标签筛选（适配大量标签）
-    document.getElementById("ex-info-tag-filter")?.addEventListener("input", (e) => {
-      内联标签筛选 = (e.target as HTMLInputElement).value;
-      渲染内联标签树();
     });
 
     // 类型筛选 / 排序 / 无分类
@@ -3558,17 +3660,20 @@ namespace Explorer {
       void 加载所有内容();
     });
 
-    // 详情栏内联标签：添加 + 移除
-    document.getElementById("ex-info-tag-add-btn")?.addEventListener("click", () => void 内联新建标签());
-    document.getElementById("ex-info-tag-input")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); void 内联新建标签(); }
-    });
+    // 详情栏内联标签：联想输入（回车添加、↑/↓ 联想、Tab 采纳、点击 chip 移除）
+    const 详情标签输入 = document.getElementById("ex-info-tag-input") as HTMLInputElement | null;
+    if (详情标签输入) {
+      绑定标签联想输入(详情标签输入, 内联标签编辑ID, () => void 内联保存标签());
+    }
 
     // 新建片段对话框
     document.getElementById("snippet-cancel")?.addEventListener("click", () => document.getElementById("snippet-dialog")?.classList.add("hidden"));
     document.getElementById("snippet-dialog")?.querySelector(".modal-backdrop")?.addEventListener("click", () => document.getElementById("snippet-dialog")?.classList.add("hidden"));
     document.getElementById("snippet-save")?.addEventListener("click", () => void 保存片段());
-    document.getElementById("snippet-btn-create-tag")?.addEventListener("click", () => void 新建片段标签());
+    const 片段标签输入 = document.getElementById("snippet-tag-input") as HTMLInputElement | null;
+    if (片段标签输入) {
+      绑定标签联想输入(片段标签输入, 片段编辑标签ID, () => 渲染片段对话框标签());
+    }
 
     // 全局 ESC 关闭所有浮动层
     document.addEventListener("keydown", (e) => {
@@ -3853,7 +3958,7 @@ const 聊天搜索清除 = document.getElementById("chat-search-clear") as HTMLB
 function 应用聊天搜索(): void {
   const q = 聊天搜索框?.value.trim() ?? "";
   if (聊天搜索清除) 聊天搜索清除.classList.toggle("hidden", !q);
-  聊天日志.querySelectorAll<HTMLElement>(".chat-msg").forEach((m) => 筛选聊天消息(m));
+  聊天日志.querySelectorAll<HTMLElement>(".chat-msg, .chat-notice").forEach((m) => 筛选聊天消息(m));
 }
 聊天搜索框?.addEventListener("input", 应用聊天搜索);
 聊天搜索清除?.addEventListener("click", () => {
