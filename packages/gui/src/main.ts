@@ -3,7 +3,7 @@
  * 职责：启动苦音主控、创建 GUI 窗口、代理渲染进程与主控的通信。
  */
 
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, protocol, net } from "electron";
 import { spawn, type ChildProcess, exec } from "node:child_process";
 import { resolve, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -206,6 +206,12 @@ async function 创建窗口(): Promise<void> {
 }
 
 function 注册IPC(): void {
+  // 注册 kugua-file:// 自定义协议，用于安全访问本地文件（如媒体预览）
+  protocol.handle("kugua-file", (request) => {
+    const filePath = decodeURIComponent(request.url.replace("kugua-file:///", ""));
+    return net.fetch("file:///" + filePath);
+  });
+
   // ===== 窗口控制（无边框窗口）=====
   ipcMain.handle("kugua:window:minimize", () => {
     主窗口?.minimize();
@@ -265,6 +271,14 @@ function 注册IPC(): void {
       filters: opts.filters,
     });
     return result.canceled ? [] : result.filePaths;
+  });
+
+  // 获取本地文件的 kugua-file:// URL（供渲染进程加载媒体文件）
+  ipcMain.handle("kugua:getFileUrl", async (_event, filePath: string) => {
+    if (!filePath || !existsSync(filePath)) return null;
+    // 转换为 kugua-file:// URL
+    const normalized = filePath.replace(/\\/g, "/");
+    return "kugua-file:///" + encodeURI(normalized);
   });
 
   ipcMain.handle("kugua:dialog:openImages", async () => {

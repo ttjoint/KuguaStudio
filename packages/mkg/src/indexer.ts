@@ -23,8 +23,12 @@ function 是否排除(path: string, exclude?: string[]): boolean {
  */
 function 是文本文件(name: string): boolean {
   const 文本扩展名 = new Set([
-    "txt", "md", "json", "js", "ts", "py", "cs", "java", "c", "cpp", "h",
-    "html", "htm", "css", "xml", "yaml", "yml", "log", "csv", "ini", "conf",
+    "txt", "md", "markdown", "json", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+    "py", "cs", "java", "c", "cpp", "h", "hpp", "go", "rs", "rb", "php",
+    "swift", "kt", "scala", "r", "lua", "dart", "sql", "sh", "bash", "zsh",
+    "bat", "cmd", "ps1", "vbs", "html", "htm", "css", "scss", "sass", "less",
+    "xml", "svg", "yaml", "yml", "toml", "ini", "cfg", "conf", "log",
+    "env", "gitignore", "editorconfig", "dockerfile", "makefile",
   ]);
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return 文本扩展名.has(ext);

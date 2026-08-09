@@ -15,6 +15,8 @@ declare global {
         isMaximized: () => Promise<boolean>;
         onMaximized: (callback: (isMax: boolean) => void) => void;
       };
+      /** 获取本地文件的 kugua-file:// URL（用于媒体预览） */
+      getFileUrl: (filePath: string) => Promise<string | null>;
       dialog: {
         openFiles: (options?: {
           title?: string;
@@ -50,6 +52,7 @@ contextBridge.exposeInMainWorld("kugua", {
       ipcRenderer.on("kugua:window:maximized", (_event, isMax: boolean) => callback(isMax));
     },
   },
+  getFileUrl: (filePath: string) => ipcRenderer.invoke("kugua:getFileUrl", filePath),
   dialog: {
     openFiles: (options?: {
       title?: string;

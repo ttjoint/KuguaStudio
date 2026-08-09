@@ -489,7 +489,7 @@ export class MKG {
   }
 
   private 推断MimeType(extension: string): string {
-    const textExts = [".txt", ".json", ".csv", ".md", ".markdown", ".xml", ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".py", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".php", ".sh", ".bat", ".ps1", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".log", ".sql"];
+    const textExts = [".txt", ".json", ".csv", ".md", ".markdown", ".xml", ".html", ".htm", ".css", ".scss", ".sass", ".less", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".r", ".lua", ".dart", ".sql", ".sh", ".bash", ".bat", ".cmd", ".ps1", ".vbs", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".log", ".env"];
     const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tiff", ".tif"];
     const audioExts = [".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"];
     const videoExts = [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm"];
@@ -733,9 +733,9 @@ export class MKG {
       父.set(id, 严格父 !== null ? 严格父 : (重合父 !== null && 重合父 < id ? 重合父 : null));
     }
 
-    const nodes = new Map<number, 标签 & { children: 标签[] }>();
-    for (const t of 全部标签) nodes.set(t.id, { ...t, children: [] });
-    const roots: Array<标签 & { children: 标签[] }> = [];
+    const nodes = new Map<number, 标签 & { children: 标签[]; count: number }>();
+    for (const t of 全部标签) nodes.set(t.id, { ...t, children: [], count: 标签对象.get(t.id)?.size ?? 0 });
+    const roots: Array<标签 & { children: 标签[]; count: number }> = [];
     for (const id of 标签对象.keys()) {
       const p = 父.get(id);
       const node = nodes.get(id)!;
@@ -912,7 +912,11 @@ export class MKG {
   private 计算目标路径(源路径: string, 目标目录: string, 指定名称?: string): { 目标路径: string; 物理文件名: string } {
     const 源扩展名 = extname(源路径);
     const 源无扩展名 = basename(源路径, 源扩展名);
-    const 使用基础名 = 指定名称?.trim() || 源无扩展名;
+    let 使用基础名 = 指定名称?.trim() || 源无扩展名;
+    // 如果指定名称已包含源扩展名，去掉重复后缀
+    if (指定名称 && 使用基础名.endsWith(源扩展名)) {
+      使用基础名 = 使用基础名.slice(0, -源扩展名.length);
+    }
     let 候选名 = 使用基础名 + 源扩展名;
     let 索引 = 1;
     let 目标路径 = resolve(join(目标目录, 候选名));
@@ -1639,8 +1643,11 @@ export class MKG {
     const 视频 = ["mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v"];
     const 文本 = [
       "txt", "md", "markdown", "log", "json", "yaml", "yml", "xml", "csv", "html", "htm",
-      "css", "js", "ts", "tsx", "jsx", "py", "java", "c", "cpp", "cs", "go", "rs", "sql",
-      "sh", "bat", "ps1", "ini", "conf", "toml",
+      "css", "scss", "sass", "less", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+      "py", "java", "c", "cpp", "h", "hpp", "cs", "go", "rs", "rb", "php",
+      "swift", "kt", "scala", "r", "lua", "dart", "sql",
+      "sh", "bash", "bat", "cmd", "ps1", "vbs", "ini", "conf", "cfg", "toml",
+      "env", "gitignore", "editorconfig",
     ];
     if (图片.includes(ext)) return "图片";
     if (音乐.includes(ext)) return "音乐";
@@ -1670,6 +1677,14 @@ export class MKG {
       this.确保片段表();
       const r = this.db.prepare("SELECT content FROM snippet_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
       return r?.content ?? "";
+    }
+    // file 类型：从 text_contents 表读取索引的文本内容
+    if (node.type === "file") {
+      const 资源 = this.db.prepare("SELECT id FROM resources WHERE node_id = ?").get(node.id) as { id: number } | undefined;
+      if (资源) {
+        const r = this.db.prepare("SELECT content FROM text_contents WHERE resource_id = ?").get(资源.id) as { content: string } | undefined;
+        return r?.content ?? "";
+      }
     }
     return "";
   }

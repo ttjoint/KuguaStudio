@@ -3,7 +3,7 @@
  * 通过苦音协议向其他模块暴露 MKG 能力
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NiganeClient } from "@kugua/nigane";
 import { MKG, type 资源关系类型, type 内容分类 } from "@kugua/mkg";
@@ -391,6 +391,61 @@ async function 启动(): Promise<void> {
     const { resourceId } = (params ?? {}) as { resourceId?: number };
     if (resourceId === undefined) throw new Error("缺少 resourceId");
     return mkg.getPhysicalPath(resourceId);
+  });
+
+  /** 读取文件原始内容，返回 base64（用于二进制预览） */
+  客户端.onRequest("mkg.file.readRaw", (params) => {
+    const { resourceId } = (params ?? {}) as { resourceId?: number };
+    if (resourceId === undefined) throw new Error("缺少 resourceId");
+    const path = mkg.getPhysicalPath(resourceId);
+    if (!path) throw new Error(`资源不存在：${resourceId}`);
+    const buf = readFileSync(path);
+    return { base64: buf.toString("base64"), size: buf.length, path };
+  });
+
+  /** 写入文件内容（用于内置编辑器保存） */
+  客户端.onRequest("mkg.file.write", (params) => {
+    const { resourceId, content, encoding } = (params ?? {}) as {
+      resourceId?: number;
+      content?: string;
+      encoding?: "utf8" | "base64";
+    };
+    if (resourceId === undefined) throw new Error("缺少 resourceId");
+    if (content === undefined) throw new Error("缺少 content");
+    const path = mkg.getPhysicalPath(resourceId);
+    if (!path) throw new Error(`资源不存在：${resourceId}`);
+    const enc: BufferEncoding = encoding === "base64" ? "base64" : "utf8";
+    writeFileSync(path, content, enc);
+    return { success: true };
+  });
+
+  /** 判断文件是否为文本类型（按扩展名） */
+  客户端.onRequest("mkg.file.isText", (params) => {
+    const { resourceId } = (params ?? {}) as { resourceId?: number };
+    if (resourceId === undefined) throw new Error("缺少 resourceId");
+    const path = mkg.getPhysicalPath(resourceId);
+    if (!path) throw new Error(`资源不存在：${resourceId}`);
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    const 文本扩展名 = new Set([
+      "txt", "md", "markdown", "json", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+      "py", "cs", "java", "c", "cpp", "h", "hpp", "go", "rs", "rb", "php",
+      "swift", "kt", "scala", "r", "lua", "dart", "sql", "sh", "bash", "zsh",
+      "bat", "cmd", "ps1", "vbs", "html", "htm", "css", "scss", "sass", "less",
+      "xml", "svg", "yaml", "yml", "toml", "ini", "cfg", "conf", "log",
+      "env", "gitignore", "editorconfig", "dockerfile", "makefile",
+    ]);
+    const 压缩包扩展名 = new Set(["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tbz2"]);
+    const 图片扩展名 = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg", "tiff", "tif", "avif", "heic", "heif"]);
+    const 视频扩展名 = new Set(["mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv", "flv", "wmv", "m4v", "mpg", "mpeg", "3gp"]);
+    const 音乐扩展名 = new Set(["mp3", "wav", "flac", "ogg", "oga", "aac", "m4a", "wma", "opus", "aiff", "ape"]);
+    return {
+      isText: 文本扩展名.has(ext),
+      isArchive: 压缩包扩展名.has(ext),
+      isImage: 图片扩展名.has(ext),
+      isVideo: 视频扩展名.has(ext),
+      isAudio: 音乐扩展名.has(ext),
+      extension: ext,
+    };
   });
 
   客户端.onRequest("mkg.tag.tree", () => {
