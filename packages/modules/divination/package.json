@@ -9,8 +9,17 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@kugua/capability": "*",
     "@kugua/dscript": "*",
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "@kugua/random": "*",
+    "ws": "^8.18.0",
+    "@kugua/paths": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "周易蓍草占卜 + 每日运势"
   }
 }

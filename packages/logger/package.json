@@ -1,0 +1,19 @@
+{
+  "name": "@kugua/logger",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜工作室日志器：内存环形缓冲 + 限流落盘（空闲不写盘）",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {}
+}

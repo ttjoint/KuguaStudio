@@ -11,10 +11,16 @@
   },
   "dependencies": {
     "@kugua/nigane": "*",
-    "@kugua/mkg": "*"
+    "@kugua/mkg": "*",
+    "@kugua/module-kit": "*"
   },
   "devDependencies": {
     "@types/node": "^22.5.0",
     "typescript": "^5.5.4"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "苦瓜知识图谱（本地索引/标签/搜索）"
   }
 }

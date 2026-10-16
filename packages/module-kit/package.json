@@ -1,0 +1,22 @@
+{
+  "name": "@kugua/module-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜模块启动套件：统一配置读取、客户端连接、能力注册与进程退出样板",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/nigane": "*"
+  }
+}

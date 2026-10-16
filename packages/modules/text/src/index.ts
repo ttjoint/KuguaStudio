@@ -6,25 +6,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { NiganeClient } from "@kugua/nigane";
+import { 启动模块 } from "@kugua/module-kit";
 import { DScriptFile, DValue } from "@kugua/dscript";
 import { 简体字符集, 繁体字符集, 火星字符集 } from "./data/hx_chars.js";
-
-interface 模块配置 {
-  host?: string;
-  port?: number;
-  token?: string;
-}
-
-function 加载配置(): 模块配置 {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
-  if (!existsSync(路径)) return {};
-  try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
-  } catch {
-    return {};
-  }
-}
 
 /* ============ 语料缓存 ============ */
 interface 语料 {
@@ -39,6 +23,19 @@ interface 语料 {
 }
 
 let 语料缓存: 语料 | null = null;
+
+/** 中文指令调用时，把 参数文本/原文 补齐到 文本/输入/主题/日期（不覆盖已有值）。 */
+function 规范参数(参数: unknown): unknown {
+  if (!参数 || typeof 参数 !== "object") return 参数;
+  const p = { ...(参数 as Record<string, unknown>) };
+  const 基准 = p.参数文本 ?? p.原文;
+  if (typeof 基准 === "string") {
+    for (const k of ["文本", "输入", "主题", "日期"]) {
+      if (p[k] === undefined) p[k] = 基准;
+    }
+  }
+  return p;
+}
 
 function 读数据(名: string): string {
   return readFileSync(resolve(process.cwd(), "data/generators", 名), "utf-8");
@@ -385,142 +382,123 @@ function 历史上的今天(输入: string): string {
 }
 
 /* ============ 启动 ============ */
-async function 启动(): Promise<void> {
-  const 配置 = 加载配置();
-  const host = 配置.host ?? "127.0.0.1";
-  const port = 配置.port ?? 24601;
-  const envURL = process.env.NIGANE_URL ?? process.argv[2];
-  const envToken = process.env.NIGANE_TOKEN ?? process.argv[3];
-
-  const 客户端 = new NiganeClient({
-    name: "text",
-    url: envURL ?? `ws://${host}:${port}`,
-    token: envToken ?? 配置.token ?? "",
-    version: "0.1.0",
-    capabilities: [
-      "text.reverse", "text.reverseLines", "text.toUpper", "text.toLower",
-      "text.shuffle", "text.cut", "text.gongshou", "text.joke", "text.salad",
-      "text.paper", "text.paper2", "text.paper3", "text.hx", "text.randomHans",
-      "text.historyToday",
-    ],
-  });
-
-  客户端.onRequest("text.reverse", (params) => {
-    const { 文本 = "" } = (params ?? {}) as { 文本?: string };
-    return { 原因: 文本, 结果: [...文本].reverse().join("") };
-  });
-
-  客户端.onRequest("text.reverseLines", (params) => {
-    const { 文本 = "" } = (params ?? {}) as { 文本?: string };
-    return { 原因: 文本, 结果: 文本.split("\n").reverse().join("\r\n") };
-  });
-
-  客户端.onRequest("text.toUpper", (params) => {
-    const { 文本 = "" } = (params ?? {}) as { 文本?: string };
-    return { 原因: 文本, 结果: 文本.toUpperCase() };
-  });
-
-  客户端.onRequest("text.toLower", (params) => {
-    const { 文本 = "" } = (params ?? {}) as { 文本?: string };
-    return { 原因: 文本, 结果: 文本.toLowerCase() };
-  });
-
-  客户端.onRequest("text.shuffle", (params) => {
-    const { 文本 = "" } = (params ?? {}) as { 文本?: string };
-    return { 原因: 文本, 结果: 乱序字符串(文本) };
-  });
-
-  客户端.onRequest("text.cut", (params) => {
-    const { 段数 = 3, 次数 = 1, 文本 = "" } = (params ?? {}) as {
-      段数?: number;
-      次数?: number;
-      文本?: string;
+void 启动模块({
+  name: "text",
+  version: "0.1.0",
+  capabilities: [
+    "text.reverse", "text.reverseLines", "text.toUpper", "text.toLower",
+    "text.shuffle", "text.cut", "text.gongshou", "text.joke", "text.salad",
+    "text.paper", "text.paper2", "text.paper3", "text.hx", "text.randomHans",
+    "text.historyToday",
+  ],
+  注册: (客户端) => {
+    // 中文指令调用时，把 参数文本/原文 补齐到 文本/输入/主题/日期
+    const 原始注册 = 客户端.onRequest.bind(客户端);
+    客户端.onRequest = (动作: string, 处理器: Parameters<typeof 客户端.onRequest>[1]): void => {
+      原始注册(动作, (参数, 消息) => 处理器(规范参数(参数), 消息));
     };
-    let 目标 = 文本.trim();
-    if (段数 < 1) return "";
-    let runTime = 次数 < 1 ? 1 : Math.min(次数, 5);
-    let 结果 = "";
-    for (let i = 0; i < runTime; i++) {
-      结果 += 乱序字符串(目标, 段数) + "\r\n";
-    }
-    return { 原因: 文本, 结果 };
-  });
 
-  客户端.onRequest("text.gongshou", (params) => {
-    const { 攻 = "", 受 = "" } = (params ?? {}) as { 攻?: string; 受?: string };
-    if (!攻 || !受 || 攻.length > 15 || 受.length > 15) return { 原因: "", 结果: "" };
-    载入语料();
-    return { 攻, 受, 结果: 攻受文(攻, 受) };
-  });
+    客户端.onRequest("text.reverse", (params) => {
+      const { 文本 = "" } = (params ?? {}) as { 文本?: string };
+      return { 原因: 文本, 结果: [...文本].reverse().join("") };
+    });
 
-  客户端.onRequest("text.joke", (params) => {
-    const { 输入 = "" } = (params ?? {}) as { 输入?: string };
-    载入语料();
-    return { 原因: 输入, 结果: 讽刺(输入) };
-  });
+    客户端.onRequest("text.reverseLines", (params) => {
+      const { 文本 = "" } = (params ?? {}) as { 文本?: string };
+      return { 原因: 文本, 结果: 文本.split("\n").reverse().join("\r\n") };
+    });
 
-  客户端.onRequest("text.salad", (params) => {
-    const { 主题 = "" } = (params ?? {}) as { 主题?: string };
-    载入语料();
-    return { 主题, 结果: 什么是(主题) };
-  });
+    客户端.onRequest("text.toUpper", (params) => {
+      const { 文本 = "" } = (params ?? {}) as { 文本?: string };
+      return { 原因: 文本, 结果: 文本.toUpperCase() };
+    });
 
-  客户端.onRequest("text.paper", (params) => {
-    const { 主题 = "" } = (params ?? {}) as { 主题?: string };
-    载入语料();
-    return { 主题, 结果: 狗屁不通(主题) };
-  });
+    客户端.onRequest("text.toLower", (params) => {
+      const { 文本 = "" } = (params ?? {}) as { 文本?: string };
+      return { 原因: 文本, 结果: 文本.toLowerCase() };
+    });
 
-  客户端.onRequest("text.paper2", (params) => {
-    const { 主题 = "" } = (params ?? {}) as { 主题?: string };
-    载入语料();
-    return { 主题, 结果: `云杰说道:暂且不知诸位朋友哪位,${云杰说道(主题)}` };
-  });
+    客户端.onRequest("text.shuffle", (params) => {
+      const { 文本 = "" } = (params ?? {}) as { 文本?: string };
+      return { 原因: 文本, 结果: 乱序字符串(文本) };
+    });
 
-  客户端.onRequest("text.paper3", (params) => {
-    const { 主题 = "" } = (params ?? {}) as { 主题?: string };
-    载入语料();
-    return { 主题, 结果: 营销号(主题) };
-  });
+    客户端.onRequest("text.cut", (params) => {
+      const { 段数 = 3, 次数 = 1, 文本 = "" } = (params ?? {}) as {
+        段数?: number;
+        次数?: number;
+        文本?: string;
+      };
+      let 目标 = 文本.trim();
+      if (段数 < 1) return "";
+      let runTime = 次数 < 1 ? 1 : Math.min(次数, 5);
+      let 结果 = "";
+      for (let i = 0; i < runTime; i++) {
+        结果 += 乱序字符串(目标, 段数) + "\r\n";
+      }
+      return { 原因: 文本, 结果 };
+    });
 
-  客户端.onRequest("text.hx", (params) => {
-    const { 文本 = "" } = (params ?? {}) as { 文本?: string };
-    return { 原因: 文本, 结果: 火星文(文本) };
-  });
+    客户端.onRequest("text.gongshou", (params) => {
+      const { 攻 = "", 受 = "" } = (params ?? {}) as { 攻?: string; 受?: string };
+      if (!攻 || !受 || 攻.length > 15 || 受.length > 15) return { 原因: "", 结果: "" };
+      载入语料();
+      return { 攻, 受, 结果: 攻受文(攻, 受) };
+    });
 
-  客户端.onRequest("text.randomHans", (params) => {
-    const { 行数 = 1, 列数 = 1 } = (params ?? {}) as { 行数?: number; 列数?: number };
-    let rows = 行数 < 1 ? 1 : 行数;
-    let cols = 列数 < 1 ? 1 : 列数;
-    if (rows * cols > 2500) {
-      const maxrow = Math.floor(2500 / cols);
-      if (maxrow <= 0) { rows = 1; cols = 2500; }
-      else rows = maxrow;
-    }
-    载入语料();
-    return { 行数: rows, 列数: cols, 结果: 随机汉字(rows, cols) };
-  });
+    客户端.onRequest("text.joke", (params) => {
+      const { 输入 = "" } = (params ?? {}) as { 输入?: string };
+      载入语料();
+      return { 原因: 输入, 结果: 讽刺(输入) };
+    });
 
-  客户端.onRequest("text.historyToday", (params) => {
-    const { 日期 = "今天" } = (params ?? {}) as { 日期?: string };
-    载入语料();
-    return { 日期, 结果: 历史上的今天(日期) };
-  });
+    客户端.onRequest("text.salad", (params) => {
+      const { 主题 = "" } = (params ?? {}) as { 主题?: string };
+      载入语料();
+      return { 主题, 结果: 什么是(主题) };
+    });
 
-  await 客户端.connect();
-  console.log("[文本模块] 已接入主控，等待文本功能请求");
+    客户端.onRequest("text.paper", (params) => {
+      const { 主题 = "" } = (params ?? {}) as { 主题?: string };
+      载入语料();
+      return { 主题, 结果: 狗屁不通(主题) };
+    });
 
-  const 关闭 = (): void => {
-    console.log("[文本模块] 正在关闭……");
-    客户端.close();
-    process.exit(0);
-  };
-  客户端.on("shutdown", 关闭);
-  process.on("SIGINT", 关闭);
-  process.on("SIGTERM", 关闭);
-}
+    客户端.onRequest("text.paper2", (params) => {
+      const { 主题 = "" } = (params ?? {}) as { 主题?: string };
+      载入语料();
+      return { 主题, 结果: `云杰说道:暂且不知诸位朋友哪位,${云杰说道(主题)}` };
+    });
 
-启动().catch((err: unknown) => {
-  console.error("[文本模块] 启动失败：", err);
-  process.exit(1);
+    客户端.onRequest("text.paper3", (params) => {
+      const { 主题 = "" } = (params ?? {}) as { 主题?: string };
+      载入语料();
+      return { 主题, 结果: 营销号(主题) };
+    });
+
+    客户端.onRequest("text.hx", (params) => {
+      const { 文本 = "" } = (params ?? {}) as { 文本?: string };
+      return { 原因: 文本, 结果: 火星文(文本) };
+    });
+
+    客户端.onRequest("text.randomHans", (params) => {
+      const { 行数 = 1, 列数 = 1 } = (params ?? {}) as { 行数?: number; 列数?: number };
+      let rows = 行数 < 1 ? 1 : 行数;
+      let cols = 列数 < 1 ? 1 : 列数;
+      if (rows * cols > 2500) {
+        const maxrow = Math.floor(2500 / cols);
+        if (maxrow <= 0) { rows = 1; cols = 2500; }
+        else rows = maxrow;
+      }
+      载入语料();
+      return { 行数: rows, 列数: cols, 结果: 随机汉字(rows, cols) };
+    });
+
+    客户端.onRequest("text.historyToday", (params) => {
+      const { 日期 = "今天" } = (params ?? {}) as { 日期?: string };
+      载入语料();
+      return { 日期, 结果: 历史上的今天(日期) };
+    });
+  },
+  就绪: () => console.log("[文本模块] 已接入主控，等待文本功能请求"),
 });

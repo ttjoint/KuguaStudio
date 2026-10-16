@@ -19,6 +19,9 @@ import {
   type 模块描述,
   type 模块详情,
 } from "@kugua/nigane";
+import { 能力注册表, type 能力声明, type 能力入口 } from "@kugua/capability";
+import { 审计日志, type 审计过滤 } from "@kugua/audit";
+import { 日志器, type 日志级别 } from "@kugua/logger";
 
 interface 主控配置 {
   host: string;
@@ -72,6 +75,12 @@ interface 子进程记录 {
 
 const 子进程表 = new Map<string, 子进程记录>();
 const 库文件状态 = new Map<string, boolean>(); // name → exists?
+/** 全局能力注册表：由模块握手声明汇总而来，驱动指令/GUI/定时/MCP */
+const 能力表 = new 能力注册表();
+/** 审计日志（启动时初始化） */
+let 审计: 审计日志 | null = null;
+/** 日志器（启动时初始化） */
+let 日志器实例: 日志器 | null = null;
 
 /** 运行时共享（由 启动() 初始化后可用） */
 let 配置: 主控配置 = { host: "127.0.0.1", port: 24601, token: "", modules: [] };
@@ -88,6 +97,17 @@ async function 启动(): Promise<void> {
 
   服务端 = new NiganeServer(配置);
 
+  // —— 审计日志 ——
+  审计 = new 审计日志(process.env.KUGUA_AUDIT_DB ?? pathResolve(process.cwd(), "data/audit.db"));
+
+  // —— 日志：环形缓冲 + 限流落盘；捕获控制台输出（含各模块）——
+  日志器实例 = new 日志器({
+    文件: process.env.KUGUA_LOG_FILE ?? pathResolve(process.cwd(), "data/logs/main.log"),
+    容量: 4000,
+    落盘间隔毫秒: 2000,
+  });
+  安装日志捕获(日志器实例);
+
   // —— 注入模块描述表 ——
   for (const m of 配置.modules ?? []) 服务端.setDescription(m);
 
@@ -98,6 +118,8 @@ async function 启动(): Promise<void> {
   服务端.on("registered", (信息: 模块信息) => {
     const 记录 = 子进程表.get(信息.name);
     if (记录) 记录.registered = true;
+    汇总能力(信息);
+    服务端?.broadcast("capability.changed", { 模块: 信息.name, 数量: 能力表.按模块(信息.name).length });
     console.log(
       `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，能力：${(信息.capabilities ?? []).join("、") || "无"}）`,
     );
@@ -105,7 +127,8 @@ async function 启动(): Promise<void> {
   服务端.on("unregistered", (名: string) => {
     const 记录 = 子进程表.get(名);
     if (记录) 记录.registered = false;
-    console.log(`[主控] 模块离线：${名}`);
+    能力表.移除模块(名);
+    服务端?.broadcast("capability.changed", { 模块: 名, 数量: 0 });    console.log(`[主控] 模块离线：${名}`);
   });
 
   await 服务端.start();
@@ -163,6 +186,8 @@ async function 启动(): Promise<void> {
       }
       void name;
     }
+    审计?.close();
+    await 日志器实例?.关闭();
     process.exit(0);
   };
   process.on("SIGINT", () => void 关闭());
@@ -170,11 +195,110 @@ async function 启动(): Promise<void> {
 }
 
 function 注册内置动作(服务端: NiganeServer): void {
-  // 模块详情：供 GUI/其他模块查询运行时状态
+  // 模块详情：供 WebUI/其他模块查询运行时状态
   服务端.handle("nigane.registry.details", () => 构造详情(服务端));
 
+  // ===== 能力注册表 =====
+  // 列出能力（可按入口/模块过滤）
+  服务端.handle("capability.list", (params) => {
+    const p = (params ?? {}) as { 入口?: 能力入口; 模块?: string; 允许危险?: boolean };
+    return 能力表.列表({ 入口: p.入口, 模块: p.模块, 允许危险: p.允许危险 });
+  });
+
+  // 获取单个能力声明
+  服务端.handle("capability.get", (params) => {
+    const { 名称 } = (params ?? {}) as { 名称?: string };
+    return 名称 ? (能力表.获取(名称) ?? null) : null;
+  });
+
+  // 统一调用：按能力名路由到提供者模块
+  服务端.handle("capability.call", async (params, 发送者) => {
+    const { 名称, 参数 } = (params ?? {}) as { 名称?: string; 参数?: unknown };
+    if (!名称) throw new Error("缺少 名称");
+    const 声明 = 能力表.获取(名称);
+    return 带审计(
+      "capability.call",
+      发送者,
+      { capability: 名称, module: 声明?.模块 ?? "", action: 声明?.动作 ?? 名称, params: 参数 },
+      () => 能力表.调用(名称, 参数, 主控调用器, "capability.call"),
+    );
+  });
+
+  // 中文指令：匹配指令并调用（供 WebUI/会话入口使用）
+  服务端.handle("capability.command", async (params, 发送者) => {
+    const { 文本 } = (params ?? {}) as { 文本?: string };
+    const 命中 = 能力表.匹配指令(String(文本 ?? ""));
+    if (!命中) return { 命中: false };
+    const 结果 = await 带审计(
+      "capability.command",
+      发送者,
+      {
+        capability: 命中.能力.名称,
+        module: 命中.能力.模块,
+        action: 命中.能力.动作 ?? 命中.能力.名称,
+        params: { 原文: 文本 },
+      },
+      () =>
+        能力表.调用(
+          命中.能力.名称,
+          { 参数文本: 命中.参数文本, 原文: 文本 },
+          主控调用器,
+          "capability.command",
+        ),
+    );
+    return { 命中: true, 能力: 命中.能力.名称, 模块: 命中.能力.模块, 参数文本: 命中.参数文本, 结果 };
+  });
+
+  // ===== 审计查询 =====
+  服务端.handle("audit.list", (params) => 审计?.查询((params ?? {}) as 审计过滤) ?? []);
+  服务端.handle("audit.stats", () => 审计?.统计() ?? null);
+  服务端.handle("audit.clear", (params) => {
+    const { 早于 } = (params ?? {}) as { 早于?: number };
+    const 阈值 = typeof 早于 === "number" ? 早于 : Math.floor(Date.now() / 1000) - 7 * 86400;
+    return { 已删除: 审计?.清理(阈值) ?? 0 };
+  });
+
+  // ===== 日志查询 =====
+  服务端.handle("log.tail", (params) => {
+    const p = (params ?? {}) as {
+      模块?: string;
+      级别?: 日志级别;
+      since?: number;
+      关键词?: string;
+      limit?: number;
+    };
+    return (
+      日志器实例?.查询({
+        模块: p.模块,
+        级别: p.级别,
+        since: p.since,
+        关键词: p.关键词,
+        limit: typeof p.limit === "number" ? p.limit : 200,
+      }) ?? []
+    );
+  });
+  服务端.handle("log.stats", () => 日志器实例?.统计() ?? []);
+  服务端.handle("log.clear", () => {
+    日志器实例?.清空();
+    return { cleared: true };
+  });
+
+  // ===== 通信日志（主控视角的总线收发，含调用双方与传参）=====
+  服务端.handle("nigane.traffic.tail", (params) => {
+    const p = (params ?? {}) as { limit?: number };
+    return 服务端.trafficTail(typeof p.limit === "number" ? p.limit : 300);
+  });
+  服务端.handle("nigane.traffic.clear", () => {
+    服务端.trafficClear();
+    return { cleared: true };
+  });
+  // 实时转发给 WebUI（若已接入总线）
+  服务端.on("log", (条目: unknown) => {
+    服务端?.sendEventTo("webui", "nigane.traffic", 条目);
+  });
+
   // 启动模块（仅 process 型；已运行则忽略；未在描述表的话报错）
-  服务端.handle("nigane.registry.start", (params) => {
+  服务端.handle("nigane.registry.start", (params, 发送者) => {
     const { name } = (params ?? {}) as { name?: string };
     if (!name) throw new Error("缺少 name");
     const 描述 = 服务端.getDescription(name);
@@ -183,16 +307,20 @@ function 注册内置动作(服务端: NiganeServer): void {
     if (子进程表.has(name) && !子进程表.get(name)!.proc.killed) {
       return { started: false, reason: "already", pid: 子进程表.get(name)!.proc.pid ?? null };
     }
-    return 启动模块(描述).then((r) => ({ started: true, pid: r?.pid ?? null }));
+    return 带审计("registry.start", 发送者, { capability: "", module: name, action: "start", params: undefined }, () =>
+      启动模块(描述).then((r) => ({ started: true, pid: r?.pid ?? null })),
+    );
   });
 
   // 停止模块（仅 process 型；未运行忽略）
-  服务端.handle("nigane.registry.stop", (params) => {
+  服务端.handle("nigane.registry.stop", (params, 发送者) => {
     const { name } = (params ?? {}) as { name?: string };
     if (!name) throw new Error("缺少 name");
     const 记录 = 子进程表.get(name);
     if (!记录) return { stopped: false, reason: "not_running" };
-    return 停止模块(name).then(() => ({ stopped: true }));
+    return 带审计("registry.stop", 发送者, { capability: "", module: name, action: "stop", params: undefined }, () =>
+      停止模块(name).then(() => ({ stopped: true })),
+    );
   });
 }
 
@@ -333,6 +461,111 @@ function 停止模块(name: string): Promise<void> {
       if (!done) 收尾();
     }, 5000);
   });
+}
+
+/** 带审计执行：记录耗时与结果（成功/失败） */
+async function 带审计<T>(
+  channel: string,
+  source: string,
+  info: { capability: string; module: string; action: string; params?: unknown },
+  任务: () => Promise<T>,
+): Promise<T> {
+  const 开始 = Date.now();
+  try {
+    const 结果 = await 任务();
+    审计?.记录({
+      source,
+      channel,
+      capability: info.capability,
+      module: info.module,
+      action: info.action,
+      params: info.params,
+      ok: true,
+      durationMs: Date.now() - 开始,
+    });
+    return 结果;
+  } catch (err) {
+    const 错误 = err instanceof Error ? err.message : String(err);
+    审计?.记录({
+      source,
+      channel,
+      capability: info.capability,
+      module: info.module,
+      action: info.action,
+      params: info.params,
+      ok: false,
+      error: 错误,
+      durationMs: Date.now() - 开始,
+    });
+    throw err;
+  }
+}
+
+/** 安全字符串化（用于日志捕获） */
+function 安全字符串(值: unknown): string {
+  if (typeof 值 === "string") return 值;
+  try {
+    return JSON.stringify(值);
+  } catch {
+    return String(值);
+  }
+}
+
+/**
+ * 捕获控制台输出到日志器：从 `[模块]` 前缀解析来源，无前缀归为 main。
+ * 这样主控自身与各模块子进程的输出都会进入环形缓冲。
+ */
+function 安装日志捕获(实例: 日志器): void {
+  const 原始log = console.log.bind(console);
+  const 原始warn = console.warn.bind(console);
+  const 原始error = console.error.bind(console);
+  const 包裹 = (级别: 日志级别, 原始: (...参数: unknown[]) => void) =>
+    (...参数: unknown[]): void => {
+      const 文本 = 参数.map(安全字符串).join(" ");
+      const m = /^\[([^\]]+)\]\s*([\s\S]*)$/.exec(文本);
+      实例.写(m ? m[1] : "main", 级别, m ? m[2] : 文本);
+      原始(...参数);
+    };
+  console.log = 包裹("info", 原始log);
+  console.warn = 包裹("warn", 原始warn);
+  console.error = 包裹("error", 原始error);
+}
+
+/** 主控侧能力调用器：把能力调用路由到模块 */const 主控调用器 = {
+  请求: (目标: string, 动作: string, 参数?: unknown, 超时毫秒?: number): Promise<unknown> => {
+    if (!服务端) return Promise.reject(new Error("主控尚未启动"));
+    return 服务端.request(目标, 动作, 参数, 超时毫秒);
+  },
+};
+
+/**
+ * 汇总某模块的能力声明：
+ *   1) 由 capabilities 名称合成基础声明（GUI 可见、可被统一调用）；
+ *   2) 用显式 capabilityDefs 覆盖/补充（可带中文指令、参数 Schema、权限等）。
+ */
+function 汇总能力(信息: 模块信息): void {
+  能力表.移除模块(信息.name);
+  const 显式 = new Map<string, 能力声明>();
+  for (const 声明 of 信息.capabilityDefs ?? []) 显式.set(声明.名称, 声明);
+  const 名称集 = new Set<string>([...(信息.capabilities ?? []), ...显式.keys()]);
+  for (const 名称 of 名称集) {
+    const 声明 = 显式.get(名称);
+    if (声明) {
+      能力表.注册({ ...声明, 模块: 声明.模块 || 信息.name });
+    } else {
+      // 跳过与模块同名的自标识（如 capabilities: ["webui"]）
+      if (名称 === 信息.name) continue;
+      能力表.注册({
+        名称,
+        模块: 信息.name,
+        动作: 名称,
+        暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
+      });
+    }
+  }
+  if (显式.size === 0 && (信息.capabilities ?? []).length > 0) {
+    console.log(`[主控] 能力汇总：${信息.name} 声明 ${名称集.size} 项（无显式元数据）`);
+  }
 }
 
 启动().catch((err) => {

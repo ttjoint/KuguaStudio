@@ -1,0 +1,16 @@
+{
+  "name": "kugua-plugin-template",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜插件模板：SDK 契约示例",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@kugua/plugin-sdk": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

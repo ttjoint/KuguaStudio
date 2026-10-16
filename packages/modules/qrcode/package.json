@@ -1,0 +1,27 @@
+{
+  "name": "@kugua/module-qrcode",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "二维码模块：文本/链接生成二维码 PNG（复刻参考项目 QRCodeHelper 的核心能力）",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/nigane": "*",
+    "qrcode": "^1.5.4",
+    "@kugua/module-kit": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.5.4"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "二维码：文本/链接生成二维码 PNG"
+  }
+}

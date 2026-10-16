@@ -7,9 +7,10 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
+import type { 能力声明 } from "@kugua/capability";
 
 /** 当前协议版本 */
-export const 协议版本 = "0.1";
+export const 协议版本 = "0.2";
 
 /** 消息类型枚举 */
 export type 消息类型 =
@@ -121,6 +122,8 @@ export interface 模块信息 {
   name: string;
   version?: string;
   capabilities?: string[];
+  /** 能力声明（可选）：主控据此汇总为全局能力注册表 */
+  capabilityDefs?: 能力声明[];
 }
 
 /**
@@ -140,6 +143,24 @@ export class NiganeServer extends EventEmitter {
   private 连接名 = new Map<WebSocket, string>();
   private 描述表 = new Map<string, 模块描述>();
   private 内置处理器表 = new Map<string, 内置处理器>();
+  /** 主控主动请求的挂起表（echo -> Promise 控制） */
+  private 主控挂起 = new Map<
+    string,
+    { resolve: (data: unknown) => void; reject: (err: Error) => void; 定时器: NodeJS.Timeout }
+  >();
+  /** 通信日志环形缓冲（主控视角，供 WebUI 查询历史） */
+  private 通信日志: Array<Record<string, unknown>> = [];
+  private readonly 通信日志容量 = 1000;
+
+  /** 最近 n 条通信日志（按时间正序） */
+  trafficTail(limit = 200): Array<Record<string, unknown>> {
+    return this.通信日志.slice(-Math.max(limit, 1));
+  }
+
+  /** 清空通信日志缓冲 */
+  trafficClear(): void {
+    this.通信日志.length = 0;
+  }
 
   constructor(private 选项: 服务端选项) {
     super();
@@ -222,6 +243,38 @@ export class NiganeServer extends EventEmitter {
     }
   }
 
+  /** 向指定模块发送事件（不等待响应） */
+  sendEventTo(to: string, action: string, params?: unknown): void {
+    const 目标 = this.注册表.get(to)?.socket;
+    if (!目标 || 目标.readyState !== WebSocket.OPEN) return;
+    目标.send(JSON.stringify(构造信封({ type: "event", from: "kugua-main", action, params })));
+  }
+
+  /**
+   * 主控主动向指定模块发起请求并等待响应（用于能力统一调用）。
+   * 默认 10 秒超时；模块未上线或超时则 reject。
+   */
+  request(to: string, action: string, params?: unknown, 超时毫秒 = 10000): Promise<unknown> {
+    const 目标 = this.注册表.get(to)?.socket;
+    if (!目标 || 目标.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error(`目标模块不存在：${to}`));
+    }
+    const 消息 = 构造信封({ type: "request", from: "kugua-main", to, action, params });
+    return new Promise((resolve, reject) => {
+      const 定时器 = setTimeout(() => {
+        this.主控挂起.delete(消息.id);
+        reject(new Error(`请求超时（${错误码.请求超时}）：${to}/${action}`));
+      }, 超时毫秒);
+      this.主控挂起.set(消息.id, { resolve, reject, 定时器 });
+      目标.send(JSON.stringify(消息));
+    });
+  }
+
+  /** 获取所有模块的能力声明（仅握手时显式上报的部分） */
+  capabilityDefs(): 能力声明[] {
+    return [...this.注册表.values()].flatMap((v) => v.info.capabilityDefs ?? []);
+  }
+
   /** 关闭服务端：先广播 system.shutdown，再断连接；可等待若干毫秒让各模块自行处理 */
   async stop(等待毫秒 = 200): Promise<void> {
     this.broadcast("system.shutdown", { time: Date.now() });
@@ -276,6 +329,29 @@ export class NiganeServer extends EventEmitter {
     });
   }
 
+  /** 记录一条通信日志（主控视角），入环形缓冲并以 "log" 事件发出；含 params/data 明细。 */
+  private 记录日志(方向: "发送" | "接收" | "超时", 消息: 信封): void {
+    const 条目 = {
+      时间: Date.now(),
+      方向,
+      类型: 消息.type,
+      from: 消息.from,
+      to: 消息.to,
+      action: 消息.action,
+      id: 消息.id,
+      echo: 消息.echo,
+      code: 消息.code,
+      message: 消息.message,
+      params: 消息.params,
+      data: 消息.data,
+    };
+    this.通信日志.push(条目);
+    if (this.通信日志.length > this.通信日志容量) {
+      this.通信日志.splice(0, this.通信日志.length - this.通信日志容量);
+    }
+    this.emit("log", 条目);
+  }
+
   private 处理握手(socket: WebSocket, 消息: 信封): void {
     const 参数 = (消息.params ?? {}) as Partial<模块信息> & { token?: string };
     const 名 = typeof 参数.name === "string" ? 参数.name : "";
@@ -300,7 +376,15 @@ export class NiganeServer extends EventEmitter {
       this.连接名.delete(旧.socket);
       this.emit("unregistered", 名);
     }
-    this.注册表.set(名, { socket, info: { name: 名, version: 参数.version, capabilities: 参数.capabilities } });
+    this.注册表.set(名, {
+      socket,
+      info: {
+        name: 名,
+        version: 参数.version,
+        capabilities: 参数.capabilities,
+        capabilityDefs: 参数.capabilityDefs,
+      },
+    });
     this.连接名.set(socket, 名);
     socket.send(
       JSON.stringify(
@@ -317,22 +401,39 @@ export class NiganeServer extends EventEmitter {
       name: 名,
       version: 参数.version,
       capabilities: 参数.capabilities,
+      capabilityDefs: 参数.capabilityDefs,
     } satisfies 模块信息);
   }
 
   private 路由(socket: WebSocket, 发送者: string, 消息: 信封): void {
+    this.记录日志("接收", 消息);
     switch (消息.type) {
       case "ping": {
-        socket.send(
-          JSON.stringify(
-            构造信封({ type: "pong", from: "kugua-main", to: 发送者, echo: 消息.id }),
-          ),
-        );
+        const pong = 构造信封({ type: "pong", from: "kugua-main", to: 发送者, echo: 消息.id });
+        this.记录日志("发送", pong);
+        socket.send(JSON.stringify(pong));
         return;
       }
       case "request":
       case "response":
       case "error": {
+        // 主控自身发起的请求：按 echo 匹配挂起项并结算
+        if (
+          (消息.type === "response" || 消息.type === "error") &&
+          (消息.to === "kugua-main" || 消息.to === "nigane")
+        ) {
+          const 挂起项 = 消息.echo ? this.主控挂起.get(消息.echo) : undefined;
+          if (挂起项 && 消息.echo) {
+            this.主控挂起.delete(消息.echo);
+            clearTimeout(挂起项.定时器);
+            if (消息.type === "error") {
+              挂起项.reject(new Error(`[${消息.code ?? 2000}] ${消息.message ?? "模块错误"}`));
+            } else {
+              挂起项.resolve(消息.data);
+            }
+          }
+          return;
+        }
         if (消息.type === "request" && (消息.to === "kugua-main" || 消息.to === "nigane")) {
           void this.处理内置请求(socket, 发送者, 消息);
           return;
@@ -344,13 +445,17 @@ export class NiganeServer extends EventEmitter {
           }
           return;
         }
+        this.记录日志("发送", 消息);
         目标.send(JSON.stringify(消息));
         return;
       }
       case "event": {
         const 文本 = JSON.stringify(消息);
         for (const [名, { socket: 成员 }] of this.注册表) {
-          if (名 !== 发送者 && 成员.readyState === WebSocket.OPEN) 成员.send(文本);
+          if (名 !== 发送者 && 成员.readyState === WebSocket.OPEN) {
+            this.记录日志("发送", { ...消息, to: 名 });
+            成员.send(文本);
+          }
         }
         return;
       }
@@ -366,17 +471,15 @@ export class NiganeServer extends EventEmitter {
       const 自定义 = this.内置处理器表.get(action);
       if (自定义) {
         const data = await 自定义(消息.params, 发送者);
-        socket.send(
-          JSON.stringify(
-            构造信封({
-              type: "response",
-              from: "kugua-main",
-              to: 发送者,
-              echo: 消息.id,
-              data,
-            }),
-          ),
-        );
+        const 响应 = 构造信封({
+          type: "response",
+          from: "kugua-main",
+          to: 发送者,
+          echo: 消息.id,
+          data,
+        });
+        this.记录日志("发送", 响应);
+        socket.send(JSON.stringify(响应));
         return;
       }
       let data: unknown;
@@ -391,17 +494,15 @@ export class NiganeServer extends EventEmitter {
           this.回复错误(socket, 消息, 错误码.目标不存在, `未知内置动作：${action}`);
           return;
       }
-      socket.send(
-        JSON.stringify(
-          构造信封({
-            type: "response",
-            from: "kugua-main",
-            to: 发送者,
-            echo: 消息.id,
-            data,
-          }),
-        ),
-      );
+      const 响应 = 构造信封({
+        type: "response",
+        from: "kugua-main",
+        to: 发送者,
+        echo: 消息.id,
+        data,
+      });
+      this.记录日志("发送", 响应);
+      socket.send(JSON.stringify(响应));
     } catch (err) {
       this.回复错误(socket, 消息, 2000, err instanceof Error ? err.message : String(err));
     }
@@ -409,18 +510,16 @@ export class NiganeServer extends EventEmitter {
 
   private 回复错误(socket: WebSocket, 原消息: 信封, code: number, message: string): void {
     if (socket.readyState !== WebSocket.OPEN) return;
-    socket.send(
-      JSON.stringify(
-        构造信封({
-          type: "error",
-          from: "kugua-main",
-          to: 原消息.from || undefined,
-          echo: 原消息.id,
-          code,
-          message,
-        }),
-      ),
-    );
+    const 消息 = 构造信封({
+      type: "error",
+      from: "kugua-main",
+      to: 原消息.from || undefined,
+      echo: 原消息.id,
+      code,
+      message,
+    });
+    this.记录日志("发送", 消息);
+    socket.send(JSON.stringify(消息));
   }
 }
 
@@ -432,6 +531,8 @@ export interface 客户端选项 {
   token?: string;
   version?: string;
   capabilities?: string[];
+  /** 能力声明：握手时上报给主控，用于汇总为全局能力注册表 */
+  capabilityDefs?: 能力声明[];
 }
 
 type 请求处理器 = (params: unknown, 消息: 信封) => unknown | Promise<unknown>;
@@ -479,6 +580,7 @@ export class NiganeClient extends EventEmitter {
                 name: this.选项.name,
                 version: this.选项.version,
                 capabilities: this.选项.capabilities ?? [],
+                capabilityDefs: this.选项.capabilityDefs ?? [],
                 token: this.选项.token ?? "",
               },
             }),
@@ -566,6 +668,8 @@ export class NiganeClient extends EventEmitter {
       echo: 消息.echo,
       code: 消息.code,
       message: 消息.message,
+      params: 消息.params,
+      data: 消息.data,
     });
   }
 
@@ -580,7 +684,8 @@ export class NiganeClient extends EventEmitter {
   }
 
   private 分发(消息: 信封): void {
-    this.记录日志("接收", 消息);
+    // 不记录主控转发的全局流量事件本身（避免自噪声/递归）
+    if (!(消息.type === "event" && 消息.action === "nigane.traffic")) this.记录日志("接收", 消息);
     switch (消息.type) {
       case "response":
       case "error": {

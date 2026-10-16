@@ -1,0 +1,21 @@
+{
+  "name": "@kugua/plugin-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜插件 SDK：插件契约层，提供 BasePlugin 生命周期钩子、Context 宿主注入、命令/事件注册器（复刻 AstrBot 式轻量插件架构）",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "@kugua/onebot11": "*"
+  }
+}

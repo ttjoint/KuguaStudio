@@ -1,0 +1,25 @@
+{
+  "name": "@kugua/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜工作室 MCP 互操作层：把能力注册表暴露为 MCP server，并把外部 MCP server 接入为能力",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "kugua-mcp": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/nigane": "*"
+  }
+}

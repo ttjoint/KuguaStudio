@@ -1,0 +1,22 @@
+{
+  "name": "@kugua/module-av",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "音视频模块：封装 ffmpeg/ffprobe（转码/提取音频/抽帧/剪辑/拼接/视频转GIF/音频反转与增强等），供全平台统一调用",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/nigane": "*",
+    "@kugua/paths": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "音视频：ffmpeg 转码/提取音频/抽帧/剪辑/拼接/视频转GIF/反转/增强（全平台统一 ffmpeg 入口）"
+  }
+}

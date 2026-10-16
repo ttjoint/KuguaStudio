@@ -4,25 +4,26 @@
  * 数据通过苦音协议从 MKG 读取
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { NiganeClient } from "@kugua/nigane";
+import { 启动模块 } from "@kugua/module-kit";
+import type { 能力声明 } from "@kugua/capability";
+import { NextInt } from "@kugua/random";
+import { 读模块资源 } from "@kugua/paths";
 
-interface 模块配置 {
-  host?: string;
-  port?: number;
-  token?: string;
-}
-
-function 加载配置(): 模块配置 {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
-  if (!existsSync(路径)) return {};
-  try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
-  } catch {
-    return {};
-  }
-}
+/** 能力声明：周易大衍筮法占卜 */
+const 能力清单: 能力声明[] = [
+  {
+    名称: "divination.zhouyi",
+    模块: "divination",
+    标题: "周易占卜",
+    说明: "大衍筮法摇卦（蓍草卜筮），可附缘由",
+    中文指令: ["占卜"],
+    参数: {
+      type: "object",
+      properties: { question: { type: "string", description: "占卜缘由（可选）" } },
+    },
+    暴露: { 指令: true, GUI: true, 定时: false, MCP: true },
+  },
+];
 
 const 文王卦序: readonly string[] = [
   "乾", "坤", "屯", "蒙", "需", "讼", "师", "比",
@@ -69,7 +70,7 @@ class 蓍草卜筮 {
   }
 
   private 四营(): void {
-    const 划分处 = Math.floor(Math.random() * this.全部蓍草);
+    const 划分处 = NextInt(this.全部蓍草);
     let 左 = 划分处;
     let 右 = this.全部蓍草 - 划分处;
 
@@ -255,7 +256,7 @@ class 周易占卜 {
           `${this.取爻名(变爻[1], 本卦[变爻[1]])}、` +
           `${this.取爻名(变爻[2], 本卦[变爻[2]])}、` +
           `${this.取爻名(变爻[3], 本卦[变爻[3]])}\r\n` +
-          `${this.取爻辞(之卦, 不变爻[0])}\r\n${this.取爻辞(之卦, 不变爻[1])}`;
+          `${this.取爻辞(之卦, 变爻[0])}\r\n${this.取爻辞(之卦, 变爻[1])}`;
         break;
       case 5:
         解卦描述 = `${this.取卦名(本卦)}之${this.取卦名(之卦)}\r\n` +
@@ -265,7 +266,7 @@ class 周易占卜 {
           `${this.取爻名(变爻[2], 本卦[变爻[2]])}、` +
           `${this.取爻名(变爻[3], 本卦[变爻[3]])}、` +
           `${this.取爻名(变爻[4], 本卦[变爻[4]])}\r\n` +
-          `${this.取爻辞(之卦, 不变爻[0])}`;
+          `${this.取爻辞(之卦, 变爻[0])}`;
         break;
       case 6:
         解卦描述 = `${this.取卦名(本卦)}\r\n之${this.取卦名(之卦)}，六爻皆变\r\n` +
@@ -285,52 +286,27 @@ class 周易占卜 {
   }
 }
 
-async function 启动(): Promise<void> {
-  const 配置 = 加载配置();
-  const host = 配置.host ?? "127.0.0.1";
-  const port = 配置.port ?? 24601;
-  const envURL = process.env.NIGANE_URL ?? process.argv[2];
-  const envToken = process.env.NIGANE_TOKEN ?? process.argv[3];
+const 占卜实例 = new 周易占卜();
+let 数据已加载 = false;
 
-  const 客户端 = new NiganeClient({
-    name: "divination",
-    url: envURL ?? `ws://${host}:${port}`,
-    token: envToken ?? 配置.token ?? "",
-    version: "0.1.0",
-    capabilities: ["divination.zhouyi"],
-  });
-
-  const 占卜 = new 周易占卜();
-  let 数据已加载 = false;
-
-  async function 加载数据(): Promise<void> {
-    if (数据已加载) return;
-    const 数据路径 = resolve(process.cwd(), "data/generators", "data_zhouyi.txt");
-    const 内容 = readFileSync(数据路径, "utf-8");
-    占卜.初始化(内容);
-    数据已加载 = true;
-  }
-
-  客户端.onRequest("divination.zhouyi", async (params) => {
-    await 加载数据();
-    const { question } = (params ?? {}) as { question?: string };
-    return 占卜.解读卦象(question ?? null);
-  });
-
-  await 客户端.connect();
-  console.log("[占卜模块] 已接入主控，等待占卜请求");
-
-  const 关闭 = (): void => {
-    console.log("[占卜模块] 正在关闭……");
-    客户端.close();
-    process.exit(0);
-  };
-  客户端.on("shutdown", 关闭);
-  process.on("SIGINT", 关闭);
-  process.on("SIGTERM", 关闭);
+async function 加载数据(): Promise<void> {
+  if (数据已加载) return;
+  const 内容 = 读模块资源(import.meta.url, "data_zhouyi.txt");
+  占卜实例.初始化(内容);
+  数据已加载 = true;
 }
 
-启动().catch((err: unknown) => {
-  console.error("[占卜模块] 启动失败：", err);
-  process.exit(1);
+void 启动模块({
+  name: "divination",
+  version: "0.2.0",
+  能力: 能力清单,
+  处理器: {
+    "divination.zhouyi": async (params) => {
+      await 加载数据();
+      const p = (params ?? {}) as { question?: string; 参数文本?: string; 原文?: string };
+      const 缘由 = (p.question ?? p.参数文本 ?? p.原文 ?? "").trim();
+      return 占卜实例.解读卦象(缘由 || null);
+    },
+  },
+  就绪: () => console.log("[占卜模块] 已接入主控，等待占卜请求"),
 });

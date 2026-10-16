@@ -4,18 +4,46 @@
   "token": "",
   "modules": [
     {
-      "name": "echo",
+      "name": "ai",
       "type": "process",
-      "entry": "packages/modules/echo/dist/index.js",
+      "entry": "packages/modules/ai/dist/index.js",
       "autoStart": true,
-      "description": "echo 示例模块（回声）"
+      "description": "AI 接入（M6）：OpenAI 兼容 API 对话与图像生成"
     },
     {
-      "name": "mkg",
+      "name": "av",
       "type": "process",
-      "entry": "packages/modules/mkg/dist/index.js",
+      "entry": "packages/modules/av/dist/index.js",
       "autoStart": true,
-      "description": "苦瓜知识图谱（本地索引/标签/搜索）"
+      "description": "音视频：ffmpeg 转码/提取音频/抽帧/剪辑/拼接/视频转GIF/反转/增强（全平台统一 ffmpeg 入口）"
+    },
+    {
+      "name": "avatar",
+      "type": "process",
+      "entry": "packages/modules/avatar/dist/index.js",
+      "autoStart": true,
+      "description": "头像：直调 qlogo 查询 QQ 用户头像与群历史头像（无需登录态）"
+    },
+    {
+      "name": "calendar",
+      "type": "process",
+      "entry": "packages/modules/calendar/dist/index.js",
+      "autoStart": true,
+      "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算"
+    },
+    {
+      "name": "chatmode",
+      "type": "process",
+      "entry": "packages/modules/chatmode/dist/index.js",
+      "autoStart": true,
+      "description": "模式闲聊：各「xx模式」语料随机拼合（复刻 ChatMode / 混沌模式）"
+    },
+    {
+      "name": "dice",
+      "type": "process",
+      "entry": "packages/modules/dice/dist/index.js",
+      "autoStart": true,
+      "description": "掷骰模块：随机掷骰子，支持个数与面数（r3d6）"
     },
     {
       "name": "divination",
@@ -23,6 +51,20 @@
       "entry": "packages/modules/divination/dist/index.js",
       "autoStart": true,
       "description": "周易蓍草占卜 + 每日运势"
+    },
+    {
+      "name": "dream",
+      "type": "process",
+      "entry": "packages/modules/dream/dist/index.js",
+      "autoStart": true,
+      "description": "解梦模块：根据关键词解释梦境"
+    },
+    {
+      "name": "echo",
+      "type": "process",
+      "entry": "packages/modules/echo/dist/index.js",
+      "autoStart": true,
+      "description": "echo 示例模块（回声）"
     },
     {
       "name": "food",
@@ -39,61 +81,6 @@
       "description": "图片处理（Python+Pillow 复刻 ModImages：编辑/网格/做旧/抠图/像素字/验证码/取色/幻影坦克/拼接/GIF/抖动/滚动/摸摸）"
     },
     {
-      "name": "napcat",
-      "type": "process",
-      "entry": "packages/modules/napcat/dist/index.js",
-      "autoStart": false,
-      "description": "Napcat QQ 桥接（需外部 napcat 服务，默认不自动启动）"
-    },
-    {
-      "name": "math",
-      "type": "library",
-      "file": "bin/math.dll",
-      "description": "静态库示例（仅检测文件存在性）"
-    },
-    {
-      "name": "dream",
-      "type": "process",
-      "entry": "packages/modules/dream/dist/index.js",
-      "autoStart": true,
-      "description": "解梦模块：根据关键词解释梦境"
-    },
-    {
-      "name": "dice",
-      "type": "process",
-      "entry": "packages/modules/dice/dist/index.js",
-      "autoStart": true,
-      "description": "掷骰模块：随机掷骰子，支持个数与面数（r3d6）"
-    },
-    {
-      "name": "text",
-      "type": "process",
-      "entry": "packages/modules/text/dist/index.js",
-      "autoStart": true,
-      "description": "文本功能综合模块：反转/大小写/乱序/切分/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天"
-    },
-    {
-      "name": "proof",
-      "type": "process",
-      "entry": "packages/modules/proof/dist/index.js",
-      "autoStart": true,
-      "description": "数字论证模块：字符串/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）"
-    },
-    {
-      "name": "calendar",
-      "type": "process",
-      "entry": "packages/modules/calendar/dist/index.js",
-      "autoStart": true,
-      "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算"
-    },
-    {
-      "name": "translate",
-      "type": "process",
-      "entry": "packages/modules/translate/dist/index.js",
-      "autoStart": true,
-      "description": "翻译模块：Google 网页接口翻译，单语言翻译 + 译N次多语言接力"
-    },
-    {
       "name": "infotool",
       "type": "process",
       "entry": "packages/modules/infotool/dist/index.js",
@@ -101,11 +88,25 @@
       "description": "信息工具模块：查IP属地（在线）、计算器、URL编/解码、字节/进制换算、体脂率"
     },
     {
-      "name": "scheduler",
+      "name": "job",
       "type": "process",
-      "entry": "packages/modules/scheduler/dist/index.js",
+      "entry": "packages/modules/job/dist/index.js",
       "autoStart": true,
-      "description": "定时任务调度（M4）：按 cron 触发模块请求/事件/命令"
+      "description": "作业运行时：脚本/爬虫等长任务，日志流/超时/取消/历史"
+    },
+    {
+      "name": "mcp-client",
+      "type": "process",
+      "entry": "packages/modules/mcp-client/dist/index.js",
+      "autoStart": true,
+      "description": "MCP 接入：外部 MCP server 与本地脚本模块导入为平台能力"
+    },
+    {
+      "name": "mkg",
+      "type": "process",
+      "entry": "packages/modules/mkg/dist/index.js",
+      "autoStart": true,
+      "description": "苦瓜知识图谱（本地索引/标签/搜索）"
     },
     {
       "name": "monitor",
@@ -115,11 +116,67 @@
       "description": "系统监控：CPU/内存/磁盘实时状态"
     },
     {
-      "name": "ai",
+      "name": "music",
       "type": "process",
-      "entry": "packages/modules/ai/dist/index.js",
+      "entry": "packages/modules/music/dist/index.js",
       "autoStart": true,
-      "description": "AI 接入（M6）：OpenAI 兼容 API 对话与图像生成"
+      "description": "音乐：多源搜索（网易云/QQ/酷狗）+ 下载播放（网易云）；ffmpeg 走 av 模块"
+    },
+    {
+      "name": "napcat",
+      "type": "process",
+      "entry": "packages/modules/napcat/dist/index.js",
+      "autoStart": false,
+      "description": "Napcat QQ 桥接（需外部 napcat 服务，默认不自动启动）"
+    },
+    {
+      "name": "nlp",
+      "type": "process",
+      "entry": "packages/modules/nlp/dist/index.js",
+      "autoStart": true,
+      "description": "自然语言（谐音）：拼音首字母 + 维特比模型"
+    },
+    {
+      "name": "plugins",
+      "type": "process",
+      "entry": "packages/modules/plugins/dist/index.js",
+      "autoStart": true,
+      "description": "插件运行时：扫描 plugins/ 动态加载、命令分发、Git 市场安装/更新/卸载"
+    },
+    {
+      "name": "proof",
+      "type": "process",
+      "entry": "packages/modules/proof/dist/index.js",
+      "autoStart": true,
+      "description": "数字论证模块：字符串/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）"
+    },
+    {
+      "name": "qrcode",
+      "type": "process",
+      "entry": "packages/modules/qrcode/dist/index.js",
+      "autoStart": true,
+      "description": "二维码：文本/链接生成二维码 PNG"
+    },
+    {
+      "name": "scheduler",
+      "type": "process",
+      "entry": "packages/modules/scheduler/dist/index.js",
+      "autoStart": true,
+      "description": "定时任务调度（M4）：按 cron 触发模块请求/事件/命令"
+    },
+    {
+      "name": "text",
+      "type": "process",
+      "entry": "packages/modules/text/dist/index.js",
+      "autoStart": true,
+      "description": "文本功能综合模块：反转/大小写/乱序/切分/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天"
+    },
+    {
+      "name": "translate",
+      "type": "process",
+      "entry": "packages/modules/translate/dist/index.js",
+      "autoStart": true,
+      "description": "翻译模块：Google 网页接口翻译，单语言翻译 + 译N次多语言接力"
     },
     {
       "name": "tts",
@@ -129,11 +186,10 @@
       "description": "语音合成（M6）：sherpa-onnx 离线 TTS / ChatTTS / Windows SAPI"
     },
     {
-      "name": "bank",
-      "type": "process",
-      "entry": "packages/modules/bank/dist/index.js",
-      "autoStart": true,
-      "description": "积分系统（P3）：签到低保/转账/充值/捐款/排行榜"
+      "name": "math",
+      "type": "library",
+      "file": "bin/math.dll",
+      "description": "静态库示例（仅检测文件存在性）"
     }
   ]
 }

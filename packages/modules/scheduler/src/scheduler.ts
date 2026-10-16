@@ -18,6 +18,8 @@ export interface 创建任务输入 {
   cron: string;
   action: 任务动作;
   enabled?: boolean;
+  /** cron（默认）或 startup（平台启动时执行一次） */
+  触发?: "cron" | "startup";
 }
 
 export class 任务调度器 {
@@ -36,7 +38,9 @@ export class 任务调度器 {
   /** 从存储加载任务并重算下次运行时间 */
   load(): void {
     for (const 任务 of this.存储.load()) {
-      if (任务.enabled && 任务.cron) {
+      if (任务.触发 === "startup") {
+        任务.nextRunAt = null;
+      } else if (任务.enabled && 任务.cron) {
         try {
           任务.nextRunAt = 解析并求下次(任务.cron, Date.now());
         } catch {
@@ -51,7 +55,7 @@ export class 任务调度器 {
     this.保存();
   }
 
-  /** 开始每秒勾选 */
+  /** 开始每秒勾选；随后执行一次所有 startup 任务 */
   start(): void {
     if (this.定时器) return;
     this.定时器 = setInterval(() => {
@@ -61,6 +65,21 @@ export class 任务调度器 {
         console.error("[调度] 勾选出错：", err);
       }
     }, 1000);
+    void this.运行启动任务();
+  }
+
+  /** 执行所有启用中的 startup 任务（仅一次，不改变排程） */
+  private async 运行启动任务(): Promise<void> {
+    for (const 任务 of this.任务表.values()) {
+      if (任务.触发 !== "startup" || !任务.enabled) continue;
+      if (this.运行中.has(任务.id)) continue;
+      this.运行中.add(任务.id);
+      try {
+        await this.执行一次(任务, false);
+      } finally {
+        this.运行中.delete(任务.id);
+      }
+    }
   }
 
   /** 停止勾选并立即落盘 */
@@ -79,10 +98,12 @@ export class 任务调度器 {
 
   create(输入: 创建任务输入): 定时任务 {
     const 现在 = Date.now();
+    const 触发 = 输入.触发 === "startup" ? "startup" : "cron";
     const 任务: 定时任务 = {
       id: randomUUID(),
       name: String(输入.name ?? "").trim(),
-      cron: String(输入.cron ?? "").trim(),
+      触发,
+      cron: 触发 === "startup" ? "" : String(输入.cron ?? "").trim(),
       enabled: 输入.enabled !== false,
       action: 输入.action,
       createdAt: 现在,
@@ -90,6 +111,7 @@ export class 任务调度器 {
       nextRunAt: null,
     };
     if (!任务.name) throw new Error("定时任务缺少 name");
+    if (触发 === "cron" && !任务.cron) throw new Error("cron 任务缺少 cron 表达式");
     校验动作(任务.action);
     this.重排(任务);
     this.任务表.set(任务.id, 任务);
@@ -106,12 +128,15 @@ export class 任务调度器 {
     return this.任务表.get(标识) ?? [...this.任务表.values()].find((t) => t.name === 标识) ?? null;
   }
 
-  update(标识: string, 补丁: Partial<Pick<定时任务, "name" | "cron" | "action" | "enabled">>): 定时任务 {
+  update(标识: string, 补丁: Partial<Pick<定时任务, "name" | "cron" | "action" | "enabled" | "触发">>): 定时任务 {
     const 任务 = this.get(标识);
     if (!任务) throw new Error(`定时任务不存在：${标识}`);
     if (补丁.name !== undefined) {
       任务.name = String(补丁.name).trim();
       if (!任务.name) throw new Error("定时任务 name 不能为空");
+    }
+    if (补丁.触发 !== undefined) {
+      任务.触发 = 补丁.触发 === "startup" ? "startup" : "cron";
     }
     if (补丁.cron !== undefined) {
       任务.cron = String(补丁.cron).trim();
@@ -160,7 +185,9 @@ export class 任务调度器 {
   }
 
   private 重排(任务: 定时任务): void {
-    if (任务.enabled && 任务.cron) {
+    if (任务.触发 === "startup") {
+      任务.nextRunAt = null;
+    } else if (任务.enabled && 任务.cron) {
       任务.nextRunAt = 解析并求下次(任务.cron, Date.now());
     } else {
       任务.nextRunAt = null;

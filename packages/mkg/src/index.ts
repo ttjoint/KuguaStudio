@@ -4,6 +4,13 @@ import { createHash } from "node:crypto";
 import { exec, execFile, spawn } from "node:child_process";
 import { 初始化数据库 } from "./db.js";
 import { 索引目录, type 索引结果 } from "./indexer.js";
+import {
+  读取侧车 as 侧车读取,
+  写入侧车 as 侧车写入,
+  合并侧车 as 侧车合并,
+  侧车路径,
+  侧车存在,
+} from "./sidecar.js";
 import type Database from "better-sqlite3";
 import type {
   资源,
@@ -28,9 +35,14 @@ import type {
   文本片段,
   文本片段更新,
   导入文件结果,
+  保存视图,
+  查询条件,
+  位置,
+  侧车数据,
 } from "./types.js";
 
 export * from "./types.js";
+export * from "./sidecar.js";
 export { 索引目录, 初始化数据库, type 索引结果 };
 
 /**
@@ -1772,6 +1784,215 @@ export class MKG {
     else if (sort === "updated") items.sort((a, b) => b.updatedAt - a.updatedAt);
     else items.sort((a, b) => a.createdAt - b.createdAt); // 导入顺序（旧→新）
     return limit ? items.slice(0, limit) : items;
+  }
+
+  // ===== 保存视图 / 受管位置 / 侧车 / 全文检索（v0.4，见 docs/知识库设计.md） =====
+
+  /** 新增保存视图（智能文件夹） */
+  添加保存视图(name: string, query: 查询条件, icon?: string, sort = 0): 保存视图 {
+    const 当前 = Math.floor(Date.now() / 1000);
+    const 结果 = this.db
+      .prepare("INSERT INTO saved_views (name, query, icon, sort, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(name, JSON.stringify(query ?? {}), icon ?? null, sort, 当前);
+    const 视图 = this.获取保存视图(Number(结果.lastInsertRowid));
+    if (!视图) throw new Error("新增保存视图失败");
+    return 视图;
+  }
+
+  /** 获取单个保存视图 */
+  获取保存视图(id: number): 保存视图 | null {
+    const row = this.db.prepare("SELECT * FROM saved_views WHERE id = ?").get(id) as
+      | { id: number; name: string; query: string; icon: string | null; sort: number; created_at: number }
+      | undefined;
+    if (!row) return null;
+    let query: 查询条件 = {};
+    try {
+      query = JSON.parse(row.query) as 查询条件;
+    } catch {
+      query = {};
+    }
+    return { id: row.id, name: row.name, query, icon: row.icon, sort: row.sort, createdAt: row.created_at };
+  }
+
+  /** 列出全部保存视图 */
+  列出保存视图(): 保存视图[] {
+    const rows = this.db
+      .prepare("SELECT id FROM saved_views ORDER BY sort ASC, id ASC")
+      .all() as { id: number }[];
+    return rows.map((r) => this.获取保存视图(r.id)).filter((v): v is 保存视图 => v !== null);
+  }
+
+  /** 删除保存视图 */
+  删除保存视图(id: number): void {
+    this.db.prepare("DELETE FROM saved_views WHERE id = ?").run(id);
+  }
+
+  /** 执行组合查询（保存视图的运行时） */
+  执行查询(条件: 查询条件, limit = 2000): 统一内容条目[] {
+    const 全部 = this.listAllContent({
+      keyword: 条件.text,
+      sort: 条件.sort ?? "import",
+      limit: 100000,
+    });
+    const 命中标签 = new Set<number>();
+    for (const tid of 条件.tags ?? []) {
+      for (const x of this.获取标签及后代Ids(tid)) 命中标签.add(x);
+    }
+    const 排除标签 = new Set<number>();
+    for (const tid of 条件.notTags ?? []) {
+      for (const x of this.获取标签及后代Ids(tid)) 排除标签.add(x);
+    }
+    const 位置表 = 条件.locations && 条件.locations.length > 0 ? this.列出位置() : [];
+    return 全部
+      .filter((项) => {
+        if (条件.type && 项.category !== 条件.type && 项.type !== 条件.type) return false;
+        if (命中标签.size > 0 && !项.tagIds.some((t) => 命中标签.has(t))) return false;
+        if (排除标签.size > 0 && 项.tagIds.some((t) => 排除标签.has(t))) return false;
+        if (位置表.length > 0 && 项.path) {
+          if (!位置表.some((l) => 项.path!.startsWith(l.path))) return false;
+        }
+        return true;
+      })
+      .slice(0, limit);
+  }
+
+  /** 添加受管位置 */
+  添加位置(path: string, name?: string, mode: "watch" | "manual" = "watch", excludes: string[] = []): 位置 {
+    const 当前 = Math.floor(Date.now() / 1000);
+    const 结果 = this.db
+      .prepare("INSERT INTO locations (path, name, mode, excludes, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(path, name ?? null, mode, JSON.stringify(excludes), 当前);
+    return {
+      id: Number(结果.lastInsertRowid),
+      path,
+      name: name ?? null,
+      mode,
+      excludes,
+      createdAt: 当前,
+    };
+  }
+
+  /** 列出受管位置 */
+  列出位置(): 位置[] {
+    const rows = this.db.prepare("SELECT * FROM locations ORDER BY id ASC").all() as {
+      id: number;
+      path: string;
+      name: string | null;
+      mode: string;
+      excludes: string;
+      created_at: number;
+    }[];
+    return rows.map((row) => {
+      let excludes: string[] = [];
+      try {
+        excludes = JSON.parse(row.excludes) as string[];
+      } catch {
+        excludes = [];
+      }
+      return {
+        id: row.id,
+        path: row.path,
+        name: row.name,
+        mode: row.mode === "manual" ? "manual" : "watch",
+        excludes,
+        createdAt: row.created_at,
+      };
+    });
+  }
+
+  /** 删除受管位置 */
+  删除位置(id: number): void {
+    this.db.prepare("DELETE FROM locations WHERE id = ?").run(id);
+  }
+
+  /** 读取某文件/目录的侧车（不存在返回 null） */
+  读取侧车(路径: string): 侧车数据 | null {
+    return 侧车读取(路径);
+  }
+
+  /** 写入某文件/目录的侧车 */
+  写入侧车(路径: string, 数据: 侧车数据): void {
+    侧车写入(路径, 数据);
+  }
+
+  /** 合并式更新侧车（保留未提供的字段） */
+  合并侧车(路径: string, 补丁: Partial<侧车数据>): 侧车数据 {
+    return 侧车合并(路径, 补丁);
+  }
+
+  /** 侧车路径与存在性 */
+  侧车信息(路径: string): { path: string; exists: boolean } {
+    return { path: 侧车路径(路径), exists: 侧车存在(路径) };
+  }
+
+  /** 按名称查找或创建标签 */
+  确保标签(name: string): 标签 {
+    const 现有 = this.listTags().find((t) => t.name === name);
+    return 现有 ?? this.createTag(name);
+  }
+
+  /** 导出某节点对应文件的侧车（标签以名称写入）；非文件节点返回 null */
+  导出侧车(nodeId: number): 侧车数据 | null {
+    const 资源 = this.getResourceByNode(nodeId);
+    if (!资源) return null;
+    const tags = this.getNodeTags(nodeId).map((t) => t.name);
+    const 数据: 侧车数据 = {
+      version: 1,
+      sha256: 资源.sha256 || undefined,
+      tags,
+      relations: [],
+      note: this.getAlias(资源.id) ?? undefined,
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
+    侧车写入(资源.path, 数据);
+    return 数据;
+  }
+
+  /** 从侧车导入标签到对应资源；返回应用的标签 id */
+  导入侧车(路径: string): { 资源id: number | null; 标签: number[] } {
+    const 数据 = 侧车读取(路径);
+    if (!数据) return { 资源id: null, 标签: [] };
+    const 资源 = this.getResource(路径);
+    if (!资源) return { 资源id: null, 标签: [] };
+    const tagIds = (数据.tags ?? []).map((名) => this.确保标签(名).id);
+    if (tagIds.length > 0) this.addResourceTags(资源.id, tagIds);
+    return { 资源id: 资源.id, 标签: tagIds };
+  }
+
+  /** 重建全文索引（供检索与侧车变更后调用） */
+  重建全文索引(): { 节点数: number } {
+    const rows = this.db.prepare("SELECT id, type, title FROM nodes").all() as {
+      id: number;
+      type: string;
+      title: string;
+    }[];
+    const 清空 = this.db.prepare("DELETE FROM node_fts");
+    const 插入 = this.db.prepare("INSERT INTO node_fts (node_id, title, body) VALUES (?, ?, ?)");
+    const 事务 = this.db.transaction(() => {
+      清空.run();
+      for (const row of rows) {
+        插入.run(row.id, row.title, this.获取节点内容(row));
+      }
+    });
+    事务();
+    return { 节点数: rows.length };
+  }
+
+  /** 全文检索（FTS5；不可用或查询过短时回退关键词过滤） */
+  全文检索(关键词: string, limit = 50): 统一内容条目[] {
+    const 词 = 关键词.trim();
+    if (!词) return [];
+    let 命中: Set<number>;
+    try {
+      const rows = this.db
+        .prepare("SELECT node_id FROM node_fts WHERE node_fts MATCH ? LIMIT ?")
+        .all(词, limit) as { node_id: number }[];
+      命中 = new Set(rows.map((r) => r.node_id));
+    } catch {
+      return this.listAllContent({ keyword: 词, limit });
+    }
+    const 全部 = this.listAllContent({ limit: 100000 });
+    return 全部.filter((项) => 命中.has(项.id)).slice(0, limit);
   }
 
   /**

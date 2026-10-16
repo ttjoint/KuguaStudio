@@ -41,6 +41,11 @@ build/Release
 node_modules/
 jspm_packages/
 
+# 插件运行时目录（仓库根，由插件市场/手动 git clone 安装，不入库）
+/plugins/
+
+# 测试临时目录
+.tmp-plugins*/
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
@@ -149,8 +154,16 @@ vite.config.ts.timestamp-*
 data/mkg.db
 data/mkg.db-shm
 data/mkg.db-wal
-data/library/
-data/scheduler/
+data/audit.db
+data/audit.db-shm
+data/audit.db-wal
+data/library/*
+!data/library/.gitkeep
+data/scheduler/*
+!data/scheduler/.gitkeep
+data/jobs/
+data/logs/
+data/corpus/
 data/ai/
 data/tts/
 data/bank/
@@ -168,3 +181,7 @@ __pycache__/
 # 一次性临时脚本 / 测试产物
 tmp_*.cjs
 tmp_*.mjs
+
+# 便携工具（ImageMagick 等）
+tools/
+data/music/

@@ -9,7 +9,15 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@kugua/capability": "*",
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "@kugua/random": "*",
+    "ws": "^8.18.0",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "掷骰模块：随机掷骰子，支持个数与面数（r3d6）"
   }
 }

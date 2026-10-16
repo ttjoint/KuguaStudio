@@ -15,6 +15,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@kugua/capability": "*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

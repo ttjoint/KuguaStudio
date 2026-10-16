@@ -1,58 +1,58 @@
 # KuguaStudio · 苦瓜工作室
 
-本地知识库管理及模块化自动操作平台。
+本地个人自动化工作台：以**可插拔模块**承载功能，通过**统一信息总线**协同，提供**中文指令 + GUI**
+双入口，并内置**本地知识库（MKG）**管理文件、图片、多媒体与学术资料。
 
-苦瓜工作室（KuguaStudio，KS）是一个运行在宿主后台的本地平台：以**苦音（Nigane）协议**连接一组独立进程的模块，以**苦瓜知识图谱（MKG）**管理本地知识库，并经过本地 GUI 提供统一浏览、检索与指令操作。本仓库的前身位于 `参考/Kugua`（一套仍在运行的 .Net 项目备份），大多数模块能力正逐步复刻迁移到本仓库。
+> 本项目是原 .NET「Kugua」项目的重写与再定位。当前方向是"纯本地的自动化工作台"，
+> **不是** AI 应用平台；AI 只是可选外部能力。
+> 本轮已清理全部临时知识库内容与历史测试脚本；功能模块将按新约定逐步重写。
 
-## 架构
+## 设计文档（权威）
 
-- **星型拓扑**：主控进程 `@kugua/main` 是唯一 WebSocket 服务端（默认 `ws://127.0.0.1:24601`），所有模块作为客户端接入，模块间通信一律经主控路由，禁止模块间直连。
-- **进程模型**：每个模块是独立进程，崩溃不影响主控与其他模块。
-- **苦音协议 Nigane**：request/response/echo 语义对齐 OneBot 11，便于 Napcat 适配。
-- **苦瓜知识图谱 MKG**：基于 SQLite 的本地索引 + 标签树 + 检索，接管宿主文件系统中的指定路径。
+| 文档 | 内容 |
+| --- | --- |
+| [docs/架构设计.md](docs/架构设计.md) | 定位、原则、分层、能力注册表、长任务、安全、路线 |
+| [docs/知识库设计.md](docs/知识库设计.md) | MKG 数据模型、侧车标签、FTS5 检索、保存视图、位置 |
+| [docs/互操作设计.md](docs/互操作设计.md) | MCP server/client、跨语言模块契约 |
+| [docs/功能复刻准则.md](docs/功能复刻准则.md) | 从 .NET 原项目迁移功能模块的取舍与忠实度要求 |
+| [docs/开发细则.md](docs/开发细则.md) | 技术选型、苦音协议、目录、编码规范、测试 |
+| [docs/常驻与调度.md](docs/常驻与调度.md) | 常驻服务 / 登录自启 / 启动任务 / 日志 |
+| [docs/改造清单.md](docs/改造清单.md) | 分阶段施工清单与进度 |
 
-## 技术栈
+## 核心概念
 
-Node.js LTS + TypeScript（ESM/NodeNext）、npm workspaces 单仓库、`ws` WebSocket、better-sqlite3、Electron GUI、Vitest。部分模块（图片处理）底层使用 Python + Pillow。
+- **能力注册表（Capability Registry）**：一个功能声明一次，自动派生
+  **中文指令 / GUI / 定时任务 / 开机任务 / 外部接口（MCP）** 五种入口。
+- **苦音协议（Nigane）**：主控为唯一 WebSocket 服务端，模块为独立进程客户端，星型拓扑，请求/响应/广播。
+- **苦瓜知识图谱（MKG）**：SQLite 索引 + 标签图 + FTS5 全文；标签以**侧车文件**（`<文件>.mkg.json`）
+  持久化，可随文件迁移；文件系统始终为真源。
+- **长任务（Job）**：脚本 / 爬虫 / 安全测试等以 `job.*` 动作运行，流式日志、超时、取消、历史；WebUI「作业」面板可视化管理。
+- **常驻与自启**：登录计划任务或 WinSW 服务；`scripts/service/` 提供安装脚本与模板；支持 `启动任务`（平台启动时执行一次）。
+- **互操作（MCP）**：WebUI 提供 `POST /mcp`（Streamable HTTP）与独立 stdio 入口，把平台能力暴露给任意 MCP 客户端；
+  `@kugua/module-mcp-client` 可把外部 MCP server 与 `scripts/modules` 下的本地脚本模块导入为平台能力。
 
 ## 目录结构
 
 ```
 KuguaStudio/
-├── docs/开发细则.md          # 技术选型、协议规范、里程碑
-├── 开发计划.txt              # 原始需求计划
-├── 更新日志.md               # 版本变更记录
-├── kugua.config.json         # 主控配置 + 模块注册表
-├── data/generators/          # 生成类模块数据文件（占卜/吃什么/解梦/文本等）
-├── data/library/             # 本地知识库资源目录（运行时，不入库）
+├── docs/                       # 设计文档（见上表）
+├── kugua.config.json           # 主控配置 + 模块注册表
+├── data/generators/            # 生成类数据文件（确定性工具用）
+├── data/library/               # 受管资料目录（运行时，不入库）
 ├── packages/
-│   ├── nigane/               # 苦音协议 SDK（@kugua/nigane）
-│   ├── onebot11/             # OneBot 11 协议库（Napcat 适配，@kugua/onebot11）
-│   ├── dscript/              # DScript 模板文本引擎（@kugua/dscript）
-│   ├── main/                 # 主控守护进程（@kugua/main）
-│   ├── mkg/                  # 苦瓜知识图谱核心库（@kugua/mkg）
-│   ├── gui/                  # Electron 本地 GUI（@kugua/gui）
-│   └── modules/              # 功能模块（独立进程）
-│       ├── echo            ── 示例回声
-│       ├── mkg             ── MKG 服务：索引/标签/检索/统计
-│       ├── divination      ── 周易蓍草占卜 + 每日运势
-│       ├── food            ── 今天吃什么
-│       ├── dream           ── 解梦
-│       ├── scheduler       ── 定时任务调度（cron 触发模块请求/事件/命令）
-│       ├── monitor         ── 系统监控（CPU/内存/磁盘）
-│       ├── ai              ── AI 接入（OpenAI 兼容对话/图像生成）
-│       ├── tts             ── 语音合成（sherpa-onnx/ChatTTS/SAPI）
-│       ├── bank            ── 积分系统（签到/转账/充值/排行榜）
-│       ├── image           ── 图片处理（Python+Pillow：编辑/网格/做旧/抠图/像素字/验证码/幻影坦克/拼接/GIF/抖动等）
-│       ├── dice            ── 掷骰（r3d6）
-│       ├── text            ── 文本功能综合（反转/大小写/乱序/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天）
-│       ├── proof           ── 数字论证
-│       ├── calendar        ── 万年历（公历/农历/回历/四柱/节气/生肖/星座/月相/芸历）
-│       ├── translate       ── 翻译（Google 接口，单语 + 译N次接力）
-│       ├── infotool        ── 信息工具（查IP/计算器/URL编解码/字节进制/体脂率）
-│       └── napcat          ── Napcat QQ 桥接（需外部 napcat 服务，默认不自动启动）
-├── tests/                    # Vitest 集成测试
-└── scripts/                  # 一次性数据提取脚本
+│   ├── nigane/                 # 苦音协议 SDK
+│   ├── capability/             # 能力注册表 @kugua/capability
+│   ├── mcp/                    # MCP server/client @kugua/mcp
+│   ├── onebot11/               # OneBot 11 协议库（可选桥接）
+│   ├── plugin-sdk/             # 插件契约 SDK
+│   ├── dscript/                # 模板文本引擎
+│   ├── main/                   # 主控守护进程
+│   ├── mkg/                    # 知识图谱核心库
+│   ├── webui/                  # 本地 Web UI（浏览器，@kugua/webui）
+│   └── modules/                # 功能模块（独立进程）
+├── plugins/                    # 运行时插件目录
+├── templates/                  # 模块/插件模板
+└── 参考/                       # 前身 .NET 项目（资料，不参与构建）
 ```
 
 ## 快速开始
@@ -60,45 +60,33 @@ KuguaStudio/
 ```bash
 npm install          # 安装依赖（npm workspaces）
 npm run build        # 按依赖拓扑序构建全部包
-npm test             # 运行 Vitest 集成测试
-npm start            # 启动 GUI（首次会自动构建）
+npm start            # 启动 WebUI：托管主控并打开浏览器
 ```
 
-- 直接启动主控：`npm run main`（会按 `kugua.config.json` 自动拉起 autoStart 的模块）。
+- 直接启动主控：`npm run main`（按 `kugua.config.json` 自动拉起 `autoStart` 模块）。
 - 单独启动某模块：`npm run echo` / `npm run mkg` / `npm run calendar` 等。
-- Windows 双击 `start.bat` 可直接以后台方式启动 GUI（隐藏黑框）。
+- WebUI 默认监听 `http://127.0.0.1:24600`（`KUGUA_WEBUI_PORT` 或 `kugua.config.json` 的 `webui.port` 可改）。
+- Windows 双击 `start.bat` 后台启动 WebUI 并自动打开浏览器。
 
 ## 配置
 
-主控与模块注册见 `kugua.config.json`：
+主控与模块注册见 `kugua.config.json`：`host` / `port` / `token` 为监听与认证；
+`modules[]` 为模块注册表（`process` 独立进程 / `library` 仅检测文件存在），`autoStart` 控制自动启动。
 
-- `host` / `port` / `token`：主控监听地址与认证令牌。
-- `modules[]`：模块注册表，`type` 分 `process`（独立进程）与 `library`（仅检测文件存在性）；`autoStart` 控制主控启动时是否自动拉起。
+## 里程碑
 
-### AI 与语音配置（环境变量）
+采用阶段制（详见《改造清单.md》）：
 
-- `KUGUA_AI_BASE_URL`：OpenAI 兼容端点，如本地 Ollama `http://127.0.0.1:11434/v1`（默认官方端点）。
-- `KUGUA_AI_API_KEY` / `KUGUA_AI_CHAT_MODEL` / `KUGUA_AI_IMAGE_MODEL`：认证与模型。
-- `KUGUA_TTS_SHERP_ROOT`：sherpa-onnx 离线 TTS 根目录（默认 `D:\Downloads\sherpa-onnx-v1.12.14-win-x64-cuda`）。
-- `KUGUA_TTS_URL`：ChatTTS 本地 UI 服务地址（配置后可作为 TTS 提供方）。
-
-## 里程碑状态
-
-| 里程碑 | 内容 | 状态 |
-| --- | --- | --- |
-| M1 | 苦音 SDK + 主控 + echo | ✅ |
-| M3 | MKG 知识图谱（索引/标签/检索） | ✅ |
-| M5 | 本地 GUI（统一内容浏览 + 聊天 + 插件/设置） | ✅ |
-| 扩展 | 本地工具模块群（占卜/吃什么/解梦/图片/掷骰/文本/论证/万年历/翻译/信息工具） | ✅ |
-| M2 | Napcat 接入（OneBot 11 解析） | ✅（桥接已就绪，默认不自动启动） |
-| M4 | 定时任务调度 + 系统监控模块 | ✅ |
-| M6 | AI 接入（LLM）与语音合成 | ✅ |
-| P3 | 图片超分（Real-ESRGAN）+ 积分系统 | ✅ |
-
-> 后续开发以**本地能力**为主，IM（Napcat/QQ）接入已具备桥接能力，暂不再前推。
+0. 清理与规范化、设计文档、能力/MCP 包骨架、MKG 模型升级、**WebUI 落地** —— **已完成**
+1. 能力注册表接入主控与各入口 —— **已完成**
+2. 知识库升级（FTS5 / 侧车 / 保存视图 / 位置） —— **已完成**
+3. MCP server/client + 跨语言脚本模块 —— **已完成**
+4. Job 长任务运行时 —— **已完成**
+5. 常驻与调度（服务化 / 开机任务） —— **已完成**
+6. 功能模块按新约定重写 —— **进行中**（清单已批准；`calendar` 样板完成）
 
 ## 说明
 
-- 注释使用中文，标识符使用英文。
+- 注释使用中文，标识符使用英文；新增能力名用 `模块.动作` 英文命名。
 - 变更请同步更新《更新日志.md》，遵循语义化版本。
-- 构建必须按拓扑序执行，根 `npm run build` 已显式排好顺序。
+- 模块间禁止直连，一律经主控路由。

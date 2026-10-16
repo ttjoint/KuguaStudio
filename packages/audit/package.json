@@ -1,0 +1,23 @@
+{
+  "name": "@kugua/audit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜工作室审计日志：记录每次能力调用与模块操作，支持查询与统计",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "typescript": "^5.5.4"
+  }
+}

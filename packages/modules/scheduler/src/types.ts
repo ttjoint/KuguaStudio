@@ -48,7 +48,9 @@ export interface 任务结果 {
 export interface 定时任务 {
   id: string;
   name: string;
-  /** cron 表达式：5 段（分 时 日 月 周）或 6 段（秒 分 时 日 月 周） */
+  /** 触发器：cron=按表达式周期；startup=平台启动时执行一次 */
+  触发?: "cron" | "startup";
+  /** cron 表达式：5 段（分 时 日 月 周）或 6 段（秒 分 时 日 月 周）；startup 任务可为空 */
   cron: string;
   enabled: boolean;
   action: 任务动作;

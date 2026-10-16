@@ -1,0 +1,22 @@
+{
+  "name": "@kugua/module-mcp-client",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP 接入模块：把外部 MCP server 与本地脚本模块导入为平台能力",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/mcp": "*",
+    "@kugua/nigane": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "MCP 接入：外部 MCP server 与本地脚本模块导入为平台能力"
+  }
+}

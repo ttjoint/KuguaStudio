@@ -11,5 +11,10 @@
   "dependencies": {
     "@kugua/nigane": "*",
     "ws": "^8.18.0"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "翻译模块：Google 网页接口翻译，单语言翻译 + 译N次多语言接力"
   }
 }

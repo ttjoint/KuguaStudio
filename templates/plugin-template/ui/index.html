@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模板插件页面</title>
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; padding: 16px; margin: 0; background: transparent; color: #e0e0e0; }
+    h3 { margin: 0 0 8px; }
+    p { opacity: 0.8; font-size: 0.9rem; }
+    button { padding: 6px 12px; border-radius: 6px; border: 1px solid #555; background: #2a2a45; color: #eee; cursor: pointer; }
+    button:hover { background: #34345a; }
+    pre { margin-top: 12px; white-space: pre-wrap; word-break: break-all; background: rgba(0,0,0,0.25); padding: 10px; border-radius: 6px; font-size: 0.8rem; max-height: 60vh; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h3>模板插件页面</h3>
+  <p>演示：插件自带 UI，经 <code>/plugin-sdk.js</code> 使用 <code>window.kugua.request(目标, 动作, 参数)</code> 调用平台能力。</p>
+  <button id="btn">调用 monitor.stats</button>
+  <pre id="out">（点击按钮试试）</pre>
+
+  <!-- 平台注入的能力 SDK（HTTP，无需 WebSocket） -->
+  <script src="/plugin-sdk.js"></script>
+  <script>
+    document.getElementById("btn").addEventListener("click", async () => {
+      const out = document.getElementById("out");
+      out.textContent = "请求中…";
+      try {
+        const r = await window.kugua.request("monitor", "monitor.stats", {});
+        out.textContent = JSON.stringify(r, null, 2);
+      } catch (e) {
+        out.textContent = "失败：" + e.message;
+      }
+    });
+  </script>
+</body>
+</html>

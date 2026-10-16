@@ -9,8 +9,16 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@kugua/capability": "*",
     "@kugua/nigane": "*",
     "@kugua/dscript": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@kugua/paths": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "解梦模块：根据关键词解释梦境"
   }
 }

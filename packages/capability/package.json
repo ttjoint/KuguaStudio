@@ -1,0 +1,19 @@
+{
+  "name": "@kugua/capability",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜能力注册表：功能的一等公民表示，一次声明自动派生指令/GUI/定时/开机/外部接口",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {}
+}

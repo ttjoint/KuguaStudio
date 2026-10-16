@@ -4,26 +4,10 @@
  * 数据通过苦音协议从 MKG 读取，不直接访问文件系统
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { NiganeClient } from "@kugua/nigane";
+import { 启动模块 } from "@kugua/module-kit";
+import type { 能力声明 } from "@kugua/capability";
+import { 读模块资源 } from "@kugua/paths";
 import { DScriptFile, DValue } from "@kugua/dscript";
-
-interface 模块配置 {
-  host?: string;
-  port?: number;
-  token?: string;
-}
-
-function 加载配置(): 模块配置 {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
-  if (!existsSync(路径)) return {};
-  try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
-  } catch {
-    return {};
-  }
-}
 
 function 人称互换(文本: string): string {
   return 文本
@@ -32,74 +16,69 @@ function 人称互换(文本: string): string {
     .replace(/【W】/g, "你");
 }
 
-async function 启动(): Promise<void> {
-  const 配置 = 加载配置();
-  const host = 配置.host ?? "127.0.0.1";
-  const port = 配置.port ?? 24601;
-  const envURL = process.env.NIGANE_URL ?? process.argv[2];
-  const envToken = process.env.NIGANE_TOKEN ?? process.argv[3];
+/** 能力声明：今天吃什么 */
+const 能力清单: 能力声明[] = [
+  {
+    名称: "food.recommend",
+    模块: "food",
+    标题: "今天吃什么",
+    说明: "随机推荐吃什么（可带时间/动词，如「晚上喝什么」）",
+    中文指令: ["吃什么"],
+    参数: {
+      type: "object",
+      properties: {
+        time: { type: "string", description: "时间，如 今天/晚上" },
+        verb: { type: "string", description: "动词，如 吃/喝" },
+      },
+    },
+    暴露: { 指令: true, GUI: true, 定时: false, MCP: true },
+  },
+];
 
-  const 客户端 = new NiganeClient({
-    name: "food",
-    url: envURL ?? `ws://${host}:${port}`,
-    token: envToken ?? 配置.token ?? "",
-    version: "0.1.0",
-    capabilities: ["food.recommend"],
-  });
+let 脚本缓存: DScriptFile | null = null;
 
-  let 脚本缓存: DScriptFile | null = null;
-
-  async function 加载数据(): Promise<DScriptFile> {
-    if (脚本缓存) return 脚本缓存;
-    const 数据路径 = resolve(process.cwd(), "data/generators", "data_eat.txt");
-    const 内容 = readFileSync(数据路径, "utf-8");
-    const 脚本 = new DScriptFile();
-    脚本.Load(内容);
-    脚本缓存 = 脚本;
-    return 脚本;
-  }
-
-  function EatText(time: string, verb: string): string {
-    const 脚本 = 脚本缓存!;
-    let 结果 = 脚本.GetResult(null, [
-      new DValue("【time】", [time]),
-      new DValue("【verb】", [verb]),
-    ]);
-    结果 = 人称互换(结果);
-    if (结果.includes("【")) {
-      return "";
-    }
-    return 结果;
-  }
-
-  客户端.onRequest("food.recommend", async (params) => {
-    await 加载数据();
-    const { time = "今天", verb = "吃" } = (params ?? {}) as {
-      time?: string;
-      verb?: string;
-    };
-    const 推荐 = EatText(time, verb);
-    return {
-      time,
-      verb,
-      推荐,
-    };
-  });
-
-  await 客户端.connect();
-  console.log("[吃什么模块] 已接入主控，等待推荐请求");
-
-  const 关闭 = (): void => {
-    console.log("[吃什么模块] 正在关闭……");
-    客户端.close();
-    process.exit(0);
-  };
-  客户端.on("shutdown", 关闭);
-  process.on("SIGINT", 关闭);
-  process.on("SIGTERM", 关闭);
+async function 加载数据(): Promise<DScriptFile> {
+  if (脚本缓存) return 脚本缓存;
+  const 内容 = 读模块资源(import.meta.url, "data_eat.txt");
+  const 脚本 = new DScriptFile();
+  脚本.Load(内容);
+  脚本缓存 = 脚本;
+  return 脚本;
 }
 
-启动().catch((err: unknown) => {
-  console.error("[吃什么模块] 启动失败：", err);
-  process.exit(1);
+function EatText(time: string, verb: string): string {
+  const 脚本 = 脚本缓存!;
+  let 结果 = 脚本.GetResult(null, [
+    new DValue("【time】", [time]),
+    new DValue("【verb】", [verb]),
+  ]);
+  结果 = 人称互换(结果);
+  if (结果.includes("【")) {
+    return "";
+  }
+  return 结果;
+}
+
+void 启动模块({
+  name: "food",
+  version: "0.2.0",
+  能力: 能力清单,
+  处理器: {
+    "food.recommend": async (params) => {
+      await 加载数据();
+      const p = (params ?? {}) as { time?: string; verb?: string; 参数文本?: string; 原文?: string };
+      let time = p.time ?? "今天";
+      let verb = p.verb ?? "吃";
+      // 复刻 C# 正则 ^(.*)(.{1})什么$：如「晚上喝什么」
+      const 文本 = (p.参数文本 ?? p.原文 ?? "").trim();
+      const m = 文本.match(/^(.*)(.{1})什么$/);
+      if (m) {
+        time = m[1].trim() || "今天";
+        verb = m[2];
+      }
+      const 推荐 = EatText(time, verb);
+      return { time, verb, 推荐 };
+    },
+  },
+  就绪: () => console.log("[吃什么模块] 已接入主控，等待推荐请求"),
 });

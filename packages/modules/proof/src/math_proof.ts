@@ -2,20 +2,10 @@
  * MathProof 算法移植
  * 严格复刻 C# MathProof.cs：用给定的一串数字通过加减乘除与乘方，
  * 逆波兰表达式搜索拼凑出目标数字，返回等式链。
+ * 随机源改用统一随机源 `@kugua/random`。
  */
 
-/** 随机整数 [min, max) */
-function 随机整数(minOrMax: number, maxValue?: number): number {
-  let min = 0;
-  let max = minOrMax;
-  if (maxValue !== undefined) {
-    min = minOrMax;
-    max = maxValue;
-  }
-  if (min >= max) return min;
-  const range = max - min;
-  return Math.floor(Math.random() * range) + min;
-}
+import { NextInt } from "@kugua/random";
 
 export class MathProof {
   private tbase: number[] = [];
@@ -31,7 +21,7 @@ export class MathProof {
 
     let res = this.GetStrongProofs(this.desired, baseNumbers);
     if (res.length > 0) {
-      proofChain.push(res[随机整数(res.length)]);
+      proofChain.push(res[NextInt(res.length)]);
     } else {
       try {
         this.desired = Math.abs(this.desired);
@@ -44,7 +34,7 @@ export class MathProof {
           proofChain.push(String(this.desired));
           res = this.GetStrongProofs(this.desired, baseNumbers);
           if (res.length > 0) {
-            proofChain.push(this.proofres[随机整数(this.proofres.length)]);
+            proofChain.push(this.proofres[NextInt(this.proofres.length)]);
             break;
           } else {
             proofChain.length = 0;

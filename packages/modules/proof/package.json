@@ -9,7 +9,16 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@kugua/capability": "*",
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "@kugua/random": "*",
+    "ws": "^8.18.0",
+    "@kugua/paths": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "数字论证模块：字符串/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）"
   }
 }

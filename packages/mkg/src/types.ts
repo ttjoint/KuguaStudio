@@ -28,6 +28,14 @@ export interface 标签 {
   parentId: number | null;
   /** 描述 */
   description: string | null;
+  /** 颜色 #RRGGBB（可选） */
+  color?: string | null;
+  /** 标签类型：plain | arrow | group | smart */
+  kind?: string;
+  /** 图标（可选） */
+  icon?: string | null;
+  /** 排序权重 */
+  sort?: number;
 }
 
 export type 资源关系类型 = "contains" | "references" | "similar";
@@ -239,4 +247,63 @@ export interface 文本片段更新 {
   title?: string;
   content?: string;
   tagIds?: number[];
+}
+
+// ===== 保存视图 / 受管位置 / 侧车（v0.4） =====
+
+/** 保存视图（智能文件夹）：query 为组合查询条件 */
+export interface 保存视图 {
+  id: number;
+  name: string;
+  query: 查询条件;
+  icon: string | null;
+  sort: number;
+  createdAt: number;
+}
+
+/** 组合查询条件 */
+export interface 查询条件 {
+  /** 命中的标签 id（AND） */
+  tags?: number[];
+  /** 排除的标签 id（NOT） */
+  notTags?: number[];
+  /** 内容分类或节点类型过滤 */
+  type?: string;
+  /** 文本关键词 */
+  text?: string;
+  /** 限定位置 id */
+  locations?: number[];
+  /** 排序：import | name | updated */
+  sort?: "import" | "name" | "updated";
+}
+
+/** 受管位置（可索引根目录） */
+export interface 位置 {
+  id: number;
+  path: string;
+  name: string | null;
+  /** watch=监听变更 | manual=手动扫描 */
+  mode: "watch" | "manual";
+  /** 排除规则（正则或 glob 字符串） */
+  excludes: string[];
+  createdAt: number;
+}
+
+/** 侧车中的关系引用 */
+export interface 侧车关系 {
+  type: string;
+  /** 目标（相对路径或绝对路径） */
+  target: string;
+}
+
+/** 侧车文件（<文件>.mkg.json）内容 */
+export interface 侧车数据 {
+  version: number;
+  /** 源文件 sha256，用于判断文件是否被替换 */
+  sha256?: string;
+  /** 标签以名称/路径存储，跨库可移植 */
+  tags?: string[];
+  relations?: 侧车关系[];
+  note?: string;
+  updatedAt?: number;
 }

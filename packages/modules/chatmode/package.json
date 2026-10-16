@@ -1,0 +1,23 @@
+{
+  "name": "@kugua/module-chatmode",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "模式闲聊模块：各「xx模式」语料随机拼合（复刻 ModRandomChat / ModNormalChat 的 ChatMode 与混沌模式）",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/nigane": "*",
+    "@kugua/paths": "*",
+    "@kugua/random": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "模式闲聊：各「xx模式」语料随机拼合（复刻 ChatMode / 混沌模式）"
+  }
+}

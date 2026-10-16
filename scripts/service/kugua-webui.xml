@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WinSW 服务配置模板（把苦瓜工作室注册为真正的 Windows 服务）。
+
+  用法：
+    1. 下载 WinSW（如 WinSW-x64.exe）：https://github.com/winsw/winsw/releases
+    2. 在项目根目录放置并重命名为 kugua-webui.exe
+    3. 将本文件复制为 kugua-webui.xml（与 exe 同目录）
+    4. 以管理员身份执行：
+         .\kugua-webui.exe install
+         .\kugua-webui.exe start
+       卸载：.\kugua-webui.exe stop && .\kugua-webui.exe uninstall
+
+  说明：%BASE% 会被 WinSW 解析为 exe 所在目录（即项目根）。
+-->
+<service>
+  <id>KuguaStudio</id>
+  <name>KuguaStudio WebUI</name>
+  <description>苦瓜工作室本地 WebUI（托管主控与模块，默认端口 24600）</description>
+
+  <executable>node</executable>
+  <arguments>"%BASE%\packages\webui\dist\server.js" --no-open</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+
+  <env name="KUGUA_WEBUI_PORT" value="24600"/>
+
+  <!-- 崩溃自动重启 -->
+  <onfailure action="restart" delay="10 sec"/>
+
+  <!-- 日志按大小滚动 -->
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>4</keepFiles>
+  </log>
+</service>

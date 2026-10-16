@@ -1,0 +1,9 @@
+{
+  "name": "demo-echo",
+  "version": "0.1.0",
+  "description": "示例脚本模块：最小 MCP（JSON Lines）服务，提供 demo.echo 工具",
+  "command": "node",
+  "args": ["main.mjs"],
+  "prefix": "demo",
+  "permissions": []
+}

@@ -86,12 +86,13 @@ export function 注册调度处理器(客户端: NiganeClient, 调度器: 任务
   客户端.onRequest("scheduler.task.list", () => 调度器.list());
   客户端.onRequest("scheduler.task.get", (参数) => 取任务(调度器, 参数));
   客户端.onRequest("scheduler.task.update", (参数) => {
-    const p = (参数 ?? {}) as { id?: string; name?: string } & Partial<Parameters<任务调度器["update"]>[1]>;
+    const p = (参数 ?? {}) as { id?: string; name?: string; cron?: string; enabled?: boolean; 触发?: "cron" | "startup" } & Partial<Parameters<任务调度器["update"]>[1]>;
     return 调度器.update(取标识(参数), {
       name: p.name,
       cron: p.cron,
       action: p.action,
       enabled: p.enabled,
+      触发: p.触发,
     });
   });
   客户端.onRequest("scheduler.task.delete", (参数) => 调度器.remove(取标识(参数)));
@@ -101,6 +102,26 @@ export function 注册调度处理器(客户端: NiganeClient, 调度器: 任务
   });
   客户端.onRequest("scheduler.task.runNow", (参数) => 调度器.runNow(取标识(参数)));
   客户端.onRequest("scheduler.status", () => 调度器.status());
+
+  // 可选任务动作：来自能力注册表（入口=定时），供 WebUI/命令列出候选
+  客户端.onRequest("scheduler.actions", async () => {
+    const 能力 = (await 客户端.request("nigane", "capability.list", { 入口: "定时" })) as Array<{
+      名称: string;
+      模块: string;
+      动作?: string;
+      标题?: string;
+      说明?: string;
+      中文指令?: string[];
+    }>;
+    return (能力 ?? []).map((c) => ({
+      名称: c.名称,
+      模块: c.模块,
+      动作: c.动作 ?? c.名称,
+      标题: c.标题,
+      说明: c.说明,
+      中文指令: c.中文指令 ?? [],
+    }));
+  });
 }
 
 export { 任务存储 };

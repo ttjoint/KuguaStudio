@@ -1,0 +1,232 @@
+/**
+ * 苦瓜插件 SDK（@kugua/plugin-sdk）
+ *
+ * 契约层：插件只依赖本包即可接入苦音（Nigane）总线。
+ *   - BasePlugin：生命周期钩子 on_load / on_enable / on_disable / on_unload
+ *   - Context：主系统注入的宿主能力（日志 / 请求 / 广播 / 事件订阅）
+ *   - 定义插件()：标注插件类并绑定元数据（对应模板仓库 manifest 的运行时校验）
+ *   - 命令定义：在 on_load 中 this.注册命令({ 匹配, 处理, 说明 }) 挂载聊天命令
+ */
+
+import type { NiganeClient } from "@kugua/nigane";
+import type { 标识, 消息段 } from "@kugua/onebot11";
+
+export type { 标识, 消息段 } from "@kugua/onebot11";
+
+/** 插件元数据（与 kugua-plugin.json 对应，市场展示与版本校验用） */
+export interface 插件元数据 {
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  homepage?: string;
+}
+
+/** 命令处理返回值：返回字符串/消息段即回复当前会话；null/void 表示已自行处理 */
+export type 回复内容 = string | 消息段[] | void | null;
+
+/** 消息上下文：命令处理函数的入参，包含会话信息与回复能力 */
+export interface 消息上下文 {
+  /** 会话类型：群聊 / 私聊 */
+  类型: "group" | "private";
+  /** 群号（私聊为空） */
+  群号?: 标识;
+  /** 消息发送者 QQ */
+  用户号: 标识;
+  /** 机器人自身 QQ */
+  机器人号: 标识;
+  /** OneBot 消息段数组 */
+  消息段: 消息段[];
+  /** 纯文本（text 段拼接） */
+  文本: string;
+  /** 消息中的 @ 目标列表 */
+  at们: 标识[];
+  /** 原始事件数据 */
+  事件: unknown;
+  /** 回复当前会话 */
+  回复: (内容: string | 消息段[]) => Promise<unknown>;
+  /** 合并转发（仅群聊可用，私聊回退文本） */
+  转发: (内容: string | 消息段[], 目标群号?: 标识) => Promise<unknown>;
+  /** 经苦音总线请求其他模块 */
+  请求: (目标: string, 动作: string, 参数?: unknown, 超时毫秒?: number) => Promise<unknown>;
+}
+
+/** 聊天命令定义 */
+export interface 命令定义 {
+  /** 匹配正则（对消息纯文本测试） */
+  匹配: RegExp;
+  /** 处理函数 */
+  处理: (消息: 消息上下文, 匹配: RegExpMatchArray) => 回复内容 | Promise<回复内容>;
+  /** 帮助说明（市场/帮助展示用） */
+  说明?: string;
+}
+
+/** 事件订阅句柄：插件卸载/禁用时由宿主调用取消 */
+export interface 订阅句柄 {
+  取消: () => void;
+}
+
+/** 宿主注入能力（Context 的实现依据） */
+export interface 插件宿主 {
+  日志: {
+    信息: (消息: string) => void;
+    警告: (消息: string) => void;
+    错误: (消息: string) => void;
+  };
+  /** 经苦音总线向指定模块发起请求 */
+  请求: (目标: string, 动作: string, 参数?: unknown, 超时毫秒?: number) => Promise<unknown>;
+  /** 向苦音总线广播事件 */
+  广播: (动作: string, 参数?: unknown) => void;
+  /** 订阅总线事件（action 前缀匹配），返回可取消句柄 */
+  订阅: (动作: string, 处理: (参数: unknown) => void | Promise<void>) => 订阅句柄;
+}
+
+/** 简易日志器（缺省落到控制台） */
+export function 创建日志器(前缀 = "[插件]"): 插件宿主["日志"] {
+  return {
+    信息: (消息) => console.log(`${前缀} ${消息}`),
+    警告: (消息) => console.warn(`${前缀} ${消息}`),
+    错误: (消息) => console.error(`${前缀} ${消息}`),
+  };
+}
+
+/**
+ * 基于苦音客户端的默认宿主适配。
+ * 注意：NiganeClient.onEvent 按 action 覆盖注册，因此这里做多路复用扇出表，
+ * 多个订阅者共享一个底层处理器，取消订阅只从扇出表移除。
+ */
+export function 创建宿主(
+  客户端: NiganeClient,
+  日志: 插件宿主["日志"] = 创建日志器(),
+): 插件宿主 {
+  const 事件表 = new Map<string, Set<(参数: unknown) => void | Promise<void>>>();
+  return {
+    日志,
+    请求: (目标, 动作, 参数, 超时毫秒) => 客户端.request(目标, 动作, 参数, 超时毫秒 ?? 10000),
+    广播: (动作, 参数) => 客户端.sendEvent(动作, 参数),
+    订阅: (动作, 处理) => {
+      let 集合 = 事件表.get(动作);
+      if (!集合) {
+        集合 = new Set();
+        事件表.set(动作, 集合);
+        客户端.onEvent(动作, (参数) => {
+          for (const 处理器 of 集合 ?? []) {
+            void Promise.resolve(处理器(参数)).catch((err: unknown) =>
+              日志.错误(`事件处理失败 ${动作}：${String(err)}`),
+            );
+          }
+        });
+      }
+      集合.add(处理);
+      return {
+        取消: () => {
+          集合?.delete(处理);
+          if (集合 && 集合.size === 0) {
+            事件表.delete(动作);
+          }
+        },
+      };
+    },
+  };
+}
+
+/**
+ * 插件上下文：主系统注入给每个插件实例的宿主门面。
+ * 插件可在 on_load(ctx) 中保存它，用于请求其他模块、广播事件、订阅总线事件。
+ */
+export class Context implements 插件宿主 {
+  readonly 日志: 插件宿主["日志"];
+  readonly 请求: 插件宿主["请求"];
+  readonly 广播: 插件宿主["广播"];
+  readonly 订阅: 插件宿主["订阅"];
+
+  constructor(宿主: 插件宿主) {
+    this.日志 = 宿主.日志;
+    this.请求 = 宿主.请求;
+    this.广播 = 宿主.广播;
+    this.订阅 = 宿主.订阅;
+  }
+}
+
+/**
+ * 插件基类：
+ *   - 子类实现生命周期钩子
+ *   - on_load 中保存 ctx 并调用 this.注册命令(...) 挂载命令
+ *   - 宿主在加载后读取 this.命令 获取注册表
+ */
+export abstract class BasePlugin {
+  /** 元数据由 定义插件() 写入（静态），宿主据此校验 */
+  static 插件元数据?: 插件元数据;
+
+  protected 上下文?: Context;
+  private 命令表: 命令定义[] = [];
+
+  /** 生命周期：插件加载（实例化后调用） */
+  on_load(ctx: Context): void | Promise<void> {
+    this.上下文 = ctx;
+  }
+
+  /** 生命周期：启用 */
+  on_enable(): void | Promise<void> {
+    // 默认无操作
+  }
+
+  /** 生命周期：禁用 */
+  on_disable(): void | Promise<void> {
+    // 默认无操作
+  }
+
+  /** 生命周期：卸载（动态导入缓存清理前调用） */
+  on_unload(): void | Promise<void> {
+    // 默认无操作
+  }
+
+  /** 注册一条聊天命令（应在 on_load 内调用） */
+  注册命令(定义: 命令定义): void {
+    this.命令表.push(定义);
+  }
+
+  /** 已注册命令（只读，宿主读取） */
+  get 命令(): readonly 命令定义[] {
+    return this.命令表;
+  }
+}
+
+/** 插件类构造器类型（BasePlugin 具体子类，含静态元数据槽位） */
+export interface 插件构造器 {
+  new (): BasePlugin;
+  插件元数据?: 插件元数据;
+}
+
+export type 插件类 = 插件构造器;
+
+/**
+ * 标注插件类并绑定元数据。
+ * 用法：export default 定义插件(示例插件, { name: "hello", version: "0.1.0", ... })
+ */
+export function 定义插件<T extends 插件类>(类: T, 元数据: 插件元数据): T {
+  类.插件元数据 = {
+    ...元数据,
+    name: 元数据.name.trim().toLowerCase(),
+    version: 元数据.version.trim(),
+  };
+  return 类;
+}
+
+/** 从模块导出物解析插件类：默认导出优先，其次命名导出插件类 */
+export function 解析插件类(模块: unknown): 插件类 | null {
+  const 对象 = (模块 ?? {}) as Record<string, unknown>;
+  const 候选列表: unknown[] = [];
+  if (typeof 模块 === "function") 候选列表.push(模块);
+  if (typeof 对象.default === "function") 候选列表.push(对象.default);
+  for (const 值 of Object.values(对象)) {
+    if (typeof 值 === "function" && !候选列表.includes(值)) 候选列表.push(值);
+  }
+  for (const 候选 of 候选列表) {
+    const 类 = 候选 as 插件构造器;
+    if (typeof 类 === "function" && (类.prototype?.on_load !== undefined || 类.插件元数据)) {
+      return 类;
+    }
+  }
+  return null;
+}

@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>苦瓜工作室</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶栏：标题 + 动作按钮 + 窗口控制（无边框窗口自绘） -->
+    <header id="titlebar">
+      <div class="titlebar-actions">
+        <button id="tab-chat" class="tb-btn nav-tab active" title="对话">对话</button>
+        <button id="tab-kb" class="tb-btn nav-tab" title="知识库浏览">知识库</button>
+        <button id="tab-jobs" class="tb-btn nav-tab" title="长任务作业">作业</button>
+        <button id="tab-tools" class="tb-btn nav-tab" title="音乐 / 媒体 / 模式 / 二维码">工具</button>
+        <button id="tab-plugins" class="tb-btn nav-tab" title="插件管理与响应情况">插件</button>
+        <button id="tab-logs" class="tb-btn nav-tab" title="日志与调试">日志</button>
+        <button id="tab-settings" class="tb-btn nav-tab" title="系统设置">设置</button>
+        <span class="tb-sep"></span>
+        <button id="btn-theme" class="tb-btn" title="切换日间/夜间主题">&#x1F319;</button>
+      </div>
+      <div class="window-controls">
+        <button id="win-min" class="win-btn" title="最小化">&#x2014;</button>
+        <button id="win-max" class="win-btn" title="最大化">&#x25A1;</button>
+        <button id="win-close" class="win-btn win-close" title="关闭">&#x2715;</button>
+      </div>
+    </header>
+
+    <!-- 工作区：知识库浏览为主显示 + 聊天作为可折叠侧边栏 -->
+    <div id="workspace">
+      <!-- 知识库浏览（主显示区域，可接收拖拽资源以保存） -->
+      <main id="explorer-area" class="hidden">
+        <!-- 系统提示：拖拽文件/图片到此区域可导入知识库 -->
+        <div id="explorer-drop-hint" class="explorer-drop-hint hidden">松开以导入知识库</div>
+        <!-- 知识库子视图切换：文件 / 点子 / 素材 / 看板 -->
+        <div class="ex-sub-tabs">
+          <button class="ex-sub-tab active" data-mode="files" title="文件">&#x1F4C1; 文件</button>
+          <button class="ex-sub-tab" data-mode="notes" title="点子">&#x1F4A1; 点子</button>
+          <button class="ex-sub-tab" data-mode="materials" title="素材">&#x1F4CE; 素材</button>
+          <button class="ex-sub-tab" data-mode="board" title="看板">&#x1F5C2; 看板</button>
+        </div>
+        <div class="ex-pane ex-pane-files">
+        <div class="explorer-layout">
+          <!-- 分类栏（最左，可折叠）：搜索 + 标签树 -->
+          <div id="ex-cat-sidebar" class="ex-cat-sidebar">
+            <div class="ex-search-box">
+              <input type="text" id="ex-search" placeholder="搜索文件...">
+            </div>
+
+            <div class="ex-section">
+              <div class="ex-section-title" data-toggle="tag-tree">
+                <span class="ex-toggle">&#x25BC;</span> 标签
+              </div>
+              <div id="ex-tag-tree" class="ex-tag-tree"></div>
+            </div>
+
+            <div class="ex-section">
+              <div class="ex-section-title">
+                <span class="ex-toggle">&#x25BC;</span> 智能视图
+                <button id="ex-view-save" class="ex-link-btn" title="保存当前筛选为智能视图">&#xFF0B;</button>
+              </div>
+              <div id="ex-view-list" class="ex-view-list"></div>
+            </div>
+
+            <div class="ex-section">
+              <div class="ex-section-title">
+                <span class="ex-toggle">&#x25BC;</span> 位置
+                <button id="ex-location-add" class="ex-link-btn" title="添加受管目录">&#xFF0B;</button>
+                <button id="ex-location-scan" class="ex-link-btn" title="扫描全部位置并重建索引">&#x21BB;</button>
+              </div>
+              <div id="ex-location-list" class="ex-location-list"></div>
+            </div>
+          </div>
+
+          <!-- 文件详细信息栏（未选中文件时隐藏） -->
+          <div id="ex-file-info" class="ex-section ex-file-info hidden">
+              <div class="ex-info-content">
+                <div class="ex-info-preview hidden" id="ex-info-preview"></div>
+                <div class="ex-info-name" id="ex-info-name" title="双击重命名（仅知识库内名称），右键复制名称"></div><span class="ex-info-name-ext" id="ex-info-name-ext"></span>
+                <div class="ex-info-row"><span class="ex-info-label">大小</span><span class="ex-info-value" id="ex-info-size"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">真实文件名</span><span class="ex-info-value ex-info-realname" id="ex-info-realname" title="双击重命名本地文件，右键复制真实文件名"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">路径</span><span class="ex-info-value" id="ex-info-path" title="右键复制路径或在资源管理器中打开"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">修改时间</span><span class="ex-info-value" id="ex-info-modified"></span></div>
+                <div class="ex-info-row"><span class="ex-info-label">入库时间</span><span class="ex-info-value" id="ex-info-indexed"></span></div>
+                <div class="ex-info-tags-section">
+                  <div class="ex-info-tags-header">
+                    <div class="ex-info-label">标签</div>
+                  </div>
+                  <div id="ex-info-tags" class="ex-info-tags"></div>
+                  <div class="ex-info-tag-add">
+                    <input type="text" id="ex-info-tag-input" placeholder="输入标签，用逗号分隔，回车添加">
+                    <button class="ex-link-btn" id="ex-info-tag-add-btn">添加</button>
+                  </div>
+                  <div id="ex-info-tag-tree" class="import-tag-tree"></div>
+                </div>
+              </div>
+            </div>
+
+          <!-- 右侧面板：工具栏 + 文件列表 -->
+          <div class="explorer-content">
+            <div class="ex-toolbar">
+              <div class="ex-toolbar-left">
+                <button class="ex-nav-btn" id="ex-cat-toggle" title="折叠分类栏">&#x25C0;</button>
+                <button class="ex-nav-btn" id="ex-nav-refresh" title="刷新">&#x21BB;</button>
+              </div>
+              <div class="ex-toolbar-right">
+                <div class="ex-toolbar-filters">
+                  <button class="ex-nav-btn" id="ex-btn-import" title="导入文件/图片到知识库">&#x1F4E5;</button>
+                  <button class="ex-nav-btn hidden" id="ex-btn-delete-selected" title="删除选中的内容（从知识库移除）">&#x1F5D1;<span class="badge hidden" id="ex-delete-count"></span></button>
+                  <button class="ex-nav-btn" id="ex-btn-new-snippet" title="新建文本片段">&#x2795;</button>
+                  <select id="ex-type-filter" class="ex-filter-select" title="按类型筛选">
+                    <option value="all">全部类型</option>
+                    <option value="文件">文件</option>
+                    <option value="图片">图片</option>
+                    <option value="音乐">音乐</option>
+                    <option value="视频">视频</option>
+                    <option value="文本">文本</option>
+                    <option value="文本段">文本段</option>
+                    <option value="点子">点子</option>
+                    <option value="素材">素材</option>
+                    <option value="目录">目录</option>
+                  </select>
+                  <select id="ex-sort" class="ex-filter-select" title="排序方式">
+                    <option value="import">按导入顺序</option>
+                    <option value="name">按名称</option>
+                    <option value="updated">按修改时间</option>
+                  </select>
+                </div>
+                <div class="ex-view-group" role="group">
+                  <button class="ex-view-btn active" data-viewmode="large" title="大图标">&#x2630;&#x2630;</button>
+                  <button class="ex-view-btn" data-viewmode="list" title="列表">&#x2630;</button>
+                  <button class="ex-view-btn" data-viewmode="details" title="详细信息">&#x2636;</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 关联标签：点击/搜索特定标签时，在此列出本标签及一串关联标签 -->
+            <div id="ex-related-tags" class="ex-related-tags hidden"></div>
+            <div id="ex-filter-summary" class="ex-filter-summary hidden"></div>
+
+            <!-- 大图标视图 -->
+            <div id="ex-items-large" class="ex-items ex-items-large"></div>
+            <!-- 列表视图 -->
+            <div id="ex-items-list" class="ex-items ex-items-list hidden"></div>
+            <!-- 详细信息视图 -->
+            <div id="ex-items-details" class="ex-items ex-items-details hidden">
+              <div class="ex-details-header">
+                <div class="ex-dh-col ex-dh-name">名称</div>
+                <div class="ex-dh-col ex-dh-type">类型</div>
+                <div class="ex-dh-col ex-dh-size">大小</div>
+                <div class="ex-dh-col ex-dh-path">路径</div>
+              </div>
+              <div id="ex-details-body" class="ex-details-body"></div>
+            </div>
+
+            <div id="ex-statusbar" class="ex-statusbar">
+              <span id="ex-status-count">0 个项目</span>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <!-- 点子视图 -->
+        <div class="ex-pane ex-pane-notes hidden">
+          <div class="explorer-content">
+            <div class="ex-toolbar">
+              <div class="ex-toolbar-left">
+                <input type="text" id="ex-note-search" class="ex-search-input" placeholder="搜索点子...">
+              </div>
+              <div class="ex-toolbar-right">
+                <button class="ex-nav-btn" id="ex-note-add" title="新建点子">&#xFF0B;</button>
+                <button class="ex-nav-btn" id="ex-note-refresh" title="刷新">&#x21BB;</button>
+                <button class="ex-nav-btn" id="ex-note-edit" title="编辑选中的点子">&#x270E;</button>
+                <button class="ex-nav-btn" id="ex-note-delete" title="删除选中的点子">&#x1F5D1;</button>
+              </div>
+            </div>
+            <div id="ex-note-list" class="ex-note-list"></div>
+            <div id="ex-note-detail" class="ex-note-detail hidden">
+              <div class="ex-note-detail-head">
+                <div id="ex-note-detail-title"></div>
+                <div class="ex-note-detail-time" id="ex-note-detail-time"></div>
+              </div>
+              <div id="ex-note-detail-tags" class="ex-info-tags"></div>
+              <div class="ex-note-detail-content" id="ex-note-detail-content"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 素材视图 -->
+        <div class="ex-pane ex-pane-materials hidden">
+          <div class="explorer-content">
+            <div class="ex-toolbar">
+              <div class="ex-toolbar-left">
+                <input type="text" id="ex-mat-search" class="ex-search-input" placeholder="搜索素材...">
+              </div>
+              <div class="ex-toolbar-right">
+                <button class="ex-nav-btn" id="ex-mat-add" title="新建素材">&#xFF0B;</button>
+                <button class="ex-nav-btn" id="ex-mat-refresh" title="刷新">&#x21BB;</button>
+                <button class="ex-nav-btn" id="ex-mat-edit" title="编辑选中的素材">&#x270E;</button>
+                <button class="ex-nav-btn" id="ex-mat-delete" title="删除选中的素材">&#x1F5D1;</button>
+              </div>
+            </div>
+            <div id="ex-mat-list" class="ex-note-list"></div>
+            <div id="ex-mat-detail" class="ex-note-detail hidden">
+              <div class="ex-note-detail-head">
+                <div id="ex-mat-detail-title"></div>
+                <div class="ex-note-detail-time" id="ex-mat-detail-time"></div>
+              </div>
+              <div id="ex-mat-detail-tags" class="ex-info-tags"></div>
+              <div id="ex-mat-detail-meta" class="ex-mat-detail-meta"></div>
+              <div class="ex-note-detail-content" id="ex-mat-detail-content"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 看板视图 -->
+        <div class="ex-pane ex-pane-boards hidden">
+          <div class="ex-toolbar">
+            <div class="ex-toolbar-left">
+              <span class="ex-filter-select" style="border:none;background:transparent">工作流看板</span>
+            </div>
+            <div class="ex-toolbar-right">
+              <button class="ex-nav-btn" id="ex-board-add-col" title="新建列">&#xFF0B; 列</button>
+              <button class="ex-nav-btn" id="ex-board-add-card" title="新建卡片">&#xFF0B; 卡片</button>
+              <button class="ex-nav-btn" id="ex-board-refresh" title="刷新">&#x21BB;</button>
+            </div>
+          </div>
+          <div id="ex-board" class="ex-board"></div>
+        </div>
+      </main>
+
+      <!-- 作业视图（长任务） -->
+      <div id="jobs-view" class="oc-view hidden">
+        <div class="oc-page-head">
+          <span class="oc-page-title">&#x1F9F0; 作业（长任务）</span>
+        </div>
+        <div class="oc-page-body">
+          <div class="oc-section">
+            <div class="oc-section-title"><span>启动作业</span></div>
+            <div class="job-form">
+              <input id="job-cmd" type="text" placeholder="命令，如 python / node / git" />
+              <input id="job-args" type="text" placeholder="参数（空格分隔，可选）" />
+              <input id="job-cwd" type="text" placeholder="工作目录（可选，默认项目根）" />
+              <input id="job-title" type="text" placeholder="标题（可选）" />
+              <button id="job-start" class="tb-btn small">&#x25B6; 启动</button>
+            </div>
+            <div class="oc-about" style="opacity:0.7">危险操作：命令将以子进程执行，请确认来源可信。</div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>作业列表</span>
+              <button id="jobs-refresh" class="tb-btn small">&#x21BB; 刷新</button>
+            </div>
+            <ul id="jobs-list" class="oc-module-list"></ul>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span id="jobs-log-title">日志</span>
+              <button id="jobs-log-refresh" class="tb-btn small">&#x21BB;</button>
+            </div>
+            <pre id="jobs-log" class="jobs-log">（选择作业查看日志）</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- 工具视图（音乐 / 媒体 / 模式 / 二维码） -->
+      <div id="tools-view" class="oc-view hidden">
+        <div class="oc-page-head">
+          <span class="oc-page-title">&#x1F9F0; 工具（音乐 / 媒体 / 模式 / 二维码）</span>
+        </div>
+        <div class="oc-page-body">
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>音乐</span>
+              <span class="oc-section-tools">
+                <input id="music-q" class="oc-repo-input" type="text" placeholder="搜索歌曲 / 歌手" />
+                <button id="music-search-btn" class="tb-btn small">&#x1F50D; 搜索</button>
+              </span>
+            </div>
+            <ul id="music-list" class="oc-module-list"></ul>
+            <audio id="music-audio" class="tools-media hidden" controls></audio>
+            <div class="oc-section-title" style="margin-top:10px">
+              <span>播放列表</span>
+              <span class="oc-section-tools">
+                <button id="music-clear" class="tb-btn small">清空</button>
+              </span>
+            </div>
+            <ul id="music-playlist" class="oc-module-list"></ul>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>媒体处理（ffmpeg）</span>
+              <span class="oc-section-tools">
+                <button id="media-pick" class="tb-btn small">&#x1F4C2; 选择媒体</button>
+              </span>
+            </div>
+            <div id="media-path" class="oc-about" style="opacity:0.7">未选择文件</div>            <div class="job-form" style="margin-top:6px">
+              <button class="tb-btn small" data-media="transcode">转 mp4</button>
+              <button class="tb-btn small" data-media="mp3">转 mp3</button>
+              <button class="tb-btn small" data-media="wav">转 wav</button>
+              <button class="tb-btn small" data-media="amr">转 amr</button>
+              <button class="tb-btn small" data-media="extractAudio">提取音频</button>
+              <button class="tb-btn small" data-media="reverse">逆放</button>
+              <button class="tb-btn small" data-media="enhance">增强</button>
+              <button class="tb-btn small" data-media="gif">转 GIF</button>
+              <button class="tb-btn small" data-media="frames">抽帧</button>
+              <button class="tb-btn small" data-media="probe">信息</button>
+            </div>
+            <div id="media-result" class="tools-result"></div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>模式闲聊</span>
+              <span class="oc-section-tools">
+                <select id="mode-select" class="ex-filter-select"></select>
+                <button id="mode-say-btn" class="tb-btn small">&#x1F3B2; 生成一句</button>
+              </span>
+            </div>
+            <div id="mode-result" class="oc-about"></div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title"><span>二维码</span></div>
+            <div class="job-form">
+              <input id="qr-input" type="text" placeholder="文本或链接" />
+              <button id="qr-btn" class="tb-btn small">生成</button>
+            </div>
+            <div id="qr-result" class="tools-result"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 插件管理视图（与知识库并列的切换视图） -->
+      <div id="plugins-view" class="oc-view hidden">
+        <div class="oc-page-head">
+          <span class="oc-page-title">&#x1F9E9; 插件管理与响应情况</span>
+        </div>
+        <div class="oc-page-body">
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>本地插件（plugins/）</span>
+              <span class="oc-section-tools">
+                <input id="plugins-repo-input" class="oc-repo-input" type="text" placeholder="git 仓库地址或市场名" />
+                <button id="plugins-install-btn" class="tb-btn small">&#xFF0B; 安装</button>
+                <button id="plugins-refresh-local" class="tb-btn small">&#x21BB; 刷新</button>
+              </span>
+            </div>
+            <ul id="plugins-local-list" class="oc-module-list"></ul>
+            <div class="oc-section-title" style="margin-top:12px">
+              <span>插件市场</span>
+              <span class="oc-section-tools">
+                <button id="plugins-market-refresh" class="tb-btn small">&#x21BB; 拉取索引</button>
+              </span>
+            </div>
+            <ul id="plugins-market-list" class="oc-module-list"></ul>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>已接入节点 / 模块</span>
+              <button id="plugins-refresh" class="tb-btn small">&#x21BB; 刷新</button>
+            </div>
+            <ul id="plugins-module-list" class="oc-module-list"></ul>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title"><span>知识库统计</span></div>
+            <div class="oc-stats">
+              <div class="stat-row"><span class="stat-label">资源总数</span><span class="stat-value" id="oc-stat-total">-</span></div>
+              <div class="stat-row"><span class="stat-label">文件</span><span class="stat-value" id="oc-stat-files">-</span></div>
+              <div class="stat-row"><span class="stat-label">目录</span><span class="stat-value" id="oc-stat-dirs">-</span></div>
+              <div class="stat-row"><span class="stat-label">标签</span><span class="stat-value" id="oc-stat-tags">-</span></div>
+              <div class="stat-row"><span class="stat-label">关联</span><span class="stat-value" id="oc-stat-links">-</span></div>
+              <div class="stat-row"><span class="stat-label">文本索引</span><span class="stat-value" id="oc-stat-texts">-</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设置视图（与知识库并列的切换视图） -->
+      <div id="settings-view" class="oc-view hidden">
+        <div class="oc-page-head">
+          <span class="oc-page-title">&#x2699;&#xFE0F; 系统设置</span>
+        </div>
+        <div class="oc-page-body">
+          <div class="oc-section">
+            <div class="oc-section-title"><span>外观</span></div>
+            <div class="oc-setting-row">
+              <span class="oc-setting-label">皮肤主题</span>
+              <div class="oc-theme-group" id="theme-group">
+                <button class="oc-theme-btn" data-theme="dark">&#x1F31C; 夜间</button>
+                <button class="oc-theme-btn" data-theme="light">&#x2600;&#xFE0F; 日间</button>
+              </div>
+            </div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title"><span>知识库维护</span></div>
+            <div class="oc-setting-row">
+              <span class="oc-setting-label">全文索引（FTS5）</span>
+              <button id="settings-fts-rebuild" class="tb-btn small">重建全文索引</button>
+            </div>
+            <div class="oc-about" style="opacity:0.7">标签随文件：在文件右键菜单选择「导出侧车」，标签或关系会写入文件旁的 <code>.mkg.json</code>。</div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title"><span>关于</span></div>
+            <div class="oc-about">苦瓜工作室 v0.5.0 ｜ 本地知识库与模块化自动操作平台，基于苦音（Nigane）协议与苦瓜知识图谱（MKG）。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 对话页（多对话 / 多项目，类 Open WebUI） -->
+      <div id="chat-page-view" class="chat-page">
+        <aside id="chat-conv-panel" class="chat-conv-panel">
+          <div class="conv-head">
+            <span class="conv-title">对话</span>
+            <span class="conv-tools">
+              <button id="conv-new" class="tb-btn small" title="新建对话">&#xFF0B; 对话</button>
+              <button id="conv-project-new" class="tb-btn small" title="新建项目">&#xFF0B; 项目</button>
+            </span>
+          </div>
+          <div id="conv-projects" class="conv-projects"></div>
+          <div id="conv-list" class="conv-list"></div>
+        </aside>
+        <aside id="chat-sidebar" class="chat-main">
+          <div class="chat-header">
+            <span class="chat-title" id="chat-conv-title">&#x1F4AC; 新对话</span>
+            <span class="chat-hint">拖拽知识库资源或文件到这里</span>
+            <select id="chat-ai-model" class="ex-filter-select" title="AI 模型（普通对话使用）"></select>
+            <button id="chat-toggle" class="chat-toggle hidden" title="收起">&#x25B8;</button>
+          </div>
+          <div class="chat-search">
+            <input id="chat-search" type="text" placeholder="搜索当前对话内容…" autocomplete="off">
+            <button id="chat-search-clear" class="chat-search-clear hidden" title="清除搜索">×</button>
+          </div>
+          <div id="chat-view" class="chat-panel">
+            <div id="chat-log" class="chat-log"></div>
+            <div class="chat-input-bar">
+              <div id="chat-attachments" class="chat-attachments hidden"></div>
+              <div id="chat-cmd-hint" class="chat-cmd-hint hidden"></div>
+              <div class="chat-input-row">
+                <input id="chat-input" type="text" placeholder="输入指令或对话，或拖拽资源到此处让机器人处理…" autocomplete="off">
+                <button id="chat-send" class="send-btn">&#x1F680; 发送</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+        <div id="chat-resize" class="chat-resize hidden"></div>
+      </div>
+
+      <!-- 日志与调试页 -->
+      <div id="logs-view" class="oc-view hidden">
+        <div class="oc-page-head">
+          <span class="oc-page-title">&#x1F9FE; 日志与调试</span>
+        </div>
+        <div class="oc-page-body">
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>通信日志（总线收发 / 插件调用 / 错误）</span>
+              <span class="oc-section-tools">
+                <label class="debug-filter"><input type="checkbox" id="filter-send" checked> 发送</label>
+                <label class="debug-filter"><input type="checkbox" id="filter-recv" checked> 接收</label>
+                <label class="debug-filter"><input type="checkbox" id="filter-timeout" checked> 超时</label>
+                <label class="debug-filter"><input type="checkbox" id="filter-error" checked> 错误</label>
+                <button id="debug-clear" class="tb-btn small">清空</button>
+              </span>
+            </div>
+            <div id="debug-log" class="debug-log"></div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
+              <span>系统日志（各模块 / 插件调用与报错）</span>
+              <span class="oc-section-tools">
+                <button id="syslog-refresh" class="tb-btn small">&#x21BB; 刷新</button>
+              </span>
+            </div>
+            <div id="syslog-list" class="debug-log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右键菜单 -->
+  <div id="context-menu" class="context-menu hidden">
+  </div>
+
+  <!-- 打开方式对话框 -->
+  <!-- 点子编辑对话框 -->
+  <div id="note-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body">
+      <div class="modal-title" id="note-dialog-title">新建点子</div>
+      <div class="modal-content">
+        <label>标题</label>
+        <input type="text" id="note-title" placeholder="点子标题">
+        <label>内容</label>
+        <textarea id="note-content" rows="6" placeholder="记录你的点子..."></textarea>
+        <label>标签</label>
+        <div class="ex-info-tags" id="note-tag-chips"></div>
+        <label>新建标签（路径，如 工作/灵感）</label>
+        <div class="tag-autocomplete">
+          <input type="text" id="note-new-tag-path" placeholder="工作/灵感">
+        </div>
+        <button class="modal-btn" id="note-btn-create-tag" style="margin-top:0.4rem">创建标签</button>
+        <label>选择标签</label>
+        <div id="note-tag-tree" class="import-tag-tree"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="note-cancel">取消</button>
+        <button class="modal-btn primary" id="note-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 素材编辑对话框 -->
+  <div id="material-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body">
+      <div class="modal-title" id="material-dialog-title">新建素材</div>
+      <div class="modal-content">
+        <label>标题</label>
+        <input type="text" id="material-title" placeholder="素材标题">
+        <label>类型（如 图片/链接/文本/视频）</label>
+        <input type="text" id="material-kind" placeholder="链接">
+        <label>内容</label>
+        <textarea id="material-content" rows="4" placeholder="素材内容..."></textarea>
+        <label>来源链接</label>
+        <input type="text" id="material-source" placeholder="https://...">
+        <label>图片链接</label>
+        <input type="text" id="material-image" placeholder="https://.../image.png">
+        <label>标签</label>
+        <div class="ex-info-tags" id="material-tag-chips"></div>
+        <label>新建标签（路径，如 素材/参考）</label>
+        <div class="tag-autocomplete">
+          <input type="text" id="material-new-tag-path" placeholder="素材/参考">
+        </div>
+        <button class="modal-btn" id="material-btn-create-tag" style="margin-top:0.4rem">创建标签</button>
+        <label>选择标签</label>
+        <div id="material-tag-tree" class="import-tag-tree"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="material-cancel">取消</button>
+        <button class="modal-btn primary" id="material-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 看板列对话框 -->
+  <div id="column-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body small">
+      <div class="modal-title" id="column-dialog-title">新建列</div>
+      <div class="modal-content">
+        <label>列名</label>
+        <input type="text" id="column-name" placeholder="如 待办 / 进行中 / 已完成">
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="column-cancel">取消</button>
+        <button class="modal-btn primary" id="column-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 看板卡片对话框 -->
+  <div id="card-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body">
+      <div class="modal-title" id="card-dialog-title">新建卡片</div>
+      <div class="modal-content">
+        <label>标题</label>
+        <input type="text" id="card-title" placeholder="卡片标题">
+        <label>内容</label>
+        <textarea id="card-content" rows="4" placeholder="卡片内容..."></textarea>
+        <label>所属列</label>
+        <select id="card-column"></select>
+        <label>标签</label>
+        <div class="ex-info-tags" id="card-tag-chips"></div>
+        <label>新建标签（路径）</label>
+        <div class="tag-autocomplete">
+          <input type="text" id="card-new-tag-path" placeholder="工作/灵感">
+        </div>
+        <button class="modal-btn" id="card-btn-create-tag" style="margin-top:0.4rem">创建标签</button>
+        <label>选择标签</label>
+        <div id="card-tag-tree" class="import-tag-tree"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="card-cancel">取消</button>
+        <button class="modal-btn primary" id="card-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="openwith-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body">
+      <div class="modal-title">选择打开方式</div>
+      <div class="modal-content">
+        <div id="ow-list" class="ow-list"></div>
+        <div class="ow-custom">
+          <label>或指定程序路径：</label>
+          <input type="text" id="ow-program" placeholder="例如 C:\Windows\notepad.exe">
+          <label>启动参数（可选，{0} 代表文件路径）：</label>
+          <input type="text" id="ow-args" value='"{0}"'>
+          <label>标签（可选）：</label>
+          <input type="text" id="ow-label" placeholder="例如 记事本">
+          <label class="ow-check"><input type="checkbox" id="ow-set-default"> 设为该类型默认打开方式</label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="ow-cancel">取消</button>
+        <button class="modal-btn primary" id="ow-confirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重命名对话框 -->
+  <div id="rename-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body small">
+      <div class="modal-title">重命名（知识库内名称）</div>
+      <div class="modal-content">
+        <div class="rename-hint" id="rename-hint"></div>
+        <input type="text" id="rename-input" placeholder="输入新名称">
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="rename-cancel">取消</button>
+        <button class="modal-btn primary" id="rename-confirm">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建片段对话框 -->
+  <div id="snippet-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body small">
+      <div class="modal-title" id="snippet-dialog-title">新建片段</div>
+      <div class="modal-content">
+        <label>标题</label>
+        <input type="text" id="snippet-title" placeholder="片段标题">
+        <label>内容（支持 Markdown：图片 ![](路径或链接)、链接 [文字](地址)、加粗 **文字** 等）</label>
+        <textarea id="snippet-content" rows="5" placeholder="输入片段内容，支持 Markdown 语法..."></textarea>
+        <label>标签（输入后回车添加；↑/↓ 选择联想，Tab 采纳；点击已选标签可移除）</label>
+        <div class="ex-info-tags" id="snippet-tag-chips"></div>
+        <div class="tag-autocomplete">
+          <input type="text" id="snippet-tag-input" placeholder="输入标签，用逗号分隔，如 美食,川菜">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="snippet-cancel">取消</button>
+        <button class="modal-btn primary" id="snippet-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文件预览对话框 -->
+  <div id="preview-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body wide">
+      <div class="modal-title" id="preview-title">文件预览</div>
+      <div class="modal-content">
+        <!-- 文本编辑器 -->
+        <div id="preview-text-wrap" class="hidden">
+          <textarea id="preview-text" class="preview-text-content" spellcheck="false"></textarea>
+          <div class="preview-text-footer"><span id="preview-text-status">0 字符</span></div>
+        </div>
+        <!-- 十六进制预览 -->
+        <div id="preview-hex-wrap" class="hidden">
+          <div id="preview-hex" class="preview-hex-content"></div>
+        </div>
+        <!-- 图片浏览器 -->
+        <div id="preview-image-wrap" class="hidden">
+          <div class="preview-image-toolbar">
+            <span class="preview-image-info" id="preview-image-info"></span>
+            <span class="preview-image-tools">
+              <button id="preview-img-zoom-out" class="preview-btn" title="缩小">−</button>
+              <span id="preview-img-zoom-level" class="preview-zoom-level">100%</span>
+              <button id="preview-img-zoom-in" class="preview-btn" title="放大">＋</button>
+              <button id="preview-img-reset" class="preview-btn" title="重置缩放/旋转">↺</button>
+              <button id="preview-img-rotate" class="preview-btn" title="旋转 90°">↻</button>
+            </span>
+          </div>
+          <div class="preview-image-container" id="preview-image-scroll">
+            <img id="preview-image" class="preview-image" src="" alt="图片预览" />
+            <canvas id="preview-gif-canvas" class="preview-gif-canvas hidden"></canvas>
+          </div>
+          <div id="preview-anim-bar" class="preview-anim-bar hidden">
+            <span id="preview-anim-label" class="preview-anim-label"></span>
+            <button id="preview-anim-toggle" class="preview-btn" title="暂停 / 继续">⏸</button>
+            <input id="preview-anim-slider" class="preview-anim-slider" type="range" min="0" max="0" value="0" step="1" />
+            <span id="preview-anim-status" class="preview-anim-status"></span>
+          </div>
+          <div id="preview-image-meta" class="preview-image-meta hidden">
+            <div class="pim-row"><span class="pim-label">文件</span><span class="pim-value" id="preview-meta-name">-</span></div>
+            <div class="pim-row"><span class="pim-label">地址</span><span class="pim-value pim-path" id="preview-meta-path">-</span></div>
+            <div class="pim-row"><span class="pim-label">大小</span><span class="pim-value" id="preview-meta-size">-</span></div>
+            <div class="pim-row"><span class="pim-label">格式</span><span class="pim-value" id="preview-meta-format">-</span></div>
+            <div class="pim-row hidden" id="preview-meta-geo-row"><span class="pim-label">拍摄位置</span><span class="pim-value" id="preview-meta-geo">-</span></div>
+            <div class="pim-hint">📋 Ctrl+C 或右键可复制图片；动图支持暂停与拖拽进度</div>
+          </div>
+          <div class="preview-image-nav hidden">
+            <button id="preview-img-prev" class="preview-btn" title="上一张（←）">◀</button>
+            <span id="preview-img-counter" class="preview-img-counter"></span>
+            <button id="preview-img-next" class="preview-btn" title="下一张（→）">▶</button>
+          </div>
+          <div class="preview-thumbs hidden" id="preview-img-thumbs"></div>
+        </div>
+        <!-- 视频预览 -->
+        <div id="preview-video-wrap" class="hidden">
+          <video id="preview-video" class="preview-video" controls autoplay>
+            <p>您的浏览器不支持视频播放</p>
+          </video>
+        </div>
+        <!-- 音频预览 -->
+        <div id="preview-audio-wrap" class="hidden">
+          <div class="preview-audio-container">
+            <div class="preview-audio-info" id="preview-audio-title"></div>
+            <audio id="preview-audio" class="preview-audio" controls autoplay>
+              <p>您的浏览器不支持音频播放</p>
+            </audio>
+          </div>
+        </div>
+        <!-- 压缩包提示 -->
+        <div id="preview-archive-wrap" class="hidden">
+          <div class="preview-archive-msg">
+            <p>这是一个压缩包文件，无法直接预览内容。</p>
+            <button id="preview-archive-open" class="modal-btn primary">用系统关联程序打开</button>
+          </div>
+        </div>
+        <!-- 加载中 -->
+        <div id="preview-loading" class="preview-loading">加载中...</div>
+      </div>
+      <div class="modal-actions">
+        <button id="preview-close" class="modal-btn">关闭</button>
+        <button id="preview-save" class="modal-btn primary hidden">保存</button>
+        <button id="preview-open-system" class="modal-btn">用系统程序打开</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用确认对话框（替代原生 confirm，避免焦点被夺导致窗口无法输入） -->
+  <div id="confirm-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-body small">
+      <div class="modal-title">确认操作</div>
+      <div class="modal-content">
+        <div id="confirm-message" class="confirm-message"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="confirm-cancel">取消</button>
+        <button class="modal-btn primary" id="confirm-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="kugua-shim.js"></script>
+  <script src="index.js"></script>
+</body>
+</html>

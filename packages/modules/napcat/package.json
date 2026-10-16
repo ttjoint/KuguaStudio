@@ -12,5 +12,10 @@
     "@kugua/nigane": "*",
     "@kugua/onebot11": "*",
     "ws": "^8.18.0"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": false,
+    "description": "Napcat QQ 桥接（需外部 napcat 服务，默认不自动启动）"
   }
 }

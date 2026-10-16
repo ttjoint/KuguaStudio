@@ -4,25 +4,31 @@
  * 使用 MathProof 逆波兰表达式搜索 + 笔画数/字母序号对照
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { NiganeClient } from "@kugua/nigane";
+import { 启动模块 } from "@kugua/module-kit";
+import type { 能力声明 } from "@kugua/capability";
+import { 读模块资源 } from "@kugua/paths";
 import { MathProof } from "./math_proof.js";
+
+/** 能力声明：数字论证（中文指令「论证」） */
+const 能力清单: 能力声明[] = [
+  {
+    名称: "proof.demonstrate",
+    模块: "proof",
+    标题: "数字论证",
+    说明: "把字词/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）",
+    中文指令: ["论证"],
+    参数: {
+      type: "object",
+      properties: { 输入: { type: "string", description: "待论证的词语或数字" } },
+    },
+    暴露: { 指令: true, GUI: true, 定时: false, MCP: true },
+  },
+];
 
 interface 模块配置 {
   host?: string;
   port?: number;
   token?: string;
-}
-
-function 加载配置(): 模块配置 {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
-  if (!existsSync(路径)) return {};
-  try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
-  } catch {
-    return {};
-  }
 }
 
 /** homo 特有的默认目标数字 */
@@ -34,7 +40,7 @@ let 笔画字典: Map<string, number> | null = null;
 function 载入笔画字典(): Map<string, number> {
   if (笔画字典) return 笔画字典;
   const 字典 = new Map<string, number>();
-  const 文本 = readFileSync(resolve(process.cwd(), "data/generators", "data_bihua.txt"), "utf-8");
+  const 文本 = 读模块资源(import.meta.url, "data_bihua.txt");
   for (const 行 of 文本.split(/\r?\n/)) {
     const 项 = 行.split("\t");
     if (项.length >= 2) {
@@ -129,41 +135,17 @@ function 数字论证(输入: string): string {
   return "论不出来";
 }
 
-async function 启动(): Promise<void> {
-  const 配置 = 加载配置();
-  const host = 配置.host ?? "127.0.0.1";
-  const port = 配置.port ?? 24601;
-  const envURL = process.env.NIGANE_URL ?? process.argv[2];
-  const envToken = process.env.NIGANE_TOKEN ?? process.argv[3];
-
-  const 客户端 = new NiganeClient({
-    name: "proof",
-    url: envURL ?? `ws://${host}:${port}`,
-    token: envToken ?? 配置.token ?? "",
-    version: "0.1.0",
-    capabilities: ["proof.demonstrate"],
-  });
-
-  客户端.onRequest("proof.demonstrate", (params) => {
-    const { 输入 = "" } = (params ?? {}) as { 输入?: string };
-    载入笔画字典();
-    return { 输入, 结果: 数字论证(输入) };
-  });
-
-  await 客户端.connect();
-  console.log("[数字论证模块] 已接入主控，等待论证请求");
-
-  const 关闭 = (): void => {
-    console.log("[数字论证模块] 正在关闭……");
-    客户端.close();
-    process.exit(0);
-  };
-  客户端.on("shutdown", 关闭);
-  process.on("SIGINT", 关闭);
-  process.on("SIGTERM", 关闭);
-}
-
-启动().catch((err: unknown) => {
-  console.error("[数字论证模块] 启动失败：", err);
-  process.exit(1);
+void 启动模块({
+  name: "proof",
+  version: "0.2.0",
+  能力: 能力清单,
+  处理器: {
+    "proof.demonstrate": (params) => {
+      const p = (params ?? {}) as { 输入?: string; 参数文本?: string; 原文?: string };
+      const 输入 = (p.输入 ?? p.参数文本 ?? p.原文 ?? "").trim();
+      载入笔画字典();
+      return { 输入, 结果: 数字论证(输入) };
+    },
+  },
+  就绪: () => console.log("[数字论证模块] 已接入主控，等待论证请求"),
 });

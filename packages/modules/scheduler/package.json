@@ -10,6 +10,12 @@
   },
   "dependencies": {
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "定时任务调度（M4）：按 cron 触发模块请求/事件/命令"
   }
 }

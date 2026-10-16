@@ -1,0 +1,19 @@
+{
+  "name": "@kugua/random",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜统一随机源：基于密码学安全随机（CSPRNG），供各模块共用（复刻参考项目 MyRandom）",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {}
+}

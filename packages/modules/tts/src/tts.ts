@@ -1,11 +1,17 @@
 /**
- * 语音合成：多提供方（sherpa-onnx 离线 / ChatTTS HTTP / Windows SAPI），输出 base64 WAV。
+ * 语音合成
+ *
+ * 主提供方：**GPT-SoVITS**（本地 HTTP API，文本 → wav，非实时，用于配音）。
+ * 回退：sherpa-onnx 离线 / ChatTTS HTTP / Windows SAPI。
+ *
+ * 配置见 `kugua.config.json` 的 `tts` 节；亦可用环境变量覆盖。
  */
 
 import { execFile } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { join } from "node:path";
 
 export interface TTS结果 {
   base64: string;
@@ -17,30 +23,79 @@ export interface TTS选项 {
   text: string;
   provider?: string;
   voice?: string;
-  /** 语速（sherpa 忽略；SAPI 映射到 Rate -10..10） */
   speed?: number;
-  /** sherpa-onnx 说话人 ID */
   sid?: number;
 }
 
-/** sherpa-onnx 根目录（参考项目同路径，可被环境变量覆盖） */
-export const 默认Sherpa根 = resolve("D:\\Downloads\\sherpa-onnx-v1.12.14-win-x64-cuda");
+export interface GPTSoVits音色 {
+  name: string;
+  refAudioPath: string;
+  promptText?: string;
+  promptLang?: string;
+  textLang?: string;
+}
 
-/** 自动选择提供方：sherpa-onnx 可用则优先，其次 ChatTTS，最后 SAPI */
-export function 解析提供方(provider?: string): string {
+export interface TTS配置 {
+  provider?: string;
+  gptSovits?: { url?: string; voices?: GPTSoVits音色[] };
+  sherpaRoot?: string;
+  sherpaModel?: string;
+  chatttsUrl?: string;
+}
+
+import { readFileSync as 读配置 } from "node:fs";
+
+export function 加载TTS配置(): TTS配置 {
+  if (process.env.KUGUA_TTS_GPT_SOVITS_URL) {
+    return { provider: process.env.KUGUA_TTS_PROVIDER ?? "gpt-sovits", gptSovits: { url: process.env.KUGUA_TTS_GPT_SOVITS_URL } };
+  }
+  const 路径 = resolve(process.cwd(), "kugua.config.json");
+  if (!existsSync(路径)) return {};
+  try {
+    const j = JSON.parse(读配置(路径, "utf-8")) as { tts?: TTS配置 };
+    return j.tts ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export const 默认Sherpa根 = resolve(process.env.KUGUA_TTS_SHERP_ROOT ?? "D:\\Downloads\\sherpa-onnx-v1.12.14-win-x64-cuda");
+
+/** 判断某提供方是否可用 */
+export function 提供方可用(配置: TTS配置, provider: string): boolean {
+  switch (provider) {
+    case "gpt-sovits":
+      return Boolean(配置.gptSovits?.url);
+    case "sherpa-onnx":
+      return existsSync(join(配置.sherpaRoot ?? 默认Sherpa根, "bin", "sherpa-onnx-offline-tts.exe"));
+    case "chattts-http":
+      return Boolean(配置.chatttsUrl ?? process.env.KUGUA_TTS_URL);
+    case "windows-sapi":
+      return process.platform === "win32";
+    default:
+      return false;
+  }
+}
+
+/** 解析提供方：显式 → 配置 → 自动（gpt-sovits → sherpa → chattts → sapi） */
+export function 解析提供方(配置: TTS配置, provider?: string): string {
   if (provider) return provider;
-  if (existsSync(join(默认Sherpa根, "bin", "sherpa-onnx-offline-tts.exe"))) return "sherpa-onnx";
-  if (process.env.KUGUA_TTS_URL) return "chattts-http";
+  if (配置.provider) return 配置.provider;
+  for (const p of ["gpt-sovits", "sherpa-onnx", "chattts-http", "windows-sapi"]) {
+    if (提供方可用(配置, p)) return p;
+  }
   return "windows-sapi";
 }
 
-export async function 合成语音(选项: TTS选项): Promise<TTS结果> {
-  const 提供方 = 解析提供方(选项.provider);
+export async function 合成语音(配置: TTS配置, 选项: TTS选项): Promise<TTS结果> {
+  const 提供方 = 解析提供方(配置, 选项.provider);
   switch (提供方) {
+    case "gpt-sovits":
+      return await 合成GptSoVits(配置, 选项);
     case "sherpa-onnx":
-      return await 合成Sherpa(选项);
+      return await 合成Sherpa(配置, 选项);
     case "chattts-http":
-      return await 合成ChatTTS(选项);
+      return await 合成ChatTTS(配置, 选项);
     case "windows-sapi":
       return await 合成SAPI(选项);
     default:
@@ -48,11 +103,44 @@ export async function 合成语音(选项: TTS选项): Promise<TTS结果> {
   }
 }
 
-/** sherpa-onnx 离线 TTS（复刻参考项目 SherpaOnnxTTS 命令行） */
-function 合成Sherpa(选项: TTS选项): Promise<TTS结果> {
+function 取音色(配置: TTS配置, 名称?: string): GPTSoVits音色 {
+  const 列表 = 配置.gptSovits?.voices ?? [];
+  if (列表.length === 0) {
+    throw new Error("未配置 GPT-SoVITS 音色（kugua.config.json 的 tts.gptSovits.voices）");
+  }
+  if (!名称) return 列表[0];
+  const 命中 = 列表.find((v) => v.name === 名称);
+  if (!命中) throw new Error(`未知音色：${名称}（可用：${列表.map((v) => v.name).join(", ")}）`);
+  return 命中;
+}
+
+/** GPT-SoVITS HTTP API（api_v2 的 /tts） */
+async function 合成GptSoVits(配置: TTS配置, 选项: TTS选项): Promise<TTS结果> {
+  const 基址 = (配置.gptSovits?.url ?? "").replace(/\/+$/, "");
+  if (!基址) throw new Error("未配置 GPT-SoVITS 服务地址（tts.gptSovits.url）");
+  const 音色 = 取音色(配置, 选项.voice);
+  const u = new URL(`${基址}/tts`);
+  u.searchParams.set("text", 选项.text);
+  u.searchParams.set("text_lang", 音色.textLang ?? "zh");
+  u.searchParams.set("ref_audio_path", 音色.refAudioPath);
+  u.searchParams.set("prompt_text", 音色.promptText ?? "");
+  u.searchParams.set("prompt_lang", 音色.promptLang ?? "zh");
+  u.searchParams.set("text_split_method", "cut5");
+  u.searchParams.set("batch_size", "1");
+  u.searchParams.set("media_type", "wav");
+  u.searchParams.set("streaming_mode", "false");
+  const 响应 = await fetch(u, { signal: AbortSignal.timeout(300000) });
+  if (!响应.ok) throw new Error(`GPT-SoVITS 接口返回 ${响应.status}：${(await 响应.text()).slice(0, 200)}`);
+  const buf = Buffer.from(await 响应.arrayBuffer());
+  if (buf.length < 44) throw new Error("GPT-SoVITS 返回内容过短，合成可能失败");
+  return { base64: buf.toString("base64"), format: "wav", provider: "gpt-sovits" };
+}
+
+/** sherpa-onnx 离线 TTS（保留回退） */
+function 合成Sherpa(配置: TTS配置, 选项: TTS选项): Promise<TTS结果> {
   return new Promise((resolvePromise, reject) => {
-    const 根 = process.env.KUGUA_TTS_SHERP_ROOT ?? 默认Sherpa根;
-    const 模型名 = process.env.KUGUA_TTS_MODEL ?? "vits-zh-hf-eula";
+    const 根 = 配置.sherpaRoot ?? 默认Sherpa根;
+    const 模型名 = 配置.sherpaModel ?? process.env.KUGUA_TTS_MODEL ?? "vits-zh-hf-eula";
     const exe = join(根, "bin", "sherpa-onnx-offline-tts.exe");
     const 模型 = join(根, 模型名);
     const 临时 = mkdtempSync(join(tmpdir(), "kugua-tts-"));
@@ -77,16 +165,16 @@ function 合成Sherpa(选项: TTS选项): Promise<TTS结果> {
         try {
           rmSync(临时, { recursive: true, force: true });
         } catch {
-          // ignore
+          /* ignore */
         }
       }
     });
   });
 }
 
-/** ChatTTS 本地 UI HTTP 服务（复刻参考项目 AITalkSingle 的协议） */
-async function 合成ChatTTS(选项: TTS选项): Promise<TTS结果> {
-  const url = process.env.KUGUA_TTS_URL ?? "http://127.0.0.1:9966";
+/** ChatTTS 本地 HTTP 服务（保留回退） */
+async function 合成ChatTTS(配置: TTS配置, 选项: TTS选项): Promise<TTS结果> {
+  const url = 配置.chatttsUrl ?? process.env.KUGUA_TTS_URL ?? "http://127.0.0.1:9966";
   const 参数 = new URLSearchParams();
   参数.set("text", 选项.text);
   参数.set("prompt", 选项.text.length < 10 ? "[oral_0][laugh_0][break_0]" : "[oral_3][laugh_5][break_5]");
@@ -101,27 +189,23 @@ async function 合成ChatTTS(选项: TTS选项): Promise<TTS结果> {
   参数.set("skip_refine", "1");
   参数.set("is_stream", "0");
   参数.set("custom_voice", "0");
-
   const 响应 = await fetch(url, { method: "POST", body: 参数, signal: AbortSignal.timeout(120000) });
   if (!响应.ok) throw new Error(`ChatTTS 接口返回 ${响应.status}`);
-  const 数据 = (await 响应.json()) as { code?: number; audio_files?: Array<{ filename?: string; url?: string }> };
+  const 数据 = (await 响应.json()) as { audio_files?: Array<{ filename?: string; url?: string }> };
   const 文件 = 数据.audio_files?.[0];
   if (!文件) throw new Error("ChatTTS 响应缺少 audio_files");
-
-  let 音频: Buffer;
   if (typeof 文件.filename === "string" && existsSync(文件.filename)) {
-    音频 = readFileSync(文件.filename);
-  } else if (typeof 文件.url === "string" && 文件.url) {
+    return { base64: readFileSync(文件.filename).toString("base64"), format: "wav", provider: "chattts-http" };
+  }
+  if (typeof 文件.url === "string" && 文件.url) {
     const 下载 = await fetch(文件.url, { signal: AbortSignal.timeout(60000) });
     if (!下载.ok) throw new Error(`下载音频失败 ${下载.status}`);
-    音频 = Buffer.from(await 下载.arrayBuffer());
-  } else {
-    throw new Error("ChatTTS 响应缺少可用音频路径");
+    return { base64: Buffer.from(await 下载.arrayBuffer()).toString("base64"), format: "wav", provider: "chattts-http" };
   }
-  return { base64: 音频.toString("base64"), format: "wav", provider: "chattts-http" };
+  throw new Error("ChatTTS 响应缺少可用音频路径");
 }
 
-/** Windows SAPI（系统需已安装语音包）；文本经临时文件传递避免引号转义问题 */
+/** Windows SAPI（保留回退） */
 function 合成SAPI(选项: TTS选项): Promise<TTS结果> {
   return new Promise((resolvePromise, reject) => {
     const 临时 = mkdtempSync(join(tmpdir(), "kugua-tts-"));
@@ -144,11 +228,7 @@ function 合成SAPI(选项: TTS选项): Promise<TTS结果> {
     execFile("powershell", 命令, { timeout: 60000, windowsHide: true }, (err) => {
       try {
         if (err || !existsSync(输出)) {
-          reject(
-            new Error(
-              `Windows SAPI 合成失败（请确认系统已安装语音包）：${err instanceof Error ? err.message : String(err)}`,
-            ),
-          );
+          reject(new Error(`Windows SAPI 合成失败（请确认系统已安装语音包）：${err instanceof Error ? err.message : String(err)}`));
           return;
         }
         resolvePromise({ base64: readFileSync(输出).toString("base64"), format: "wav", provider: "windows-sapi" });
@@ -156,7 +236,7 @@ function 合成SAPI(选项: TTS选项): Promise<TTS结果> {
         try {
           rmSync(临时, { recursive: true, force: true });
         } catch {
-          // ignore
+          /* ignore */
         }
       }
     });

@@ -1,0 +1,19 @@
+{
+  "name": "@kugua/paths",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜路径解析：模块自带只读资源（assets/）与平台运行时数据根（KUGUA_DATA_DIR）",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {}
+}

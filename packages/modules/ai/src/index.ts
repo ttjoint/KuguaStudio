@@ -1,45 +1,29 @@
 /**
- * AI 接入模块（M6）
- * OpenAI 兼容 API：ai.chat 对话（含按 chatId 的记忆）、ai.image 图像生成。
- * 配置环境变量：KUGUA_AI_BASE_URL / KUGUA_AI_API_KEY / KUGUA_AI_CHAT_MODEL / KUGUA_AI_IMAGE_MODEL。
- * 用法：node dist/index.js [主控地址] [token]
+ * AI 网关模块
+ *
+ * 统一接入本地/远端 OpenAI 兼容模型（仿 Open WebUI 的「模型网关」思路）：
+ * 端点与模型集中在 `kugua.config.json` 的 `ai.providers`，请求可用 provider/model 覆盖。
+ * 缺省：LM Studio（http://127.0.0.1:1234/v1）与 Ollama（http://127.0.0.1:11434/v1）。
+ *
+ * 能力见 handlers.ts（chat/image/embed/models/providers/memory.clear/status）。
+ * 启动样板（读配置 / 连主控 / 处理退出）已收敛到 @kugua/module-kit。
  */
 
-import { NiganeClient } from "@kugua/nigane";
-import { 默认配置 } from "./client.js";
-import { 注册AI处理器 } from "./handlers.js";
+import { 启动模块 } from "@kugua/module-kit";
+import { 能力清单, 注册AI处理器 } from "./handlers.js";
+import { 加载AI配置 } from "./providers.js";
 
-const 地址 = process.env.NIGANE_URL ?? process.argv[2] ?? "ws://127.0.0.1:24601";
-const 令牌 = process.env.NIGANE_TOKEN ?? process.argv[3] ?? "";
-
-const 客户端 = new NiganeClient({
+void 启动模块({
   name: "ai",
-  url: 地址,
-  token: 令牌,
-  version: "0.6.0",
-  capabilities: ["ai.chat", "ai.image", "ai.memory.clear", "ai.status"],
+  version: "0.7.0",
+  能力: 能力清单,
+  注册: (客户端) => {
+    注册AI处理器(客户端);
+  },
+  就绪: (_客户端, _配置, 连接) => {
+    const 配置 = 加载AI配置();
+    console.log(
+      `[AI网关] 已接入主控：${连接.url}（默认提供方 ${配置.default}，共 ${配置.providers.length} 个）`,
+    );
+  },
 });
-
-注册AI处理器(客户端);
-
-客户端.on("shutdown", () => {
-  console.log("[AI] 主控退出，结束本进程");
-  客户端.close();
-  process.exit(0);
-});
-
-客户端.on("close", () => {
-  console.log("[AI] 与主控的连接已断开");
-  process.exit(0);
-});
-
-客户端
-  .connect()
-  .then(() => {
-    const 配置 = 默认配置();
-    console.log(`[AI] 已接入主控：${地址}（${配置.baseUrl}，对话模型 ${配置.chatModel}）`);
-  })
-  .catch((err: unknown) => {
-    console.error("[AI] 接入失败：", err);
-    process.exit(1);
-  });

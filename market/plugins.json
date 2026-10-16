@@ -1,0 +1,9 @@
+[
+  {
+    "name": "template",
+    "author": "your-name",
+    "repo": "https://github.com/your-name/kugua-plugin-template",
+    "version": "0.1.0",
+    "description": "苦瓜插件模板：演示生命周期、命令注册与 Context 宿主能力"
+  }
+]

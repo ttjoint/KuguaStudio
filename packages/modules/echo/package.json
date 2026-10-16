@@ -10,6 +10,13 @@
   },
   "dependencies": {
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@kugua/module-kit": "*",
+    "@kugua/capability": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "echo 示例模块（回声）"
   }
 }

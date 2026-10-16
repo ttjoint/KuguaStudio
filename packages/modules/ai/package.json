@@ -10,6 +10,13 @@
   },
   "dependencies": {
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@kugua/capability": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "AI 接入（M6）：OpenAI 兼容 API 对话与图像生成"
   }
 }

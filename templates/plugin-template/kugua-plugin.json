@@ -1,0 +1,11 @@
+{
+  "name": "template",
+  "version": "0.1.0",
+  "description": "模板插件：演示生命周期、命令注册与 Context 宿主能力",
+  "author": "your-name",
+  "entry": "dist/index.js",
+  "ui": {
+    "title": "模板页",
+    "entry": "ui/index.html"
+  }
+}

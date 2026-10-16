@@ -10,6 +10,12 @@
   },
   "dependencies": {
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算"
   }
 }

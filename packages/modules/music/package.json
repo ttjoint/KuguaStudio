@@ -1,0 +1,22 @@
+{
+  "name": "@kugua/module-music",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "音乐模块：多源搜索（网易云/QQ/酷狗）+ 下载播放（网易云可用）；ffmpeg 处理走 av 模块",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/nigane": "*",
+    "@kugua/paths": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "音乐：多源搜索（网易云/QQ/酷狗）+ 下载播放（网易云）；ffmpeg 走 av 模块"
+  }
+}

@@ -1,12 +1,14 @@
 /**
  * 万年历模块
- * 复刻参考项目 ModCalendar：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算
- * 能力：calendar.today（今夕是何年）、calendar.query（指定日期查询）、calendar.yunhua（芸历换算）
+ *
+ * 复刻参考项目 ModCalendar：公历/农历/回历/四柱/节气/生肖/星座/月相。
+ * 按《功能复刻准则》：忠实复刻；**芸历（蒸汽/创世）换算不做**。
+ *
+ * 能力声明见下方 能力清单（中文指令 / GUI / MCP 由注册表派生）。
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { NiganeClient } from "@kugua/nigane";
+import { 启动模块 } from "@kugua/module-kit";
+import type { 能力声明 } from "@kugua/capability";
 import {
   公历转农历,
   干支,
@@ -24,25 +26,36 @@ import {
   当日节日,
   未来节日,
   朝代,
-  芸历换算,
   儒略日,
 } from "./lunar.js";
 
-interface 模块配置 {
-  host?: string;
-  port?: number;
-  token?: string;
-}
-
-function 加载配置(): 模块配置 {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
-  if (!existsSync(路径)) return {};
-  try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
-  } catch {
-    return {};
-  }
-}
+/** 能力声明：一处声明，自动派生 中文指令 / GUI / MCP 入口 */
+const 能力清单: 能力声明[] = [
+  {
+    名称: "calendar.today",
+    模块: "calendar",
+    标题: "今日黄历",
+    说明: "今夕是何年：公历/农历/回历/四柱/节气/星座/月相",
+    中文指令: ["今夕是何年", "今天", "黄历", "今日"],
+    参数: { type: "object", properties: {} },
+    暴露: { 指令: true, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "calendar.query",
+    模块: "calendar",
+    标题: "日期查询",
+    说明: "查询指定公历日期的黄历信息，如「公历 2012年5月20日」",
+    中文指令: ["公历", "公元"],
+    参数: {
+      type: "object",
+      properties: {
+        日期: { type: "string", description: "如 2012年5月20日" },
+        时: { type: "number", description: "小时（0-23），默认当前小时" },
+      },
+    },
+    暴露: { 指令: true, GUI: true, 定时: false, MCP: true },
+  },
+];
 
 function 补两位(n: number): string {
   return n < 10 ? "0" + n : String(n);
@@ -71,7 +84,9 @@ function 黄历文本(y: number, mo: number, d: number, h: number, mi: number, s
   行.push(`公历：${公历串} ${月相名}`);
   行.push(`回历：${回历年串(回历.年, 回历.月, 回历.日)}`);
   行.push(`农历：${农历串}`);
-  行.push(`${节气.今日 ? `今天${节气.名}` : `${节气.名}已过${补整数(节气.已过)}天`}${节气.今日 ? "★" : ""} ${节日 || "无节日"} 星座：${星座名}`);
+  行.push(
+    `${节气.今日 ? `今天${节气.名}` : `${节气.名}已过${补整数(节气.已过)}天`}${节气.今日 ? "★" : ""} ${节日 || "无节日"} 星座：${星座名}`,
+  );
   行.push(朝代(y));
   行.push(`四柱：${四柱.年} ${四柱.月} ${四柱.日} ${四柱.时}`);
 
@@ -89,9 +104,11 @@ function 补整数(n: number): string {
   return Number.isInteger(n) ? String(n) : Math.floor(n).toString();
 }
 
-/** 解析「2012年5月20日」类日期，返回 { y, mo, d } 或 null */
+/** 解析「2012年5月20日 / 2012-5-20 / 2012/5/20」类日期，返回 { y, mo, d } 或 null */
 function 解析日期(输入: string): { y: number; mo: number; d: number } | null {
-  const m = 输入.match(/(-?\d+)\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  const 文本 = 输入.replace(/^(公历|公元)\s*/g, "").trim();
+  let m = 文本.match(/(-?\d+)\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  if (!m) m = 文本.match(/(-?\d+)[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (!m) return null;
   const y = Number(m[1]);
   const mo = Number(m[2]);
@@ -100,65 +117,39 @@ function 解析日期(输入: string): { y: number; mo: number; d: number } | nu
   return { y, mo, d };
 }
 
-async function 启动(): Promise<void> {
-  const 配置 = 加载配置();
-  const host = 配置.host ?? "127.0.0.1";
-  const port = 配置.port ?? 24601;
-  const envURL = process.env.NIGANE_URL ?? process.argv[2];
-  const envToken = process.env.NIGANE_TOKEN ?? process.argv[3];
-
-  const 客户端 = new NiganeClient({
-    name: "calendar",
-    url: envURL ?? `ws://${host}:${port}`,
-    token: envToken ?? 配置.token ?? "",
-    version: "0.1.0",
-    capabilities: ["calendar.today", "calendar.query", "calendar.yunhua"],
-  });
-
-  客户端.onRequest("calendar.today", (params) => {
-    const now = new Date();
-    return {
-      输入: (params ?? {}) as unknown as Record<string, unknown>,
-      结果: 黄历文本(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        now.getDate(),
-        now.getHours(),
-        now.getMinutes(),
-        now.getSeconds()
-      ),
-    };
-  });
-
-  客户端.onRequest("calendar.query", (params) => {
-    const { 日期 = "", 时 = new Date().getHours() } = (params ?? {}) as { 日期?: string; 时?: number };
-    const 解析 = 解析日期(日期.trim());
-    if (!解析) {
-      return { 输入: 日期, 结果: "日期格式有误，请使用「2012年5月20日」格式" };
-    }
-    return { 输入: 日期, 结果: 黄历文本(解析.y, 解析.mo, 解析.d, 时, 0, 0) };
-  });
-
-  客户端.onRequest("calendar.yunhua", (params) => {
-    const { 模式 = "SE", 年 = 1 } = (params ?? {}) as { 模式?: "SE" | "YY"; 年?: number };
-    const 有效模式 = 模式 === "YY" ? "YY" : "SE";
-    return { 输入: `${有效模式 === "SE" ? "蒸汽" : "创世"}${年}年`, 结果: 芸历换算(年, 有效模式) };
-  });
-
-  await 客户端.connect();
-  console.log("[万年历模块] 已接入主控，等待查询请求");
-
-  const 关闭 = (): void => {
-    console.log("[万年历模块] 正在关闭……");
-    客户端.close();
-    process.exit(0);
-  };
-  客户端.on("shutdown", 关闭);
-  process.on("SIGINT", 关闭);
-  process.on("SIGTERM", 关闭);
+/** 从参数中取出日期文本：兼容结构化参数与中文指令（参数文本/原文） */
+function 取日期文本(p: { 日期?: string; 参数文本?: string; 原文?: string }): string {
+  return (p.日期 ?? p.参数文本 ?? p.原文 ?? "").trim();
 }
 
-启动().catch((err: unknown) => {
-  console.error("[万年历模块] 启动失败：", err);
-  process.exit(1);
+void 启动模块({
+  name: "calendar",
+  version: "0.2.0",
+  能力: 能力清单,
+  处理器: {
+    "calendar.today": () => {
+      const now = new Date();
+      return {
+        结果: 黄历文本(
+          now.getFullYear(),
+          now.getMonth() + 1,
+          now.getDate(),
+          now.getHours(),
+          now.getMinutes(),
+          now.getSeconds(),
+        ),
+      };
+    },
+    "calendar.query": (params) => {
+      const p = (params ?? {}) as { 日期?: string; 时?: number; 参数文本?: string; 原文?: string };
+      const 文本 = 取日期文本(p);
+      const 解析 = 解析日期(文本);
+      if (!解析) {
+        return { 输入: 文本, 结果: "日期格式有误，请使用「2012年5月20日」格式" };
+      }
+      const 时 = typeof p.时 === "number" ? p.时 : new Date().getHours();
+      return { 输入: 文本, 结果: 黄历文本(解析.y, 解析.mo, 解析.d, 时, 0, 0) };
+    },
+  },
+  就绪: () => console.log("[万年历模块] 已接入主控，等待查询请求"),
 });

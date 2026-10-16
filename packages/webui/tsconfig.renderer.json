@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "strict": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": [],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "src/renderer/parts/**/*.ts",
+    "src/renderer/*.ts"
+  ]
+}

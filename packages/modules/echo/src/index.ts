@@ -1,39 +1,28 @@
 /**
  * echo 示例模块
  * 注册 "echo" 能力：将收到的请求参数原样返回。
- * 用法：node dist/index.js [主控地址] [token]
+ *
+ * 启动样板（读配置 / 连主控 / 处理退出）已收敛到 @kugua/module-kit。
  */
 
-import { NiganeClient } from "@kugua/nigane";
+import { 启动模块 } from "@kugua/module-kit";
+import type { 能力声明 } from "@kugua/capability";
 
-const 地址 = process.env.NIGANE_URL ?? process.argv[2] ?? "ws://127.0.0.1:24601";
-const 令牌 = process.env.NIGANE_TOKEN ?? process.argv[3] ?? "";
+const 能力清单: 能力声明[] = [
+  {
+    名称: "echo",
+    模块: "echo",
+    标题: "回声",
+    说明: "将收到的参数原样返回，用于连通性与协议自检",
+    暴露: { 指令: true, GUI: true, 定时: true, MCP: true },
+  },
+];
 
-const 客户端 = new NiganeClient({
+void 启动模块({
   name: "echo",
-  url: 地址,
-  token: 令牌,
   version: "0.1.0",
-  capabilities: ["echo"],
+  能力: 能力清单,
+  处理器: {
+    echo: (参数) => 参数,
+  },
 });
-
-客户端.onRequest("echo", (params) => params);
-
-客户端.on("shutdown", () => {
-  console.log("[echo] 主控退出，结束本进程");
-  客户端.close();
-  process.exit(0);
-});
-
-客户端.on("close", () => {
-  console.log("[echo] 与主控的连接已断开");
-  process.exit(0);
-});
-
-客户端
-  .connect()
-  .then(() => console.log(`[echo] 已接入主控：${地址}`))
-  .catch((err: unknown) => {
-    console.error("[echo] 接入失败：", err);
-    process.exit(1);
-  });

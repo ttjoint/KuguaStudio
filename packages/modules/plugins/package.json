@@ -1,0 +1,23 @@
+{
+  "name": "@kugua/module-plugins",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "插件运行时：扫描 plugins/ 目录、动态加载 ES Module 插件、生命周期管理、聊天命令分发、Git 市场安装/更新/卸载",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "@kugua/onebot11": "*",
+    "@kugua/plugin-sdk": "*",
+    "ws": "^8.18.0",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "插件运行时：扫描 plugins/ 动态加载、命令分发、Git 市场安装/更新/卸载"
+  }
+}

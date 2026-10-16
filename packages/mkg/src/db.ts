@@ -190,6 +190,58 @@ export function 初始化数据库(dbPath: string): Database.Database {
     );
   }
 
+  // ===== v0.4：标签扩展 / 保存视图 / 位置 / 全文索引（见 docs/知识库设计.md） =====
+  // 1) tags 增列（幂等）
+  const 标签列 = db.prepare("PRAGMA table_info(tags)").all() as { name: string }[];
+  const 待增列: Array<[string, string]> = [
+    ["color", "TEXT"],
+    ["kind", "TEXT NOT NULL DEFAULT 'plain'"],
+    ["icon", "TEXT"],
+    ["sort", "INTEGER NOT NULL DEFAULT 0"],
+  ];
+  for (const [列, 定义] of 待增列) {
+    if (!标签列.some((c) => c.name === 列)) {
+      db.exec(`ALTER TABLE tags ADD COLUMN ${列} ${定义}`);
+    }
+  }
+
+  // 2) 保存视图（智能文件夹）与受管位置
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      query TEXT NOT NULL DEFAULT '{}',
+      icon TEXT,
+      sort INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      path TEXT NOT NULL UNIQUE,
+      name TEXT,
+      mode TEXT NOT NULL DEFAULT 'watch',
+      excludes TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  // 3) 全文索引 FTS5：优先 trigram（适合中文子串），不可用则回退 unicode61
+  const 已有FTS = db
+    .prepare("SELECT count(*) AS c FROM sqlite_master WHERE name = 'node_fts'")
+    .get() as { c: number };
+  if (已有FTS.c === 0) {
+    try {
+      db.exec(
+        "CREATE VIRTUAL TABLE node_fts USING fts5(node_id UNINDEXED, title, body, tokenize='trigram')",
+      );
+    } catch {
+      db.exec(
+        "CREATE VIRTUAL TABLE node_fts USING fts5(node_id UNINDEXED, title, body, tokenize='unicode61')",
+      );
+    }
+  }
+
 return db;
 }
 

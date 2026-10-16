@@ -1,0 +1,26 @@
+{
+  "name": "@kugua/webui",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "苦瓜工作室本地 Web UI：浏览器访问，经 HTTP/WebSocket 代理苦音总线，并托管主控与模块进程",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json && node scripts/build-renderer.mjs && npm run copy-assets",
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "test:ui": "npm run build && node scripts/ui-gate.mjs",
+    "start": "node dist/server.js",
+    "dev": "node dist/server.js --no-open"
+  },
+  "dependencies": {
+    "@kugua/capability": "*",
+    "@kugua/mcp": "*",
+    "@kugua/nigane": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/ws": "^8.5.10",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.4"
+  }
+}

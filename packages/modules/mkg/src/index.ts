@@ -3,48 +3,107 @@
  * 通过苦音协议向其他模块暴露 MKG 能力
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { NiganeClient } from "@kugua/nigane";
-import { MKG, type 资源关系类型, type 内容分类 } from "@kugua/mkg";
+import { 启动模块 } from "@kugua/module-kit";
+import { MKG, type 资源关系类型, type 内容分类, type 查询条件, type 侧车数据 } from "@kugua/mkg";
+import type { 能力声明 } from "@kugua/capability";
 
-interface 模块配置 {
-  host?: string;
-  port?: number;
-  token?: string;
-  mkg?: {
-    /** 数据库文件路径，默认 data/mkg.db */
-    dbPath?: string;
-  };
-}
+/**
+ * 只读能力声明：MCP/GUI 可见，供外部 agent 检索知识库（不允许写操作）。
+ * 其余 mkg 动作仍由主控自动合成基础能力（GUI 可见）。
+ */
+const 能力清单: 能力声明[] = [
+  {
+    名称: "mkg.query",
+    模块: "mkg",
+    标题: "知识库组合查询",
+    说明: "按标签/类型/文本/位置组合检索知识库",
+    参数: {
+      type: "object",
+      properties: { condition: { type: "object" }, limit: { type: "number" } },
+    },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.fts.search",
+    模块: "mkg",
+    标题: "全文检索",
+    说明: "FTS5 全文检索知识库节点标题与正文",
+    参数: {
+      type: "object",
+      properties: { keyword: { type: "string" }, limit: { type: "number" } },
+      required: ["keyword"],
+    },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.node.listAll",
+    模块: "mkg",
+    标题: "浏览知识库内容",
+    说明: "列出统一内容条目（可筛选）",
+    参数: { type: "object", properties: { limit: { type: "number" } } },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.node.get",
+    模块: "mkg",
+    标题: "读取知识库节点",
+    说明: "按节点 id 获取统一内容条目",
+    参数: { type: "object", properties: { id: { type: "number" } }, required: ["id"] },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.view.list",
+    模块: "mkg",
+    标题: "列出智能视图",
+    说明: "列出已保存的智能视图",
+    参数: { type: "object", properties: {} },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.view.run",
+    模块: "mkg",
+    标题: "运行智能视图",
+    说明: "执行智能视图并返回内容",
+    参数: { type: "object", properties: { id: { type: "number" }, limit: { type: "number" } }, required: ["id"] },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.location.list",
+    模块: "mkg",
+    标题: "列出受管位置",
+    说明: "列出全部受管目录",
+    参数: { type: "object", properties: {} },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.stats",
+    模块: "mkg",
+    标题: "知识库统计",
+    说明: "资源/标签/关联/文本索引统计",
+    参数: { type: "object", properties: {} },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+  {
+    名称: "mkg.tag.tree",
+    模块: "mkg",
+    标题: "标签树",
+    说明: "获取动态标签树",
+    参数: { type: "object", properties: {} },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: true },
+  },
+];
 
-function 加载配置(): 模块配置 {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
-  if (!existsSync(路径)) return {};
-  try {
-    return JSON.parse(readFileSync(路径, "utf-8")) as 模块配置;
-  } catch (err) {
-    console.warn(`[mkg模块] 配置文件解析失败：${String(err)}`);
-    return {};
-  }
-}
+/** 运行时注入的数据库路径与实例（读配置阶段无法创建客户端与数据库） */
+let 数据库路径: string | null = null;
+let 数据库实例: MKG | null = null;
 
-async function 启动(): Promise<void> {
-  const 配置 = 加载配置();
-  const host = 配置.host ?? "127.0.0.1";
-  const port = 配置.port ?? 24601;
-  const envURL = process.env.NIGANE_URL ?? process.argv[2];
-  const envToken = process.env.NIGANE_TOKEN ?? process.argv[3];
-  const dbPath = resolve(配置.mkg?.dbPath ?? "data/mkg.db");
-
-  const mkg = new MKG(dbPath);
-
-  const 客户端 = new NiganeClient({
-    name: "mkg",
-    url: envURL ?? `ws://${host}:${port}`,
-    token: envToken ?? 配置.token ?? "",
-    version: "0.3.0",
-    capabilities: [
+void 启动模块({
+  name: "mkg",
+  version: "0.3.0",
+  能力: 能力清单,
+  capabilities: [
       "mkg.index",
       "mkg.tag.create",
       "mkg.tag.list",
@@ -117,10 +176,35 @@ async function 启动(): Promise<void> {
       "mkg.node.trash",
       "mkg.node.renameTitle",
       "mkg.resource.renameFile",
+      "mkg.view.save",
+      "mkg.view.list",
+      "mkg.view.get",
+      "mkg.view.delete",
+      "mkg.view.run",
+      "mkg.query",
+      "mkg.location.add",
+      "mkg.location.list",
+      "mkg.location.remove",
+      "mkg.location.scan",
+      "mkg.sidecar.read",
+      "mkg.sidecar.write",
+      "mkg.sidecar.info",
+      "mkg.sidecar.export",
+      "mkg.sidecar.import",
+      "mkg.fts.rebuild",
+      "mkg.fts.search",
+      "mkg.node.get",
     ],
-  });
+  读配置: (文件配置) => {
+    const m = (文件配置.mkg ?? {}) as { dbPath?: string };
+    数据库路径 = resolve(m.dbPath ?? "data/mkg.db");
+    return {};
+  },
+  注册: (客户端) => {
+    const mkg = new MKG(数据库路径!);
+    数据库实例 = mkg;
 
-  客户端.onRequest("mkg.index", async (params) => {
+    客户端.onRequest("mkg.index", async (params) => {
     const { path, options } = (params ?? {}) as { path?: string; options?: Record<string, unknown> };
     if (!path) throw new Error("缺少 path 参数");
     return mkg.index(path, options);
@@ -678,6 +762,13 @@ async function 启动(): Promise<void> {
     });
   });
 
+  客户端.onRequest("mkg.node.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    const 全部 = mkg.listAllContent({ limit: 100000 });
+    return 全部.find((x) => x.id === id) ?? null;
+  });
+
   客户端.onRequest("mkg.snippet.create", (params) => {
     const { title, content, tagIds } = (params ?? {}) as { title?: string; content?: string; tagIds?: number[] };
     if (!title) throw new Error("缺少 title");
@@ -705,21 +796,123 @@ async function 启动(): Promise<void> {
     return { success: true };
   });
 
-  await 客户端.connect();
-  console.log(`[mkg模块] 已连接主控，数据库：${dbPath}`);
+  // ===== 保存视图 / 受管位置 / 侧车 / 全文检索（v0.4，见 docs/知识库设计.md）=====
+  客户端.onRequest("mkg.view.save", (params) => {
+    const { name, query, icon, sort } = (params ?? {}) as {
+      name?: string;
+      query?: 查询条件;
+      icon?: string;
+      sort?: number;
+    };
+    if (!name) throw new Error("缺少 name");
+    return mkg.添加保存视图(name, query ?? {}, icon, sort);
+  });
 
-  const 关闭 = (): void => {
-    console.log("[mkg模块] 正在关闭……");
-    mkg.close();
-    客户端.close();
-    process.exit(0);
-  };
-  客户端.on("shutdown", 关闭);
-  process.on("SIGINT", 关闭);
-  process.on("SIGTERM", 关闭);
-}
+  客户端.onRequest("mkg.view.list", () => mkg.列出保存视图());
 
-启动().catch((err: unknown) => {
-  console.error("[mkg模块] 启动失败：", err);
-  process.exit(1);
+  客户端.onRequest("mkg.view.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    const v = mkg.获取保存视图(id);
+    if (!v) throw new Error("保存视图不存在");
+    return v;
+  });
+
+  客户端.onRequest("mkg.view.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.删除保存视图(id);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.view.run", (params) => {
+    const { id, limit } = (params ?? {}) as { id?: number; limit?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    const v = mkg.获取保存视图(id);
+    if (!v) throw new Error("保存视图不存在");
+    return { view: v, items: mkg.执行查询(v.query, typeof limit === "number" ? limit : undefined) };
+  });
+
+  客户端.onRequest("mkg.query", (params) => {
+    const { condition, limit } = (params ?? {}) as { condition?: 查询条件; limit?: number };
+    return mkg.执行查询(condition ?? {}, typeof limit === "number" ? limit : undefined);
+  });
+
+  客户端.onRequest("mkg.location.add", (params) => {
+    const { path, name, mode, excludes } = (params ?? {}) as {
+      path?: string;
+      name?: string;
+      mode?: "watch" | "manual";
+      excludes?: string[];
+    };
+    if (!path) throw new Error("缺少 path");
+    return mkg.添加位置(path, name, mode ?? "watch", excludes ?? []);
+  });
+
+  客户端.onRequest("mkg.location.list", () => mkg.列出位置());
+
+  客户端.onRequest("mkg.location.remove", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.删除位置(id);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.location.scan", async (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    const 位置列表 = mkg.列出位置().filter((l) => id === undefined || l.id === id);
+    const 结果: unknown[] = [];
+    for (const loc of 位置列表) {
+      const r = await mkg.index(loc.path, { exclude: loc.excludes });
+      结果.push({ id: loc.id, path: loc.path, ...r });
+    }
+    mkg.重建全文索引();
+    return 结果;
+  });
+
+  客户端.onRequest("mkg.sidecar.read", (params) => {
+    const { path } = (params ?? {}) as { path?: string };
+    if (!path) throw new Error("缺少 path");
+    return mkg.读取侧车(path);
+  });
+
+  客户端.onRequest("mkg.sidecar.write", (params) => {
+    const { path, data } = (params ?? {}) as { path?: string; data?: 侧车数据 };
+    if (!path || !data) throw new Error("缺少 path 或 data");
+    mkg.写入侧车(path, data);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.sidecar.info", (params) => {
+    const { path } = (params ?? {}) as { path?: string };
+    if (!path) throw new Error("缺少 path");
+    return mkg.侧车信息(path);
+  });
+
+  客户端.onRequest("mkg.sidecar.export", (params) => {
+    const { nodeId } = (params ?? {}) as { nodeId?: number };
+    if (nodeId === undefined) throw new Error("缺少 nodeId");
+    const 数据 = mkg.导出侧车(nodeId);
+    if (!数据) throw new Error("该节点不是文件，无法导出侧车");
+    return 数据;
+  });
+
+  客户端.onRequest("mkg.sidecar.import", (params) => {
+    const { path } = (params ?? {}) as { path?: string };
+    if (!path) throw new Error("缺少 path");
+    return mkg.导入侧车(path);
+  });
+
+  客户端.onRequest("mkg.fts.rebuild", () => mkg.重建全文索引());
+
+  客户端.onRequest("mkg.fts.search", (params) => {
+    const { keyword, limit } = (params ?? {}) as { keyword?: string; limit?: number };
+    if (!keyword) throw new Error("缺少 keyword");
+    return mkg.全文检索(keyword, typeof limit === "number" ? limit : 50);
+  });
+  },
+  关闭: () => {
+    数据库实例?.close();
+  },
+  就绪: () => console.log("[mkg模块] 已接入主控"),
 });

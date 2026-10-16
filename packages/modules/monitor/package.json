@@ -10,6 +10,12 @@
   },
   "dependencies": {
     "@kugua/nigane": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": true,
+    "description": "系统监控：CPU/内存/磁盘实时状态"
   }
 }

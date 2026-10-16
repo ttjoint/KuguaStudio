@@ -1,0 +1,16 @@
+# 苦瓜模块只读资源（assets/）说明
+#
+# 各模块自带只读语料/模型放在 packages/modules/<模块>/assets/，随代码走。
+# 大文件不入版本库（用 scripts 从参考项目 RunningData 拷贝），在此忽略。
+
+# NLP 谐音模型（约 22MB）
+packages/modules/nlp/assets/model1.txt
+
+# 离线 IP 库（约 25MB）
+packages/modules/infotool/assets/qqwry.dat
+
+# 模式闲聊语料（约 28MB）
+packages/modules/chatmode/assets/Mode/
+
+# 视情况忽略超大语料（需要时逐个补充）
+# packages/modules/chatmode/assets/混沌-名词.txt
