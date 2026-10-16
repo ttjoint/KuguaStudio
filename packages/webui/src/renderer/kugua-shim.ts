@@ -16,15 +16,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
 const 日志回调: Array<(entry: unknown) => void> = [];
 const 就绪回调: Array<() => void> = [];
+const 总线回调: Array<(action: string, params: unknown) => void> = [];
 let 已就绪 = false;
 
 function 建立连接(): void {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
   ws.onmessage = (事件) => {
-    let 消息: { type?: string; entry?: unknown };
+    let 消息: { type?: string; entry?: unknown; action?: string; params?: unknown };
     try {
-      消息 = JSON.parse(事件.data as string) as { type?: string; entry?: unknown };
+      消息 = JSON.parse(事件.data as string) as { type?: string; entry?: unknown; action?: string; params?: unknown };
     } catch {
       return;
     }
@@ -32,6 +33,14 @@ function 建立连接(): void {
       日志回调.forEach((回调) => {
         try {
           回调(消息.entry);
+        } catch {
+          /* 忽略单个回调异常 */
+        }
+      });
+    } else if (消息.type === "bus") {
+      总线回调.forEach((回调) => {
+        try {
+          回调(String(消息.action ?? ""), 消息.params);
         } catch {
           /* 忽略单个回调异常 */
         }
@@ -57,6 +66,9 @@ const 接口: 苦瓜接口 = {
   ...创建基础接口(),
   onLog: (回调) => {
     日志回调.push(回调);
+  },
+  onBus: (回调) => {
+    总线回调.push(回调);
   },
   onReady: (回调) => {
     就绪回调.push(回调);

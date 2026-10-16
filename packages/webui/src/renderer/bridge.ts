@@ -53,10 +53,12 @@ export interface 苦瓜基础接口 {
   };
 }
 
-/** 主界面完整桥接（在基础接口之上增加日志/就绪通道与窗口控制） */
+/** 主界面完整桥接（在基础接口之上增加日志/就绪/总线事件通道与窗口控制） */
 export interface 苦瓜接口 extends 苦瓜基础接口 {
   onLog: (callback: (entry: unknown) => void) => void;
   onReady: (callback: () => void) => void;
+  /** 订阅主控广播的总线事件（如 capability.changed / registry.changed / plugins.changed） */
+  onBus: (callback: (action: string, params: unknown) => void) => void;
   window: {
     minimize: () => Promise<void>;
     toggleMaximize: () => Promise<boolean>;

@@ -14,13 +14,38 @@ export function 发送当前输入(): void {
   刷新附件区();
   void 处理输入(输入框.value, 附件批次);
   输入框.value = "";
+  输入框.style.height = "auto";
 }
 
 document.getElementById("chat-send")?.addEventListener("click", 发送当前输入);
 
-输入框.addEventListener("input", () => 更新指令提示());
+输入框.addEventListener("input", () => { 更新指令提示(); 自动调整输入框高度(); });
 输入框.addEventListener("focus", () => 更新指令提示());
 输入框.addEventListener("blur", () => { setTimeout(() => 隐藏指令提示(), 120); });
+
+/** 输入框随内容自动增高（最多约 6 行） */
+function 自动调整输入框高度(): void {
+  输入框.style.height = "auto";
+  输入框.style.height = Math.min(输入框.scrollHeight, 132) + "px";
+}
+
+/** 光标是否在内容末尾（允许末尾有换行） */
+function 光标在末尾(): boolean {
+  const pos = 输入框.selectionStart ?? 输入框.value.length;
+  return 输入框.value.slice(pos).trim() === "";
+}
+
+/** 在光标处插入换行（无光标信息时追加到末尾） */
+function 在光标处换行(): void {
+  const 起 = 输入框.selectionStart ?? 输入框.value.length;
+  const 止 = 输入框.selectionEnd ?? 起;
+  输入框.value = 输入框.value.slice(0, 起) + "\n" + 输入框.value.slice(止);
+  const 新位 = 起 + 1;
+  输入框.selectionStart = 输入框.selectionEnd = 新位;
+  自动调整输入框高度();
+  更新指令提示();
+}
+
 输入框.addEventListener("keydown", (e) => {
   if (提示过滤列表.length > 0) {
     if (e.key === "ArrowDown") {
@@ -35,17 +60,35 @@ document.getElementById("chat-send")?.addEventListener("click", 发送当前输�
       渲染指令提示();
       return;
     }
-    if (e.key === "Enter" || e.key === "Tab") {
+    // 用 Tab 或 → 选取补全（不再用 Enter）
+    if (e.key === "Tab" || e.key === "ArrowRight") {
       e.preventDefault();
       const 选中 = 提示过滤列表[提示选中索引];
       if (选中) {
         输入框.value = 选中;
         隐藏指令提示();
-        return;
+        自动调整输入框高度();
       }
+      return;
     }
   }
-  if (e.key === "Enter") { 发送当前输入(); }
+  if (e.key === "Enter") {
+    // Ctrl+Enter（或 Cmd+Enter）总是插入换行
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      在光标处换行();
+      return;
+    }
+    // 光标在末尾：发送；在中间：插入换行
+    if (光标在末尾()) {
+      e.preventDefault();
+      发送当前输入();
+      自动调整输入框高度();
+    } else {
+      e.preventDefault();
+      在光标处换行();
+    }
+  }
 });
 
 // ===== 聊天搜索与清除 =====
@@ -226,7 +269,7 @@ export function 渲染系统日志(): void {
   容器.innerHTML = 系统日志缓存
     .map(
       (e) =>
-        `<div class="log-entry"><span class="log-time">${格式化时间(e.时间)}</span><span class="log-dir ${e.级别 === "error" ? "error" : "recv"}">${e.级别}</span><span class="log-route">${转义HTML(e.模块)}</span><span class="log-detail">${转义HTML(e.消息 ?? "")}</span></div>`,
+        `<div class="log-entry syslog-entry"><span class="log-time">${格式化时间(e.时间)}</span><span class="log-dir ${e.级别 === "error" ? "error" : "recv"}">${e.级别}</span><span class="log-route">${转义HTML(e.模块)}</span><span class="log-detail">${转义HTML(e.消息 ?? "")}</span></div>`,
     )
     .join("");
   容器.scrollTop = 容器.scrollHeight;

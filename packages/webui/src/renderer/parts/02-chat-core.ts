@@ -1,7 +1,7 @@
 // ===== 对话终端 =====
 
 export const 聊天日志 = document.getElementById("chat-log") as HTMLDivElement;
-export const 输入框 = document.getElementById("chat-input") as HTMLInputElement;
+export const 输入框 = document.getElementById("chat-input") as HTMLTextAreaElement;
 // ===== 指令输入提示 =====
 /** 已注册的模块指令库：命令前缀 + 说明，用于输入斜杠或指令前缀时给出提示 */
 export interface 指令提示项 { 命令: string; 说明: string }

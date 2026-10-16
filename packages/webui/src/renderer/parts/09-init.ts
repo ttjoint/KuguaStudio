@@ -6,12 +6,30 @@ import { 刷新本地插件, 刷新模块列表 } from "./06-shell";
 
 添加消息("苦瓜工作室已启动。输入「帮助」查看可用指令。", "system");
 
-// 定时刷新模块列表与本地插件
+// 注册表 / 能力 / 插件变更：由主控广播事件驱动刷新（不再固定轮询，避免空闲时持续产生总线日志）
+let 刷新排队 = false;
+function 排队刷新(动作: () => void): void {
+  // 同一轮事件里可能连续收到多个变更，合并到下一帧执行一次
+  if (刷新排队) return;
+  刷新排队 = true;
+  window.setTimeout(() => {
+    刷新排队 = false;
+    动作();
+  }, 200);
+}
+
+window.kugua.onBus((action) => {
+  if (action === "capability.changed") 排队刷新(() => void 同步能力指令库());
+  else if (action === "registry.changed") 排队刷新(() => void 刷新模块列表());
+  else if (action === "plugins.changed") 排队刷新(() => void 刷新本地插件());
+});
+
+// 低频兜底：仅用于事件丢失时的最终一致（例如初次连接前的变更），不参与常态刷新
 setInterval(() => {
   void 刷新模块列表();
   void 刷新本地插件();
   void 同步能力指令库();
-}, 10000);
+}, 120000);
 
 
 // ===== 顶栏：窗口控制（无边框窗口） =====
@@ -26,4 +44,3 @@ document.getElementById("win-max")?.addEventListener("click", async () => {
 document.getElementById("win-close")?.addEventListener("click", () => void window.kugua.window.close());
 window.kugua.window.onMaximized(更新最大化按钮);
 void window.kugua.window.isMaximized().then(更新最大化按钮);
-

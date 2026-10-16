@@ -190,6 +190,10 @@ async function 连接苦音(): Promise<void> {
   苦音客户端.on("log", (条目: unknown) => 推送({ type: "log", entry: 条目 }));
   // 主控转发的全局总线流量（含其他模块间调用，带双方与传参）
   苦音客户端.onEvent("nigane.traffic", (条目: unknown) => 推送({ type: "log", entry: 条目 }));
+  // 注册表/能力/插件变更事件 → 转发给浏览器（前端据此事件驱动刷新，无需轮询）
+  for (const 动作 of ["capability.changed", "registry.changed", "plugins.changed"]) {
+    苦音客户端.onEvent(动作, (数据: unknown) => 推送({ type: "bus", action: 动作, params: 数据 }));
+  }
   try {
     await 苦音客户端.connect();
     已就绪 = true;

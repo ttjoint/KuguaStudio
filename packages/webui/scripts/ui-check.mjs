@@ -102,6 +102,7 @@ const 断言 = `(() => {
   const R = {};
   const has = (id) => !!document.getElementById(id);
   R.kugua = typeof (window.kugua && window.kugua.request) === "function";
+  R.总线订阅 = typeof (window.kugua && window.kugua.onBus) === "function";
   R.标题 = document.title;
   R.标签 = ["tab-chat","tab-kb","tab-jobs","tab-tools","tab-plugins","tab-logs","tab-settings"].filter(has);
   R.对话页 = has("chat-page-view");
@@ -142,6 +143,30 @@ const 异步断言 = `(async () => {
   const hint = document.getElementById("chat-cmd-hint");
   R.指令提示 = !!(hint && !hint.classList.contains("hidden"));
   R.指令提示条数 = document.querySelectorAll("#chat-cmd-hint .cmd-hint-item").length;
+  // 输入框改为多行 textarea，并验证 Enter 语义（末尾发送 / 中间换行 / Ctrl+Enter 换行）
+  R.输入框为多行 = inp instanceof HTMLTextAreaElement;
+  if (inp && inp instanceof HTMLTextAreaElement) {
+    inp.value = "第一行";
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+    const 发送前 = document.querySelectorAll("#chat-log .chat-msg").length;
+    inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await sleep(300);
+    R.末尾Enter发送 = document.querySelectorAll("#chat-log .chat-msg").length > 发送前 && inp.value === "";
+    // 光标在中间：换行而非发送
+    inp.value = "前半后半";
+    inp.selectionStart = inp.selectionEnd = 2;
+    const 中间前 = document.querySelectorAll("#chat-log .chat-msg").length;
+    inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await sleep(150);
+    R.中间Enter换行 = inp.value === "前半" + String.fromCharCode(10) + "后半" && document.querySelectorAll("#chat-log .chat-msg").length === 中间前;
+    // Ctrl+Enter：总是换行
+    inp.value = "尾部";
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+    inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }));
+    await sleep(150);
+    R.ctrlEnter换行 = inp.value === "尾部" + String.fromCharCode(10);
+    inp.value = "";
+  }
   document.getElementById("btn-theme")?.click();
   await sleep(300);
   R.主题 = document.documentElement.dataset.theme || "";
@@ -396,6 +421,7 @@ async function main() {
     错误.length > 0 ||
     缺标签.length > 0 ||
     !R.kugua ||
+    !R.总线订阅 ||
     !R.对话页 ||
     !R.日志页 ||
     !R.切日志页 ||
@@ -405,6 +431,10 @@ async function main() {
     (R2.对话条数 ?? 0) < 1 ||
     (R2.新建后对话条数 ?? 0) <= (R2.对话条数 ?? 0) ||
     (R2.指令提示条数 ?? 0) < 1 ||
+    R2.输入框为多行 !== true ||
+    R2.末尾Enter发送 !== true ||
+    R2.中间Enter换行 !== true ||
+    R2.ctrlEnter换行 !== true ||
     !R2.回到文件 ||
     !R2.点全部标签 ||
     !R2.次级视图 ||
