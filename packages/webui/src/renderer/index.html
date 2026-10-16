@@ -34,12 +34,11 @@
       <main id="explorer-area" class="hidden">
         <!-- 系统提示：拖拽文件/图片到此区域可导入知识库 -->
         <div id="explorer-drop-hint" class="explorer-drop-hint hidden">松开以导入知识库</div>
-        <!-- 知识库子视图切换：文件 / 点子 / 素材 / 看板 -->
+        <!-- 知识库视图切换：资料库 / 记事 / 工作区 -->
         <div class="ex-sub-tabs">
-          <button class="ex-sub-tab active" data-mode="files" title="文件">&#x1F4C1; 文件</button>
-          <button class="ex-sub-tab" data-mode="notes" title="点子">&#x1F4A1; 点子</button>
-          <button class="ex-sub-tab" data-mode="materials" title="素材">&#x1F4CE; 素材</button>
-          <button class="ex-sub-tab" data-mode="board" title="看板">&#x1F5C2; 看板</button>
+          <button class="ex-sub-tab active" data-mode="files" title="资料库：统一查看全部文件与内容">&#x1F4C1; 资料库</button>
+          <button class="ex-sub-tab" data-mode="board" title="记事：列 + 卡片">&#x1F5D2; 记事</button>
+          <button class="ex-sub-tab" data-mode="workspace" title="工作区：拖拽摆放库内资源">&#x1F5A5; 工作区</button>
         </div>
         <div class="ex-pane ex-pane-files">
         <div class="explorer-layout">
@@ -110,6 +109,8 @@
                   <button class="ex-nav-btn" id="ex-btn-import" title="导入文件/图片到知识库">&#x1F4E5;</button>
                   <button class="ex-nav-btn hidden" id="ex-btn-delete-selected" title="删除选中的内容（从知识库移除）">&#x1F5D1;<span class="badge hidden" id="ex-delete-count"></span></button>
                   <button class="ex-nav-btn" id="ex-btn-new-snippet" title="新建文本片段">&#x2795;</button>
+                  <button class="ex-nav-btn" id="ex-note-add" title="新建点子">&#x1F4A1;</button>
+                  <button class="ex-nav-btn" id="ex-mat-add" title="新建素材">&#x1F4CE;</button>
                   <select id="ex-type-filter" class="ex-filter-select" title="按类型筛选">
                     <option value="all">全部类型</option>
                     <option value="文件">文件</option>
@@ -162,64 +163,11 @@
         </div>
         </div>
 
-        <!-- 点子视图 -->
-        <div class="ex-pane ex-pane-notes hidden">
-          <div class="explorer-content">
-            <div class="ex-toolbar">
-              <div class="ex-toolbar-left">
-                <input type="text" id="ex-note-search" class="ex-search-input" placeholder="搜索点子...">
-              </div>
-              <div class="ex-toolbar-right">
-                <button class="ex-nav-btn" id="ex-note-add" title="新建点子">&#xFF0B;</button>
-                <button class="ex-nav-btn" id="ex-note-refresh" title="刷新">&#x21BB;</button>
-                <button class="ex-nav-btn" id="ex-note-edit" title="编辑选中的点子">&#x270E;</button>
-                <button class="ex-nav-btn" id="ex-note-delete" title="删除选中的点子">&#x1F5D1;</button>
-              </div>
-            </div>
-            <div id="ex-note-list" class="ex-note-list"></div>
-            <div id="ex-note-detail" class="ex-note-detail hidden">
-              <div class="ex-note-detail-head">
-                <div id="ex-note-detail-title"></div>
-                <div class="ex-note-detail-time" id="ex-note-detail-time"></div>
-              </div>
-              <div id="ex-note-detail-tags" class="ex-info-tags"></div>
-              <div class="ex-note-detail-content" id="ex-note-detail-content"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 素材视图 -->
-        <div class="ex-pane ex-pane-materials hidden">
-          <div class="explorer-content">
-            <div class="ex-toolbar">
-              <div class="ex-toolbar-left">
-                <input type="text" id="ex-mat-search" class="ex-search-input" placeholder="搜索素材...">
-              </div>
-              <div class="ex-toolbar-right">
-                <button class="ex-nav-btn" id="ex-mat-add" title="新建素材">&#xFF0B;</button>
-                <button class="ex-nav-btn" id="ex-mat-refresh" title="刷新">&#x21BB;</button>
-                <button class="ex-nav-btn" id="ex-mat-edit" title="编辑选中的素材">&#x270E;</button>
-                <button class="ex-nav-btn" id="ex-mat-delete" title="删除选中的素材">&#x1F5D1;</button>
-              </div>
-            </div>
-            <div id="ex-mat-list" class="ex-note-list"></div>
-            <div id="ex-mat-detail" class="ex-note-detail hidden">
-              <div class="ex-note-detail-head">
-                <div id="ex-mat-detail-title"></div>
-                <div class="ex-note-detail-time" id="ex-mat-detail-time"></div>
-              </div>
-              <div id="ex-mat-detail-tags" class="ex-info-tags"></div>
-              <div id="ex-mat-detail-meta" class="ex-mat-detail-meta"></div>
-              <div class="ex-note-detail-content" id="ex-mat-detail-content"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 看板视图 -->
+        <!-- 记事视图（列 + 卡片） -->
         <div class="ex-pane ex-pane-boards hidden">
           <div class="ex-toolbar">
             <div class="ex-toolbar-left">
-              <span class="ex-filter-select" style="border:none;background:transparent">工作流看板</span>
+              <span class="ex-filter-select" style="border:none;background:transparent">记事栏</span>
             </div>
             <div class="ex-toolbar-right">
               <button class="ex-nav-btn" id="ex-board-add-col" title="新建列">&#xFF0B; 列</button>
@@ -228,6 +176,41 @@
             </div>
           </div>
           <div id="ex-board" class="ex-board"></div>
+        </div>
+
+        <!-- 工作区视图：左侧工作区列表 + 右侧可拖拽画布 -->
+        <div class="ex-pane ex-pane-workspace hidden">
+          <div class="ws-layout">
+            <aside class="ws-sidebar">
+              <div class="ws-sidebar-head">
+                <span>工作区</span>
+                <button id="ws-add" class="ex-link-btn" title="新建工作区">&#xFF0B;</button>
+              </div>
+              <div id="ws-list" class="ws-list"></div>
+            </aside>
+            <div class="ws-main">
+              <div class="ex-toolbar">
+                <div class="ex-toolbar-left">
+                  <span id="ws-current-name" class="ws-current-name">未选择工作区</span>
+                </div>
+                <div class="ex-toolbar-right">
+                  <input type="text" id="ws-search" class="ex-search-input" placeholder="搜索库内资源...">
+                  <button class="ex-nav-btn" id="ws-rename" title="重命名当前工作区">&#x270E;</button>
+                  <button class="ex-nav-btn" id="ws-clear" title="清空当前工作区摆放（不删资源）">&#x1F9F9;</button>
+                  <button class="ex-nav-btn" id="ws-delete" title="删除当前工作区">&#x1F5D1;</button>
+                  <button class="ex-nav-btn" id="ws-reset-view" title="重置画布视图">&#x21BA;</button>
+                </div>
+              </div>
+              <div id="ws-canvas-wrap" class="ws-canvas-wrap">
+                <div id="ws-canvas" class="ws-canvas"></div>
+                <div id="ws-empty" class="ws-empty">从左侧搜索并拖入库内资源，或先选择一个工作区</div>
+              </div>
+              <aside id="ws-palette" class="ws-palette hidden">
+                <div class="ws-palette-head"><span>库内资源</span><button id="ws-palette-close" class="ex-link-btn">&#x2715;</button></div>
+                <div id="ws-palette-list" class="ws-palette-list"></div>
+              </aside>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -586,6 +569,17 @@
         <textarea id="card-content" rows="4" placeholder="卡片内容..."></textarea>
         <label>所属列</label>
         <select id="card-column"></select>
+        <label>颜色</label>
+        <div class="card-color-row" id="card-color-row">
+          <button type="button" class="card-color-swatch" data-color="" title="默认"></button>
+          <button type="button" class="card-color-swatch" data-color="#e05d5d" style="background:#e05d5d"></button>
+          <button type="button" class="card-color-swatch" data-color="#e8a33d" style="background:#e8a33d"></button>
+          <button type="button" class="card-color-swatch" data-color="#e3d34a" style="background:#e3d34a"></button>
+          <button type="button" class="card-color-swatch" data-color="#6fbf73" style="background:#6fbf73"></button>
+          <button type="button" class="card-color-swatch" data-color="#5aa9e6" style="background:#5aa9e6"></button>
+          <button type="button" class="card-color-swatch" data-color="#a77bca" style="background:#a77bca"></button>
+          <button type="button" class="card-color-swatch" data-color="#8a8f98" style="background:#8a8f98"></button>
+        </div>
         <label>标签</label>
         <div class="ex-info-tags" id="card-tag-chips"></div>
         <label>新建标签（路径）</label>

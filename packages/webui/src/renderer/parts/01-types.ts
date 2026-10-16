@@ -155,6 +155,8 @@ export interface 卡片 {
   title: string;
   content: string;
   columnId: number | null;
+  color: string | null;
+  sort: number;
   createdAt: number;
   updatedAt: number;
   tagIds: number[];

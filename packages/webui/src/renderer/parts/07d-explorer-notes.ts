@@ -11,7 +11,7 @@ let 笔记搜索关键词 = "";
 let 笔记编辑标签ID = new Set<number>();
 let 笔记编辑目标: 笔记 | null = null;
 
-// ===== 点子视图 =====
+// ===== 点子（已合并到统一资料库：类型筛选与统一列表）=====
 export async function 加载笔记(): Promise<void> {
   try {
     所有笔记 = (await window.kugua.request("mkg", "mkg.note.list", {})) as 笔记[];
@@ -19,6 +19,8 @@ export async function 加载笔记(): Promise<void> {
     所有笔记 = [];
   }
   渲染笔记列表();
+  // 统一资料库视图需同步刷新（若已初始化）
+  await Explorer.加载所有内容().catch(() => undefined);
 }
 
 function 筛选后的笔记(): 笔记[] {
@@ -89,6 +91,12 @@ function 渲染笔记详情(): void {
   } else {
     tagsEl.innerHTML = '<span style="color:var(--text-dim);font-size:0.7rem">(无标签)</span>';
   }
+}
+
+/** 供统一资料库双击时调用：按内容条目打开点子编辑对话框 */
+export function 打开点子编辑(item: Explorer.内容条目): void {
+  选中笔记 = { id: item.id, title: item.name, content: item.content, tagIds: item.tagIds, createdAt: item.createdAt, updatedAt: item.updatedAt };
+  打开笔记对话框(true);
 }
 
 function 打开笔记对话框(编辑: boolean): void {

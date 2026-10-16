@@ -2170,6 +2170,106 @@ body {
 }
 .ex-board-add-card:hover { color: var(--accent); border-color: var(--accent); }
 .ex-board-empty { color: var(--text-dim); font-size: 0.8rem; padding: 1rem; text-align: center; }
+.ex-board-col-name-input {
+  flex: 1; font-weight: 600; font-size: 0.85rem; color: var(--text-bright);
+  background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 0.05rem 0.3rem;
+  outline: none; min-width: 0;
+}
+.ex-board-col-cards.drop-target { background: rgba(90, 169, 230, 0.12); border-radius: 8px; outline: 1px dashed var(--accent); }
+.ex-board-card .ebc-meta { display: flex; align-items: center; gap: 0.35rem; }
+.ex-board-card .ebc-time { font-size: 0.62rem; color: var(--text-dim); }
+.ex-board-card .ebc-color-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; }
+.card-color-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.2rem 0 0.4rem; }
+.card-color-swatch {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--border); background: var(--bg); padding: 0;
+}
+.card-color-swatch[data-color=""] { position: relative; }
+.card-color-swatch[data-color=""]::after { content: "×"; color: var(--text-dim); font-size: 0.75rem; }
+.card-color-swatch.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(90, 169, 230, 0.35); }
+.ebc-simple-menu, .ws-simple-menu {
+  position: fixed; z-index: 3000; min-width: 140px;
+  background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.25rem; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+.ebc-simple-menu-item, .ws-simple-menu-item {
+  padding: 0.35rem 0.6rem; font-size: 0.78rem; color: var(--text); border-radius: 5px; cursor: pointer;
+}
+.ebc-simple-menu-item:hover, .ws-simple-menu-item:hover { background: var(--bg-hover); }
+.ebc-simple-menu-item.danger, .ws-simple-menu-item.danger { color: #e06c75; }
+
+/* ===== 工作区 ===== */
+.ex-pane-workspace { flex-direction: column; flex: 1; min-height: 0; }
+.ws-layout { display: flex; flex: 1; min-height: 0; height: 100%; }
+.ws-sidebar {
+  width: 190px; flex: 0 0 190px; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; background: var(--bg-sidebar); min-height: 0;
+}
+.ws-sidebar-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.5rem 0.7rem; font-size: 0.75rem; font-weight: 600; color: var(--text-bright);
+  border-bottom: 1px solid var(--border);
+}
+.ws-list { flex: 1; overflow-y: auto; padding: 0.3rem; }
+.ws-item {
+  padding: 0.4rem 0.55rem; border-radius: 6px; font-size: 0.8rem; color: var(--text);
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ws-item:hover { background: var(--bg-hover); }
+.ws-item.active { background: var(--accent); color: #fff; }
+.ws-empty-hint { padding: 0.6rem; font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; }
+.ex-link-btn { border: none; background: transparent; color: var(--accent); cursor: pointer; font-size: 0.9rem; line-height: 1; }
+.ws-main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.ws-current-name { font-size: 0.8rem; font-weight: 600; color: var(--text-bright); }
+.ws-canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; min-height: 0;
+  background-color: var(--bg);
+  background-image: radial-gradient(rgba(128, 128, 128, 0.25) 1px, transparent 1px);
+  background-size: 22px 22px; cursor: grab;
+}
+.ws-canvas { position: absolute; inset: 0; transform-origin: 0 0; }
+.ws-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 0.8rem; pointer-events: none; text-align: center; padding: 1rem;
+}
+.ws-card {
+  position: absolute; background: var(--bg-sidebar); border: 2px solid var(--border);
+  border-radius: 8px; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.ws-card-head {
+  padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--text-bright);
+  background: var(--bg-hover); cursor: move; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border);
+}
+.ws-card-body { padding: 0.4rem 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; overflow: auto; flex: 1; }
+.ws-card-badge {
+  align-self: flex-start; font-size: 0.62rem; padding: 0.05rem 0.4rem; border-radius: 8px;
+  background: var(--accent); color: #fff;
+}
+.ws-card-note { font-size: 0.7rem; color: var(--text-dim); white-space: pre-wrap; }
+.ws-palette {
+  position: absolute; right: 0.75rem; top: 3rem; width: 240px; max-height: 70%;
+  display: flex; flex-direction: column; z-index: 20;
+  background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45); overflow: hidden;
+}
+.ws-palette-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.45rem 0.6rem; font-size: 0.75rem; font-weight: 600; color: var(--text-bright);
+  border-bottom: 1px solid var(--border);
+}
+.ws-palette-list { flex: 1; overflow-y: auto; padding: 0.3rem; }
+.ws-palette-item {
+  display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.45rem; border-radius: 6px;
+  font-size: 0.76rem; color: var(--text); cursor: grab;
+}
+.ws-palette-item:hover { background: var(--bg-hover); }
+.ws-palette-badge {
+  flex: 0 0 auto; font-size: 0.6rem; padding: 0.02rem 0.35rem; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-dim);
+}
+.ws-palette-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .modal-content select { width: 100%; box-sizing: border-box; padding: 0.4rem 0.6rem; border-radius: 6px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.8rem; }
 

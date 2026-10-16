@@ -4,10 +4,21 @@ import { Explorer } from "./07-explorer";
 import { 更新内容信息面板, 渲染标签chips, 绑定标签联想输入 } from "./07j-explorer-tags";
 import { 取媒体编解码, 打开图片预览弹窗, 添加消息, 清理图片预览 } from "./03-preview";
 import { 显示确认对话框 } from "./06-shell";
+import { 打开点子编辑 } from "./07d-explorer-notes";
+import { 打开素材编辑 } from "./07e-explorer-materials";
 
 // ===== 打开内容（文本类用内置编辑器，其他用系统打开） =====
 export async function 打开内容(item: Explorer.内容条目, programPath?: string): Promise<void> {
   if (item.resourceId == null) {
+    // 点子 / 素材：打开各自的编辑对话框
+    if (item.type === "note" || item.category === "点子") {
+      打开点子编辑(item);
+      return;
+    }
+    if (item.type === "material" || item.category === "素材") {
+      打开素材编辑(item);
+      return;
+    }
     // 片段（文本段）没有物理文件：按文本编辑方式打开，可预览与修改
     if (item.category === "文本段" || item.type === "snippet") {
       void 打开内置编辑器(item);

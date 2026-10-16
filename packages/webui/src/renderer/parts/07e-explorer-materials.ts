@@ -19,6 +19,8 @@ export async function 加载素材(): Promise<void> {
     所有素材 = [];
   }
   渲染素材列表();
+  // 统一资料库视图需同步刷新（若已初始化）
+  await Explorer.加载所有内容().catch(() => undefined);
 }
 
 function 筛选后的素材(): 素材[] {
@@ -114,6 +116,23 @@ function 渲染素材详情(): void {
   } else {
     tagsEl.innerHTML = '<span style="color:var(--text-dim);font-size:0.7rem">(无标签)</span>';
   }
+}
+
+/** 供统一资料库双击时调用：按内容条目打开素材编辑对话框 */
+export function 打开素材编辑(item: Explorer.内容条目): void {
+  const meta = (item.meta ?? {}) as Record<string, unknown>;
+  选中素材 = {
+    id: item.id,
+    title: item.name,
+    content: item.content,
+    kind: typeof meta.kind === "string" ? meta.kind : "",
+    sourceUrl: typeof meta.sourceUrl === "string" ? meta.sourceUrl : "",
+    imageUrl: typeof meta.imageUrl === "string" ? meta.imageUrl : "",
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    tagIds: item.tagIds,
+  };
+  打开素材对话框(true);
 }
 
 function 打开素材对话框(编辑: boolean): void {

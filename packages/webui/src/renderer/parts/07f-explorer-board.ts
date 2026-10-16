@@ -3,6 +3,7 @@
 import { Explorer } from "./07-explorer";
 import { 卡片, 看板列 } from "./01-types";
 import { 添加消息 } from "./03-preview";
+import { 格式化时间 } from "./08-logs";
 
 // ---- 模块状态 ----
 let 所有列: 看板列[] = [];
@@ -10,6 +11,10 @@ let 所有卡片: 卡片[] = [];
 let 编辑中的列: 看板列 | null = null;
 let 编辑中的卡片: 卡片 | null = null;
 let 卡片编辑标签ID = new Set<number>();
+let 卡片选中颜色: string | null = null;
+
+/** 卡片可用颜色 */
+export const 卡片颜色 = ["", "#e05d5d", "#e8a33d", "#e3d34a", "#6fbf73", "#5aa9e6", "#a77bca", "#8a8f98"];
 
 // ===== 看板视图 =====
 export async function 加载看板(): Promise<void> {
@@ -60,21 +65,39 @@ function 渲染列(board: HTMLDivElement, col: 看板列, cards: 卡片[]): void
   const name = document.createElement("span");
   name.className = "ex-board-col-name";
   name.textContent = col.name;
+  if (col.id >= 0) {
+    name.title = "双击重命名列";
+    name.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      开始内联重命名列(name, col);
+    });
+  }
   const count = document.createElement("span");
   count.className = "ex-board-col-count";
   count.textContent = String(cards.length);
   head.appendChild(name);
   head.appendChild(count);
   if (col.id >= 0) {
-    const del = document.createElement("button");
-    del.className = "ex-board-col-del";
-    del.textContent = "×";
-    del.title = "删除列";
-    del.addEventListener("click", (e) => {
+    const addCard = document.createElement("button");
+    addCard.className = "ex-board-col-del";
+    addCard.textContent = "+";
+    addCard.title = "在本列新建卡片";
+    addCard.style.marginLeft = "auto";
+    addCard.addEventListener("click", (e) => {
       e.stopPropagation();
-      void 删除列(col);
+      打开卡片对话框(false, col.id);
     });
-    head.appendChild(del);
+    head.appendChild(addCard);
+    // 右键列：重命名 / 删除
+    head.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      显示简单菜单(e.clientX, e.clientY, [
+        { label: "重命名列", onClick: () => 开始内联重命名列(name, col) },
+        { label: "在本列新建卡片", onClick: () => 打开卡片对话框(false, col.id) },
+        { label: "删除列", danger: true, onClick: () => void 删除列(col) },
+      ]);
+    });
   }
   colDiv.appendChild(head);
 
@@ -83,8 +106,25 @@ function 渲染列(board: HTMLDivElement, col: 看板列, cards: 卡片[]): void
   for (const card of cards) {
     const cardEl = document.createElement("div");
     cardEl.className = "ex-board-card";
+    if (card.color) {
+      cardEl.style.borderLeft = `4px solid ${card.color}`;
+    }
     cardEl.draggable = true;
     cardEl.dataset.cardId = String(card.id);
+    // 顶部：时间 + 颜色点
+    const meta = document.createElement("div");
+    meta.className = "ebc-meta";
+    const time = document.createElement("span");
+    time.className = "ebc-time";
+    time.textContent = 格式化时间(card.createdAt);
+    meta.appendChild(time);
+    if (card.color) {
+      const dot = document.createElement("span");
+      dot.className = "ebc-color-dot";
+      dot.style.background = card.color;
+      meta.appendChild(dot);
+    }
+    cardEl.appendChild(meta);
     const t = document.createElement("div");
     t.className = "ebc-title";
     t.textContent = card.title || "(无标题)";
@@ -111,6 +151,14 @@ function 渲染列(board: HTMLDivElement, col: 看板列, cards: 卡片[]): void
       编辑中的卡片 = card;
       打开卡片对话框(true);
     });
+    cardEl.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      显示简单菜单(e.clientX, e.clientY, [
+        { label: "编辑卡片", onClick: () => { 编辑中的卡片 = card; 打开卡片对话框(true); } },
+        { label: "删除卡片", danger: true, onClick: () => void 删除卡片(card) },
+      ]);
+    });
     cardEl.addEventListener("dragstart", (e) => {
       e.dataTransfer?.setData("text/plain", String(card.id));
     });
@@ -125,19 +173,30 @@ function 渲染列(board: HTMLDivElement, col: 看板列, cards: 卡片[]): void
   });
   cardsDiv.appendChild(addBtn);
 
-  cardsDiv.addEventListener("dragover", (e) => e.preventDefault());
+  cardsDiv.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    cardsDiv.classList.add("drop-target");
+  });
+  cardsDiv.addEventListener("dragleave", () => cardsDiv.classList.remove("drop-target"));
   cardsDiv.addEventListener("drop", (e) => {
     e.preventDefault();
+    cardsDiv.classList.remove("drop-target");
     const data = e.dataTransfer?.getData("text/plain");
     if (!data) return;
     const cardId = Number(data);
     const card = 所有卡片.find((c) => c.id === cardId);
     if (!card) return;
     const targetColumnId = col.id >= 0 ? col.id : null;
-    if (card.columnId === targetColumnId) return;
+    const 同列卡片 = cards.filter((c) => c.id !== cardId);
+    if (card.columnId === targetColumnId && 同列卡片.length === cards.length) return;
     void (async () => {
       try {
-        await window.kugua.request("mkg", "mkg.card.update", { id: card.id, patch: { columnId: targetColumnId } });
+        // 放到列末尾：sort 取当前列最大 + 1
+        const 最大 = 同列卡片.reduce((m, c) => Math.max(m, c.sort ?? 0), 0);
+        await window.kugua.request("mkg", "mkg.card.update", {
+          id: card.id,
+          patch: { columnId: targetColumnId, sort: 最大 + 1 },
+        });
         await 加载看板();
       } catch (err) {
         添加消息("移动卡片失败：" + String(err), "error");
@@ -147,6 +206,70 @@ function 渲染列(board: HTMLDivElement, col: 看板列, cards: 卡片[]): void
 
   colDiv.appendChild(cardsDiv);
   board.appendChild(colDiv);
+}
+
+/** 内联重命名列：把列名 span 换成输入框，回车/失焦保存 */
+function 开始内联重命名列(span: HTMLSpanElement, col: 看板列): void {
+  if (span.dataset.editing === "1") return;
+  span.dataset.editing = "1";
+  const 原值 = col.name;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "ex-board-col-name-input";
+  input.value = 原值;
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  let 已完成 = false;
+  const 完成 = async (保存: boolean): Promise<void> => {
+    if (已完成) return;
+    已完成 = true;
+    const 新值 = input.value.trim();
+    if (!保存 || !新值 || 新值 === 原值) {
+      await 加载看板();
+      return;
+    }
+    try {
+      await window.kugua.request("mkg", "mkg.card.columnUpdate", { id: col.id, patch: { name: 新值 } });
+      添加消息("已重命名列：" + 新值, "system");
+    } catch (err) {
+      添加消息("重命名列失败：" + String(err), "error");
+    }
+    await 加载看板();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); void 完成(true); }
+    else if (e.key === "Escape") { e.preventDefault(); void 完成(false); }
+  });
+  input.addEventListener("blur", () => void 完成(true));
+  input.addEventListener("click", (e) => e.stopPropagation());
+}
+
+/** 简易右键菜单（看板专用，不依赖 Explorer 的右键菜单 DOM） */
+function 显示简单菜单(x: number, y: number, 项目: Array<{ label: string; danger?: boolean; onClick: () => void }>): void {
+  document.querySelectorAll(".ebc-simple-menu").forEach((n) => n.remove());
+  const menu = document.createElement("div");
+  menu.className = "ebc-simple-menu";
+  menu.style.left = x + "px";
+  menu.style.top = y + "px";
+  for (const it of 项目) {
+    const b = document.createElement("div");
+    b.className = "ebc-simple-menu-item" + (it.danger ? " danger" : "");
+    b.textContent = it.label;
+    b.addEventListener("click", () => {
+      menu.remove();
+      it.onClick();
+    });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const 关闭 = (ev: MouseEvent): void => {
+    if (!menu.contains(ev.target as Node)) {
+      menu.remove();
+      document.removeEventListener("mousedown", 关闭, true);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", 关闭, true), 0);
 }
 
 function 打开列对话框(编辑: boolean): void {
@@ -213,13 +336,16 @@ function 打开卡片对话框(编辑: boolean, 默认列ID?: number | null): vo
     columnEl.value = 编辑中的卡片.columnId != null ? String(编辑中的卡片.columnId) : "";
     卡片编辑标签ID.clear();
     for (const tid of 编辑中的卡片.tagIds) 卡片编辑标签ID.add(tid);
+    卡片选中颜色 = 编辑中的卡片.color ?? null;
   } else {
     编辑中的卡片 = null;
     titleEl.value = "";
     contentEl.value = "";
     columnEl.value = 默认列ID != null ? String(默认列ID) : "";
     卡片编辑标签ID.clear();
+    卡片选中颜色 = null;
   }
+  渲染颜色选择();
   (document.getElementById("card-new-tag-path") as HTMLInputElement).value = "";
   渲染卡片对话框标签();
   Explorer.渲染可勾选标签树(Explorer.标签树, {
@@ -256,18 +382,33 @@ function 渲染卡片对话框标签(): void {
   });
 }
 
+function 渲染颜色选择(): void {
+  const row = document.getElementById("card-color-row") as HTMLDivElement | null;
+  if (!row) return;
+  row.querySelectorAll<HTMLButtonElement>(".card-color-swatch").forEach((btn) => {
+    const 色 = btn.dataset.color ?? "";
+    const 选中 = (卡片选中颜色 ?? "") === 色;
+    btn.classList.toggle("selected", 选中);
+    btn.onclick = () => {
+      卡片选中颜色 = 色 || null;
+      渲染颜色选择();
+    };
+  });
+}
+
 async function 保存卡片(): Promise<void> {
   const title = (document.getElementById("card-title") as HTMLInputElement).value.trim();
   const content = (document.getElementById("card-content") as HTMLTextAreaElement).value;
   const columnVal = (document.getElementById("card-column") as HTMLSelectElement).value;
   const columnId = columnVal === "" ? null : Number(columnVal);
   const tagIds = Array.from(卡片编辑标签ID);
+  const color = 卡片选中颜色;
   try {
     if (编辑中的卡片) {
-      await window.kugua.request("mkg", "mkg.card.update", { id: 编辑中的卡片.id, patch: { title: title || "未命名", content, columnId, tagIds } });
+      await window.kugua.request("mkg", "mkg.card.update", { id: 编辑中的卡片.id, patch: { title: title || "未命名", content, columnId, tagIds, color } });
       添加消息("已更新卡片", "system");
     } else {
-      await window.kugua.request("mkg", "mkg.card.create", { title: title || "未命名", content, columnId, tagIds });
+      await window.kugua.request("mkg", "mkg.card.create", { title: title || "未命名", content, columnId, tagIds, color });
       添加消息("已新建卡片", "system");
     }
     document.getElementById("card-dialog")?.classList.add("hidden");
@@ -277,12 +418,13 @@ async function 保存卡片(): Promise<void> {
   }
 }
 
-async function 删除卡片(): Promise<void> {
-  if (!编辑中的卡片) return;
+async function 删除卡片(目标?: 卡片): Promise<void> {
+  const card = 目标 ?? 编辑中的卡片;
+  if (!card) return;
   if (!window.confirm("确定删除这张卡片吗？")) return;
   try {
-    await window.kugua.request("mkg", "mkg.card.delete", { id: 编辑中的卡片.id });
-    编辑中的卡片 = null;
+    await window.kugua.request("mkg", "mkg.card.delete", { id: card.id });
+    if (编辑中的卡片?.id === card.id) 编辑中的卡片 = null;
     添加消息("已删除卡片", "system");
     document.getElementById("card-dialog")?.classList.add("hidden");
     await 加载看板();

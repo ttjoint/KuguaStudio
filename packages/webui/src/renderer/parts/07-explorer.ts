@@ -8,9 +8,10 @@ import { 找到标签名, 搜索标签节点, 导航到标签, 更新内容信�
 import { 显示右键菜单, 隐藏右键菜单, 显示上下文菜单, 复制文本, 更新批量删除按钮, 删除选中内容, 删除到回收站, 开始内联编辑名称, 开始内联编辑真实文件名, 绑定框选 } from "./07i-explorer-actions";
 import { 绑定智能视图与位置事件, 导出侧车, 渲染保存视图, 渲染位置列表, 加载保存视图, 加载位置 } from "./07h-explorer-views";
 import { 打开内容, 系统默认打开, 关闭内置编辑器, 打开新建片段对话框, 绑定编辑器事件 } from "./07g-explorer-editor";
-import { 加载笔记, 绑定笔记事件 } from "./07d-explorer-notes";
-import { 加载素材, 绑定素材事件 } from "./07e-explorer-materials";
 import { 加载看板, 绑定看板事件 } from "./07f-explorer-board";
+import { 绑定笔记事件 } from "./07d-explorer-notes";
+import { 绑定素材事件 } from "./07e-explorer-materials";
+import { 加载工作区视图, 绑定工作区事件 } from "./07k-explorer-workspace";
 
 // ===== 资源管理器 =====
 
@@ -911,7 +912,7 @@ export namespace Explorer {
       });
     });
 
-    // ===== 点子视图（次级切换 + 操作）=====
+    // ===== 知识库视图切换：资料库 / 记事 / 工作区 =====
     document.querySelectorAll<HTMLButtonElement>(".ex-sub-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
         const mode = btn.dataset.mode;
@@ -919,20 +920,17 @@ export namespace Explorer {
         document.querySelectorAll(".ex-sub-tab").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         (document.querySelector(".ex-pane-files") as HTMLDivElement)?.classList.toggle("hidden", mode !== "files");
-        (document.querySelector(".ex-pane-notes") as HTMLDivElement)?.classList.toggle("hidden", mode !== "notes");
-        (document.querySelector(".ex-pane-materials") as HTMLDivElement)?.classList.toggle("hidden", mode !== "materials");
         (document.querySelector(".ex-pane-boards") as HTMLDivElement)?.classList.toggle("hidden", mode !== "board");
-        if (mode === "notes") void 加载笔记();
-        if (mode === "materials") void 加载素材();
+        (document.querySelector(".ex-pane-workspace") as HTMLDivElement)?.classList.toggle("hidden", mode !== "workspace");
         if (mode === "board") void 加载看板();
+        if (mode === "workspace") void 加载工作区视图();
       });
     });
 
-    绑定笔记事件();
-
-    绑定素材事件();
-
     绑定看板事件();
+    绑定笔记事件();
+    绑定素材事件();
+    绑定工作区事件();
   }
 
   /** 绑定容器交互事件（由 init 调用） */

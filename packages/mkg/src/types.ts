@@ -220,6 +220,10 @@ export interface 卡片 {
   createdAt: number;
   updatedAt: number;
   tagIds: number[];
+  /** 可选卡片颜色（如 #f5c542；空表示默认） */
+  color: string | null;
+  /** 列内排序权重 */
+  sort: number;
 }
 
 /** 卡片实体的可更新字段 */
@@ -228,6 +232,49 @@ export interface 卡片更新 {
   content?: string;
   columnId?: number | null;
   tagIds?: number[];
+  color?: string | null;
+  sort?: number;
+}
+
+// ===== 工作区（workspace）：只引用库内资源，不存储资源数据 =====
+
+/** 工作区实体（类似文件夹/视图窗） */
+export interface 工作区 {
+  id: number;
+  /** 名称 */
+  name: string;
+  /** 排序权重 */
+  sort: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 工作区放置项实体：引用一个库内节点，记录画布位置与尺寸 */
+export interface 工作区放置项 {
+  id: number;
+  workspaceId: number;
+  /** 引用的节点 id（文件/点子/素材/文本段/记事卡片等） */
+  nodeId: number;
+  /** 画布坐标与尺寸 */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 可选颜色标记 */
+  color: string | null;
+  /** 可选备注 */
+  note: string | null;
+  createdAt: number;
+}
+
+/** 工作区放置项的可更新字段 */
+export interface 放置项更新 {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  color?: string | null;
+  note?: string | null;
 }
 
 /** 文本段（snippet）实体：一段可独立管理的文本知识/片段 */

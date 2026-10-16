@@ -164,22 +164,24 @@ const 异步断言 = `(async () => {
     R.筛选摘要可见 = "无标签节点（跳过）";
   }
   const 次级 = {};
-  for (const mode of ["notes", "materials", "board"]) {
+  for (const mode of ["board", "workspace"]) {
     const btn = document.querySelector('.ex-sub-tab[data-mode="' + mode + '"]');
     if (!btn) { 次级[mode] = "无按钮"; continue; }
     btn.click();
     await sleep(1500);
-    const 面板名 = mode === "board" ? "boards" : mode;
+    const 面板名 = mode === "board" ? "boards" : "workspace";
     const pane = document.querySelector(".ex-pane-" + 面板名);
     const 可见 = !!(pane && !pane.classList.contains("hidden"));
-    const addId = mode === "notes" ? "ex-note-add" : mode === "materials" ? "ex-mat-add" : "ex-board-add-col";
-    const dlgId = mode === "notes" ? "note-dialog" : mode === "materials" ? "material-dialog" : "column-dialog";
-    document.getElementById(addId)?.click();
-    await sleep(300);
-    const dlg = document.getElementById(dlgId);
-    const 对话框 = !!(dlg && !dlg.classList.contains("hidden"));
-    if (对话框) dlg.classList.add("hidden");
-    次级[mode] = 可见 && 对话框 ? true : "可见=" + 可见 + ",弹窗=" + 对话框;
+    const addId = mode === "board" ? "ex-board-add-col" : "ws-add";
+    次级[mode] = 可见 ? true : "可见=" + 可见;
+    if (addId === "ex-board-add-col") {
+      document.getElementById(addId)?.click();
+      await sleep(300);
+      const dlg = document.getElementById("column-dialog");
+      const 对话框 = !!(dlg && !dlg.classList.contains("hidden"));
+      if (对话框) dlg.classList.add("hidden");
+      if (!对话框) 次级[mode] = "可见=" + 可见 + ",弹窗=" + 对话框;
+    }
   }
   R.次级视图 = 次级;
   // 回到文件视图
@@ -194,16 +196,15 @@ const 写入断言 = `(async () => {
   const R = {};
   document.getElementById("tab-kb")?.click();
   await sleep(400);
-  document.querySelector('.ex-sub-tab[data-mode="notes"]')?.click();
-  await sleep(1400);
-  const n0 = document.querySelectorAll("#ex-note-list .ex-note-tile").length;
+  // 点子已合并入统一资料库：从工具栏新建并在统一列表中核对
+  const n0 = document.querySelectorAll("#ex-items-large .ex-file-tile, #ex-items-list .ex-list-item, .ex-details-body .ex-detail-row").length;
   document.getElementById("ex-note-add")?.click();
   await sleep(250);
   document.getElementById("note-title").value = "自动化测试点子";
   document.getElementById("note-content").value = "由无头验证器创建";
   document.getElementById("note-save")?.click();
-  await sleep(1600);
-  R.新建点子 = document.querySelectorAll("#ex-note-list .ex-note-tile").length > n0;
+  await sleep(1800);
+  R.新建点子 = document.querySelectorAll("#ex-items-large .ex-file-tile, #ex-items-list .ex-list-item, .ex-details-body .ex-detail-row").length > n0;
   document.querySelector('.ex-sub-tab[data-mode="board"]')?.click();
   await sleep(1400);
   const c0 = document.querySelectorAll("#ex-board .ex-board-col").length;
@@ -213,17 +214,17 @@ const 写入断言 = `(async () => {
   document.getElementById("column-save")?.click();
   await sleep(1600);
   R.新建看板列 = document.querySelectorAll("#ex-board .ex-board-col").length > c0;
-  document.querySelector('.ex-sub-tab[data-mode="materials"]')?.click();
+  document.querySelector('.ex-sub-tab[data-mode="files"]')?.click();
   await sleep(1400);
-  const m0 = document.querySelectorAll("#ex-mat-list .ex-mat-tile").length;
+  const m0 = document.querySelectorAll("#ex-items-large .ex-file-tile, #ex-items-list .ex-list-item, .ex-details-body .ex-detail-row").length;
   document.getElementById("ex-mat-add")?.click();
   await sleep(250);
   document.getElementById("material-title").value = "自动化素材";
   document.getElementById("material-kind").value = "链接";
   document.getElementById("material-content").value = "由验证器创建";
   document.getElementById("material-save")?.click();
-  await sleep(1600);
-  R.新建素材 = document.querySelectorAll("#ex-mat-list .ex-mat-tile").length > m0;
+  await sleep(1800);
+  R.新建素材 = document.querySelectorAll("#ex-items-large .ex-file-tile, #ex-items-list .ex-list-item, .ex-details-body .ex-detail-row").length > m0;
   document.querySelector('.ex-sub-tab[data-mode="board"]')?.click();
   await sleep(1400);
   const k0 = document.querySelectorAll("#ex-board .ex-board-card").length;

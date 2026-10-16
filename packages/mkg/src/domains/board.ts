@@ -14,11 +14,12 @@ declare module "../index.js" {
     listColumns(): 看板列[];
     updateColumn(id: number, patch: 看板列更新): 看板列 | undefined;
     deleteColumn(id: number): void;
-    createCard(data: { title: string; content?: string; columnId?: number | null; tagIds?: number[] }): 卡片;
+    createCard(data: { title: string; content?: string; columnId?: number | null; tagIds?: number[]; color?: string | null; sort?: number }): 卡片;
     getCard(id: number): 卡片 | undefined;
     listCards(columnId?: number | null): 卡片[];
     updateCard(id: number, patch: 卡片更新): 卡片 | undefined;
     deleteCard(id: number): void;
+    读取卡片附加(id: number): { color: string | null; sort: number };
   }
 }
 
@@ -45,6 +46,19 @@ export function 安装看板域(proto: { [k: string]: unknown }): void {
         FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
       );
     `);
+    // 兼容旧库：cards 的 color/sort 存在 nodes.meta 中，这里仅确保表结构存在
+  };
+
+  /** 读取某张卡片在 nodes.meta 中的附加字段 */
+  proto.读取卡片附加 = function (this: 上下文, id: number): { color: string | null; sort: number } {
+    const row = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(id) as { meta: string } | undefined;
+    let meta: { color?: string | null; sort?: number } = {};
+    try {
+      meta = JSON.parse(row?.meta || "{}") as typeof meta;
+    } catch {
+      meta = {};
+    }
+    return { color: meta.color ?? null, sort: typeof meta.sort === "number" ? meta.sort : 0 };
   };
 
   proto.createColumn = function (this: 上下文, name: string): 看板列 {
@@ -105,11 +119,11 @@ export function 安装看板域(proto: { [k: string]: unknown }): void {
 
   proto.createCard = function (
     this: 上下文,
-    data: { title: string; content?: string; columnId?: number | null; tagIds?: number[] },
+    data: { title: string; content?: string; columnId?: number | null; tagIds?: number[]; color?: string | null; sort?: number },
   ): 卡片 {
     this.确保看板表();
     const now = Math.floor(Date.now() / 1000);
-    const meta = JSON.stringify({ columnId: data.columnId ?? null });
+    const meta = JSON.stringify({ columnId: data.columnId ?? null, color: data.color ?? null, sort: data.sort ?? 0 });
     const res = this.db
       .prepare("INSERT INTO nodes (type, title, meta, created_at, updated_at) VALUES ('card', ?, ?, ?, ?)")
       .run(data.title, meta, now, now);
@@ -132,7 +146,7 @@ export function 安装看板域(proto: { [k: string]: unknown }): void {
       | { id: number; title: string; meta: string; createdAt: number; updatedAt: number; content: string | null }
       | undefined;
     if (!row) return undefined;
-    let meta: { columnId?: number | null } = {};
+    let meta: { columnId?: number | null; color?: string | null; sort?: number } = {};
     try { meta = JSON.parse(row.meta || "{}") as typeof meta; } catch { meta = {}; }
     const tagIds = (
       this.db.prepare("SELECT tag_id AS id FROM node_tags WHERE node_id = ?").all(id) as { id: number }[]
@@ -145,21 +159,21 @@ export function 安装看板域(proto: { [k: string]: unknown }): void {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       tagIds,
+      color: meta.color ?? null,
+      sort: typeof meta.sort === "number" ? meta.sort : 0,
     };
   };
 
   proto.listCards = function (this: 上下文, columnId?: number | null): 卡片[] {
     this.确保看板表();
-    let rows: { id: number }[];
-    if (columnId === null) {
-      rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card' ORDER BY id DESC").all() as { id: number }[];
-    } else if (columnId !== undefined) {
-      rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card' ORDER BY id DESC").all() as { id: number }[];
-      rows = rows.filter((r) => this.getCard(r.id)?.columnId === columnId);
-    } else {
-      rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card' ORDER BY id DESC").all() as { id: number }[];
+    // 按列内排序权重（sort）升序，其次按创建时间升序
+    const rows = this.db.prepare("SELECT id FROM nodes WHERE type = 'card'").all() as { id: number }[];
+    let 结果 = rows.map((r) => this.getCard(r.id)!).filter(Boolean);
+    if (columnId !== undefined) {
+      结果 = 结果.filter((c) => c.columnId === columnId);
     }
-    return rows.map((r) => this.getCard(r.id)!).filter(Boolean);
+    结果.sort((a, b) => (a.sort - b.sort) || (a.createdAt - b.createdAt) || (a.id - b.id));
+    return 结果;
   };
 
   proto.updateCard = function (this: 上下文, id: number, patch: 卡片更新): 卡片 | undefined {
@@ -177,9 +191,17 @@ export function 安装看板域(proto: { [k: string]: unknown }): void {
     }
     if (patch.columnId !== undefined) {
       const metaRaw = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(id) as { meta: string };
-      let meta: { columnId?: number | null } = {};
+      let meta: { columnId?: number | null; color?: string | null; sort?: number } = {};
       try { meta = JSON.parse(metaRaw.meta || "{}") as typeof meta; } catch { meta = {}; }
       meta.columnId = patch.columnId;
+      this.db.prepare("UPDATE nodes SET meta = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(meta), now, id);
+    }
+    if (patch.color !== undefined || patch.sort !== undefined) {
+      const metaRaw = this.db.prepare("SELECT meta FROM nodes WHERE id = ?").get(id) as { meta: string };
+      let meta: { columnId?: number | null; color?: string | null; sort?: number } = {};
+      try { meta = JSON.parse(metaRaw.meta || "{}") as typeof meta; } catch { meta = {}; }
+      if (patch.color !== undefined) meta.color = patch.color;
+      if (patch.sort !== undefined) meta.sort = patch.sort;
       this.db.prepare("UPDATE nodes SET meta = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(meta), now, id);
     }
     if (patch.tagIds !== undefined) {

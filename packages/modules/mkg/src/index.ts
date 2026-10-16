@@ -600,11 +600,11 @@ void 启动模块({
   });
 
   客户端.onRequest("mkg.card.create", (params) => {
-    const { title, content, columnId, tagIds } = (params ?? {}) as {
-      title?: string; content?: string; columnId?: number | null; tagIds?: number[];
+    const { title, content, columnId, tagIds, color } = (params ?? {}) as {
+      title?: string; content?: string; columnId?: number | null; tagIds?: number[]; color?: string | null;
     };
     if (!title) throw new Error("缺少 title");
-    return mkg.createCard({ title, content, columnId, tagIds });
+    return mkg.createCard({ title, content, columnId, tagIds, color });
   });
 
   客户端.onRequest("mkg.card.get", (params) => {
@@ -621,10 +621,63 @@ void 启动模块({
   客户端.onRequest("mkg.card.update", (params) => {
     const { id, patch } = (params ?? {}) as {
       id?: number;
-      patch?: { title?: string; content?: string; columnId?: number | null; tagIds?: number[] };
+      patch?: { title?: string; content?: string; columnId?: number | null; tagIds?: number[]; color?: string | null; sort?: number };
     };
     if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
     return mkg.updateCard(id, patch);
+  });
+
+  // ===== 工作区（workspace）：仅引用库内节点，不存资源数据 =====
+  客户端.onRequest("mkg.workspace.list", () => mkg.列出工作区());
+
+  客户端.onRequest("mkg.workspace.create", (params) => {
+    const { name } = (params ?? {}) as { name?: string };
+    if (!name) throw new Error("缺少 name");
+    return mkg.创建工作区(name);
+  });
+
+  客户端.onRequest("mkg.workspace.update", (params) => {
+    const { id, patch } = (params ?? {}) as { id?: number; patch?: { name?: string; sort?: number } };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.更新工作区(id, patch);
+  });
+
+  客户端.onRequest("mkg.workspace.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.删除工作区(id);
+    return { success: true };
+  });
+
+  客户端.onRequest("mkg.workspace.items", (params) => {
+    const { workspaceId } = (params ?? {}) as { workspaceId?: number };
+    if (workspaceId === undefined) throw new Error("缺少 workspaceId");
+    return mkg.列出放置项(workspaceId);
+  });
+
+  客户端.onRequest("mkg.workspace.itemAdd", (params) => {
+    const { workspaceId, nodeId, x, y, width, height, color, note } = (params ?? {}) as {
+      workspaceId?: number; nodeId?: number; x?: number; y?: number; width?: number; height?: number;
+      color?: string | null; note?: string | null;
+    };
+    if (workspaceId === undefined || nodeId === undefined) throw new Error("缺少 workspaceId 或 nodeId");
+    return mkg.添加放置项(workspaceId, nodeId, { x, y, width, height, color, note });
+  });
+
+  客户端.onRequest("mkg.workspace.itemUpdate", (params) => {
+    const { id, patch } = (params ?? {}) as {
+      id?: number;
+      patch?: { x?: number; y?: number; width?: number; height?: number; color?: string | null; note?: string | null };
+    };
+    if (id === undefined || !patch) throw new Error("缺少 id 或 patch");
+    return mkg.更新放置项(id, patch);
+  });
+
+  客户端.onRequest("mkg.workspace.itemRemove", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    mkg.删除放置项(id);
+    return { success: true };
   });
 
   客户端.onRequest("mkg.card.delete", (params) => {

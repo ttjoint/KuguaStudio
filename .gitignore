@@ -151,6 +151,7 @@ vite.config.ts.timestamp-*
 参考/
 
 # 运行时数据与本地知识库（不应提交）
+data/webui.lock
 data/mkg.db
 data/mkg.db-shm
 data/mkg.db-wal

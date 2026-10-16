@@ -13,6 +13,7 @@ import { 安装素材域 } from "./domains/materials.js";
 import { 安装片段域 } from "./domains/snippets.js";
 import { 安装看板域 } from "./domains/board.js";
 import { 安装视图位置域 } from "./domains/views.js";
+import { 安装工作区域 } from "./domains/workspace.js";
 
 export * from "./types.js";
 export * from "./sidecar.js";
@@ -57,3 +58,4 @@ const 原型 = MKG.prototype as unknown as { [k: string]: unknown };
 安装片段域(原型);
 安装看板域(原型);
 安装视图位置域(原型);
+安装工作区域(原型);

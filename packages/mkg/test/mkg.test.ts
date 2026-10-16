@@ -428,6 +428,83 @@ describe("资源详情：getResourceDetail / listResourcesDetail / listResources
  * 防止「后端改了返回形状、前端仍按旧形状解析」这类只能在运行时暴露的问题。
  * （历史缺陷：`mkg.file.physicalPath` 返回裸字符串，前端却按 `{ path }` 解构。）
  */
+describe("记事（看板）：卡片颜色 / 排序 / 列表顺序", () => {
+  it("卡片支持 color 与 sort，并在列表中按 sort 排序", () => {
+    const 列 = mkg.createColumn("待办");
+    const c1 = mkg.createCard({ title: "A", content: "a", columnId: 列.id, color: "#e05d5d", sort: 5 });
+    const c2 = mkg.createCard({ title: "B", content: "b", columnId: 列.id, sort: 1 });
+    expect(c1.color).toBe("#e05d5d");
+    expect(c1.sort).toBe(5);
+    const 列表 = mkg.listCards().filter((c) => c.columnId === 列.id);
+    expect(列表.map((c) => c.title)).toEqual(["B", "A"]);
+    expect(c2.sort).toBe(1);
+  });
+
+  it("updateCard 可改颜色与排序", () => {
+    const c = mkg.createCard({ title: "C", content: "c" });
+    const 改 = mkg.updateCard(c.id, { color: "#5aa9e6", sort: 9 });
+    expect(改.color).toBe("#5aa9e6");
+    expect(改.sort).toBe(9);
+    const 读取 = mkg.getCard(c.id)!;
+    expect(读取.color).toBe("#5aa9e6");
+    expect(读取.sort).toBe(9);
+  });
+});
+
+describe("工作区：只引用库内节点，不存资源数据", () => {
+  it("创建工作区 / 列出 / 更新 / 删除", () => {
+    const ws = mkg.创建工作区("分析画布");
+    expect(ws.name).toBe("分析画布");
+    expect(mkg.列出工作区().map((w) => w.id)).toContain(ws.id);
+    const 改 = mkg.更新工作区(ws.id, { name: "分析画布 2" })!;
+    expect(改.name).toBe("分析画布 2");
+    mkg.删除工作区(ws.id);
+    expect(mkg.列出工作区().map((w) => w.id)).not.toContain(ws.id);
+  });
+
+  it("添加 / 列出 / 更新 / 删除放置项", () => {
+    const ws = mkg.创建工作区("摆放");
+    const 笔记 = mkg.createNote("工作区引用", "内容");
+    const it = mkg.添加放置项(ws.id, 笔记.id, { x: 30, y: 40, width: 200, height: 150 });
+    expect(it.nodeId).toBe(笔记.id);
+    expect(it.x).toBe(30);
+
+    const 列出 = mkg.列出放置项(ws.id);
+    expect(列出).toHaveLength(1);
+
+    const 改 = mkg.更新放置项(it.id, { x: 99, color: "#6fbf73", note: "重点" })!;
+    expect(改.x).toBe(99);
+    expect(改.color).toBe("#6fbf73");
+    expect(改.note).toBe("重点");
+
+    mkg.删除放置项(it.id);
+    expect(mkg.列出放置项(ws.id)).toHaveLength(0);
+  });
+
+  it("删除工作区不会删除被引用的节点", () => {
+    const ws = mkg.创建工作区("临时");
+    const 笔记 = mkg.createNote("不应被删", "内容");
+    mkg.添加放置项(ws.id, 笔记.id, { x: 0, y: 0 });
+    mkg.删除工作区(ws.id);
+    expect(mkg.列出放置项(ws.id)).toHaveLength(0);
+    // 笔记本身仍然存在
+    const 全部 = mkg.listAllContent();
+    expect(全部.map((x) => x.id)).toContain(笔记.id);
+  });
+
+  it("清空放置项保留工作区", () => {
+    const ws = mkg.创建工作区("清空测试");
+    const a = mkg.createNote("A", "a");
+    const b = mkg.createNote("B", "b");
+    mkg.添加放置项(ws.id, a.id, { x: 0, y: 0 });
+    mkg.添加放置项(ws.id, b.id, { x: 10, y: 10 });
+    expect(mkg.列出放置项(ws.id)).toHaveLength(2);
+    mkg.清空放置项(ws.id);
+    expect(mkg.列出放置项(ws.id)).toHaveLength(0);
+    expect(mkg.列出工作区().map((w) => w.id)).toContain(ws.id);
+  });
+});
+
 describe("WebUI 返回形状契约", () => {
   it("mkg.file.physicalPath 返回裸字符串路径（不是 {path}）", async () => {
     const p = 造文件("契约/a.txt");
