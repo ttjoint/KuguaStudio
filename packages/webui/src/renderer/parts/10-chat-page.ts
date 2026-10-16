@@ -1,5 +1,5 @@
 import { 聊天日志 } from "./02-chat-core";
-import { 添加独立回应 } from "./03-preview";
+import { 添加独立回应, 绑定消息编辑, 恢复回复交互 } from "./03-preview";
 
 // ===== 对话页：多对话 / 多项目（类 Open WebUI）=====
 export interface 对话记录 {
@@ -69,11 +69,24 @@ export function 保存当前对话DOM(): void {
   if (活动) 活动.textContent = d.title;
 }
 
+/** 从 localStorage/HTML 恢复对话后，重新绑定所有交互事件（innerHTML 不保留监听器） */
+export function 恢复对话交互(): void {
+  for (const 气泡 of 聊天日志.querySelectorAll<HTMLDivElement>(".chat-msg.user")) {
+    if (!气泡.dataset.原文) {
+      const c = 气泡.querySelector(".msg-content");
+      气泡.dataset.原文 = c?.textContent ?? "";
+    }
+    绑定消息编辑(气泡);
+  }
+  恢复回复交互();
+}
+
 export function 切换对话(id: string): void {
   if (当前对话ID && 当前对话ID !== id) 保存当前对话DOM();
   当前对话ID = id;
   const d = 当前对话();
   聊天日志.innerHTML = d?.html ?? "";
+  恢复对话交互();
   const 标题 = document.getElementById("chat-conv-title");
   if (标题) 标题.textContent = "💬 " + (d?.title ?? "新对话");
   const 模型框 = document.getElementById("chat-ai-model") as HTMLSelectElement | null;

@@ -445,6 +445,47 @@ body {
 .msg-reply .msg-reply-content { white-space: pre-wrap; font-size: 0.92rem; }
 .msg-reply.error .msg-reply-content { color: #f0a0a0; }
 .msg-reply .msg-sender { margin-bottom: 0.2rem; }
+/* 回复容器（一个版本 = 容器内全部回复块） */
+.msg-replies { display: flex; flex-direction: column; width: 100%; }
+/* 版本导航条（回复左下角）：‹ n/N › */
+.msg-reply-versions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+.msg-reply-versions .vbtn {
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  color: var(--text-dim);
+  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+.msg-reply-versions .vbtn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.msg-reply-versions .vbtn:disabled { opacity: 0.35; cursor: default; }
+.msg-reply-versions .vlabel { user-select: none; }
+/* 用户消息就地编辑 */
+.chat-msg.user .msg-content { cursor: text; }
+.chat-msg.user .msg-content:hover { outline: 1px dashed rgba(128, 128, 128, 0.4); outline-offset: 2px; }
+.msg-edit {
+  width: 100%;
+  min-width: 160px;
+  resize: vertical;
+  background: var(--bg-panel, #1e1e1e);
+  color: var(--text-bright);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.92rem;
+  font-family: inherit;
+  line-height: 1.5;
+}
 /* 非指令回应提示：不带气泡的小框 */
 .chat-notice {
   align-self: center;

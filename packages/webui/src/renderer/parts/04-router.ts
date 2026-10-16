@@ -1,5 +1,5 @@
 import { 附件 } from "./02-chat-core";
-import { 添加回应, 添加消息 } from "./03-preview";
+import { 添加回应, 添加消息, 开始回复组, 结束回复组, 最近用户消息 } from "./03-preview";
 import { 帮助文本, 格式化输出 } from "./05-format";
 import { 与AI对话 } from "./10-chat-page";
 
@@ -557,6 +557,35 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
   return null;
 }
 
+/** 重新执行用户编辑后的输入：将结果作为「新版本」追加到指定宿主的回复栏。
+ *  不新增 user 气泡。*/
+export async function 处理输入重发(文本: string, 宿主: HTMLDivElement): Promise<void> {
+  const 原文 = 文本.trim();
+  if (!原文) return;
+  开始回复组(宿主);
+  try {
+    const 路由 = 路由指令(原文);
+    if (路由) {
+      if (路由.本地提示) {
+        添加消息(路由.本地提示, "system", 路由.描述);
+      } else if (路由.目标 === "ai" && 路由.动作 === "ai.chat") {
+        const p = (路由.参数 ?? {}) as { prompt?: string };
+        await 与AI对话(String(p.prompt ?? ""));
+      } else {
+        const 结果 = await window.kugua.request(路由.目标, 路由.动作, 路由.参数);
+        格式化输出(路由, 结果);
+      }
+    } else {
+      const 已处理 = await 尝试能力指令(原文);
+      if (!已处理) 添加回应(`未识别的指令：「${原文}」`, "系统", true);
+    }
+  } catch (err) {
+    添加回应(`重发失败：${String(err)}`, "系统", true);
+  } finally {
+    结束回复组();
+  }
+}
+
 export async function 执行路由(路由: 路由结果): Promise<void> {
   if (路由.本地提示) {
     添加消息(路由.本地提示, "system", 路由.描述);
@@ -568,11 +597,16 @@ export async function 执行路由(路由: 路由结果): Promise<void> {
     await 与AI对话(String(p.prompt ?? ""));
     return;
   }
+  // 开始一个新的回复组：本次指令产生的所有回复归为一个版本
+  const 宿主 = 最近用户消息();
+  if (宿主) 开始回复组(宿主);
   try {
     const 结果 = await window.kugua.request(路由.目标, 路由.动作, 路由.参数);
     格式化输出(路由, 结果);
   } catch (err) {
     添加回应(`【${路由.描述}】失败：${String(err)}`, 路由.描述, true);
+  } finally {
+    if (宿主) 结束回复组();
   }
 }
 

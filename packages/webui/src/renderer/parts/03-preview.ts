@@ -497,6 +497,8 @@ export function 添加消息(内容: string, 类型: "user" | "system" | "error"
     const c = div.querySelector<HTMLDivElement>(".msg-content");
     if (c) c.textContent = 内容;
     div.dataset.text = 内容;
+    div.dataset.原文 = 内容;
+    绑定消息编辑(div);
     聊天日志.appendChild(div);
     筛选聊天消息(div);
     聊天日志.scrollTop = 聊天日志.scrollHeight;
@@ -509,24 +511,237 @@ export function 添加消息(内容: string, 类型: "user" | "system" | "error"
   添加提示(内容, 类型 === "error");
 }
 
+/** 为一条用户消息绑定「左键点击就地编辑」行为：
+ *  - 点击进入可编辑状态；
+ *  - 点外部 / Enter 提交：内容未变则仅恢复；变了则重新执行并在原回复内刷新；
+ *  - Esc 取消。*/
+export function 绑定消息编辑(宿主: HTMLDivElement): void {
+  const 内容块 = 宿主.querySelector<HTMLDivElement>(".msg-content");
+  if (!内容块) return;
+  内容块.addEventListener("click", () => {
+    if (宿主.querySelector(".msg-edit")) return;
+    进入编辑(宿主, 内容块);
+  });
+}
+
+function 进入编辑(宿主: HTMLDivElement, 内容块: HTMLDivElement): void {
+  const 原文 = 宿主.dataset.原文 ?? 内容块.textContent ?? "";
+  const 输入 = document.createElement("textarea");
+  输入.className = "msg-edit";
+  输入.value = 原文;
+  输入.rows = 1;
+  内容块.textContent = "";
+  内容块.appendChild(输入);
+  自动增高(输入);
+  输入.focus();
+  输入.selectionStart = 输入.selectionEnd = 输入.value.length;
+
+  let 已提交 = false;
+  const 结束 = (提交: boolean) => {
+    if (已提交) return;
+    已提交 = true;
+    const 新值 = 输入.value.trim();
+    输入.remove();
+    内容块.textContent = 原文;
+    if (!提交 || !新值 || 新值 === 原文.trim()) return; // 未改动：仅恢复可点击状态
+    // 已改动：更新原文并重新执行
+    宿主.dataset.原文 = 新值;
+   宿主.dataset.text = 新值;
+    内容块.textContent = 新值;
+    重发并刷新(宿主, 新值);
+  };
+
+  输入.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      结束(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      结束(false);
+    }
+  });
+  // 点外部提交
+  输入.addEventListener("blur", () => 结束(true));
+}
+
+function 自动增高(输入: HTMLTextAreaElement): void {
+  输入.style.height = "auto";
+  输入.style.height = Math.min(输入.scrollHeight, 200) + "px";
+}
+
+/** 重新执行被编辑的指令，并将结果作为新版本追加到原回复栏 */
+async function 重发并刷新(宿主: HTMLDivElement, 文本: string): Promise<void> {
+  const { 处理输入重发 } = await import("./04-router");
+  await 处理输入重发(文本, 宿主);
+}
+
 /** 找到最近一条用户消息（用于把指令回应连在其下） */
 export function 最近用户消息(): HTMLDivElement | null {
   const 列表 = 聊天日志.querySelectorAll<HTMLDivElement>(".chat-msg.user");
   return 列表.length > 0 ? 列表[列表.length - 1] : null;
 }
 
-/** 指令回应：追加到最近一条用户指令的气泡内（连在一起，不另起气泡） */
+/** 取得（必要时创建）某个消息气泡下的回复容器 .msg-replies
+ *  所有回复块都装进该容器，便于按「版本」整体替换与回切。*/
+export function 取回复容器(宿主: HTMLElement): HTMLDivElement {
+  let 容器 = 宿主.querySelector<HTMLDivElement>(":scope > .msg-replies");
+  if (!容器) {
+    容器 = document.createElement("div");
+    容器.className = "msg-replies";
+    宿主.appendChild(容器);
+  }
+  return 容器;
+}
+
+/** 当前正在接收回复的容器（由 开始回复组 设置） */
+let 当前回复容器: HTMLDivElement | null = null;
+
+/** 开始一次指令执行：新建一个回复容器作为本次回复的归宿，并记录旧版本 */
+export function 开始回复组(宿主: HTMLElement): void {
+  const 旧 = 宿主.querySelector<HTMLDivElement>(":scope > .msg-replies");
+  if (旧) {
+    // 已有回复：固化为其版本历史，然后移出（供后续作为历史版本合并）
+    固化版本(旧);
+    const 历史 = 读版本(旧);
+    旧.remove();
+    宿主.dataset.历史版本 = JSON.stringify(历史);
+  }
+  const 容器 = document.createElement("div");
+  容器.className = "msg-replies";
+  宿主.appendChild(容器);
+  当前回复容器 = 容器;
+}
+
+/** 结束回复组：为本次回复生成版本导航条（并与已有历史版本合并） */
+export function 结束回复组(): void {
+  if (!当前回复容器) return;
+  const 容器 = 当前回复容器;
+  当前回复容器 = null;
+  if (容器.children.length === 0) return;
+  const 宿主 = 容器.parentElement;
+  const 历史 = 宿主?.dataset.历史版本 ? (JSON.parse(宿主.dataset.历史版本) as string[]) : [];
+  const 当前 = 容器.innerHTML;
+  // 新回复置为最新版本（放在末尾），导航默认停在最新
+  设定版本(容器, [...历史, 当前], 历史.length);
+  if (宿主) {
+    delete 宿主.dataset.历史版本;
+    重算搜索文本(宿主);
+  }
+}
+
+/** 固化一个已存在的容器（无导航条时补上） */
+function 固化版本(容器: HTMLDivElement): void {
+  if (!容器.dataset.versions) {
+    设定版本(容器, [容器.innerHTML], 0);
+  }
+}
+
+function 设定版本(容器: HTMLDivElement, 版本列表: string[], 当前: number): void {
+  容器.dataset.versions = JSON.stringify(版本列表);
+  容器.dataset.vindex = String(当前);
+  容器.innerHTML = 版本列表[当前] ?? "";
+  刷新版本导航(容器);
+}
+
+function 读版本(容器: HTMLDivElement): string[] {
+  try {
+    return JSON.parse(容器.dataset.versions ?? "[]") as string[];
+  } catch {
+    return [];
+  }
+}
+
+/** 从 innerHTML 恢复后，重建所有回复容器的版本导航条（监听器不保留） */
+export function 恢复回复交互(): void {
+  for (const 容器 of 聊天日志.querySelectorAll<HTMLDivElement>(".msg-replies")) {
+    if (!容器.dataset.versions) continue;
+    刷新版本导航(容器);
+    重算搜索文本(容器.parentElement);
+  }
+}
+
+/** 刷新/创建版本导航条（左下角 ‹ n/N ›）*/
+function 刷新版本导航(容器: HTMLDivElement): void {  容器.querySelector(":scope > .msg-reply-versions")?.remove();
+  const 版本列表 = 读版本(容器);
+  if (版本列表.length <= 1) return;
+  const 条 = document.createElement("div");
+  条.className = "msg-reply-versions";
+  条.dataset.versionsBar = "1";
+  const 当前 = Number(容器.dataset.vindex ?? "0");
+  const 上一 = document.createElement("button");
+  上一.className = "vbtn";
+  上一.textContent = "‹";
+  上一.title = "上一个版本";
+  上一.disabled = 当前 <= 0;
+  上一.addEventListener("click", (e) => {
+    e.stopPropagation();
+    切换版本(容器, 当前 - 1);
+  });
+  const 标 = document.createElement("span");
+  标.className = "vlabel";
+  标.textContent = `${当前 + 1}/${版本列表.length}`;
+  const 下一 = document.createElement("button");
+  下一.className = "vbtn";
+  下一.textContent = "›";
+  下一.title = "下一个版本";
+  下一.disabled = 当前 >= 版本列表.length - 1;
+  下一.addEventListener("click", (e) => {
+    e.stopPropagation();
+    切换版本(容器, 当前 + 1);
+  });
+  条.appendChild(上一);
+  条.appendChild(标);
+  条.appendChild(下一);
+  容器.appendChild(条);
+}
+
+function 切换版本(容器: HTMLDivElement, 目标: number): void {
+  const 版本列表 = 读版本(容器);
+  if (目标 < 0 || 目标 >= 版本列表.length) return;
+  容器.dataset.vindex = String(目标);
+  // 保留导航条本身：先移除旧内容再回填（导航条会重新创建）
+  容器.innerHTML = 版本列表[目标];
+  刷新版本导航(容器);
+  const 宿主 = 容器.parentElement;
+  if (宿主) 重算搜索文本(宿主);
+}
+
+/** 向容器追加一条回复（供 添加回应 / 添加HTML 共用） */
+function 追加到容器(容器: HTMLDivElement): HTMLDivElement {
+  const 用户块 = 容器.parentElement;
+  // 追加回复前先移除导航条（避免被覆盖）
+  容器.querySelector(":scope > .msg-reply-versions")?.remove();
+  const 块 = document.createElement("div");
+  容器.appendChild(块);
+  重算搜索文本(用户块);
+  return 块;
+}
+
+/** 重算宿主的搜索文本（用于搜索过滤；排除版本导航条） */
+function 重算搜索文本(宿主: HTMLElement | null): void {
+  if (!宿主) return;
+  const 容器 = 宿主.querySelector<HTMLDivElement>(":scope > .msg-replies");
+  let 回复文本 = "";
+  if (容器) {
+    const 克隆 = 容器.cloneNode(true) as HTMLElement;
+    克隆.querySelectorAll(".msg-reply-versions").forEach((n) => n.remove());
+    回复文本 = 克隆.textContent ?? "";
+  }
+  宿主.dataset.text = (宿主.querySelector(".msg-content")?.textContent ?? "") + "\n" + 回复文本;
+}
+
+/** 指令回应：追加到最近一条用户指令的回复容器内（连在一起，不另起气泡） */
 export function 添加回应(内容: string, 发送者?: string, 错误 = false): void {
   const 用户 = 最近用户消息();
-  let 宿主: HTMLElement;
+  let 容器: HTMLDivElement;
   if (用户) {
-    宿主 = 用户;
+    容器 = 当前回复容器 && 当前回复容器.parentElement === 用户 ? 当前回复容器 : 取回复容器(用户);
   } else {
     const div = 创建消息节点("system");
     聊天日志.appendChild(div);
-    宿主 = div;
+    容器 = 取回复容器(div);
   }
-  const 块 = document.createElement("div");
+  const 块 = 追加到容器(容器);
   块.className = "msg-reply" + (错误 ? " error" : "");
   if (发送者) {
     const 标签 = document.createElement("div");
@@ -538,9 +753,7 @@ export function 添加回应(内容: string, 发送者?: string, 错误 = false)
   内容块.className = "msg-reply-content";
   内容块.textContent = 内容;
   块.appendChild(内容块);
-  宿主.appendChild(块);
-  宿主.dataset.text = (宿主.dataset.text ? 宿主.dataset.text + "\n" : "") + 内容;
-  筛选聊天消息(宿主);
+  筛选聊天消息(容器.parentElement as HTMLElement);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }
 
@@ -570,33 +783,38 @@ export function 添加独立回应(内容: string, 发送者?: string, 错误 = 
   return 块;
 }
 
-/** 非指令回应的提示：不带气泡的小框（已导入/已上传等） */
+/** 非指令回应的提示：不带气泡的小框（已导入/已上传等）
+ *  若当前正处于某次指令回复中，则归入该回复容器（作为一个版本的一部分）。*/
 export function 添加提示(内容: string, 错误 = false): void {
   const div = document.createElement("div");
   div.className = "chat-notice" + (错误 ? " error" : "");
   div.textContent = 内容;
   div.dataset.text = 内容;
-  聊天日志.appendChild(div);
+  if (当前回复容器) {
+    当前回复容器.querySelector(":scope > .msg-reply-versions")?.remove();
+    当前回复容器.appendChild(div);
+    重算搜索文本(当前回复容器.parentElement);
+  } else {
+    聊天日志.appendChild(div);
+  }
   筛选聊天消息(div);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }
 
 export function 添加HTML(html: string): void {
   const 用户 = 最近用户消息();
-  let 宿主: HTMLElement;
+  let 容器: HTMLDivElement;
   if (用户) {
-    宿主 = 用户;
+    容器 = 当前回复容器 && 当前回复容器.parentElement === 用户 ? 当前回复容器 : 取回复容器(用户);
   } else {
     const div = 创建消息节点("system");
     聊天日志.appendChild(div);
-    宿主 = div;
+    容器 = 取回复容器(div);
   }
-  const 块 = document.createElement("div");
+  const 块 = 追加到容器(容器);
   块.className = "msg-reply";
   块.innerHTML = html;
-  宿主.appendChild(块);
-  宿主.dataset.text = (宿主.dataset.text ? 宿主.dataset.text + " " : "") + (块.textContent ?? "");
-  筛选聊天消息(宿主);
+  筛选聊天消息(容器.parentElement as HTMLElement);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }
 

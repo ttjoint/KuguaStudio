@@ -145,3 +145,60 @@ describe("随机汉字语法（对齐参考 C#）", () => {
     expect(格式化).toContain('case "text.randomHans"');
   });
 });
+
+describe("用户消息就地编辑 + 回复版本切换", () => {
+  const 预览 = 读("parts/03-preview.ts");
+  const 路由器 = 读("parts/04-router.ts");
+  const 聊天页 = 读("parts/10-chat-page.ts");
+  const 样式 = readFileSync(join(渲染层, "style.css"), "utf-8");
+
+  it("用户消息可点击就地编辑，且不改动时仅恢复", () => {
+    expect(预览).toContain("export function 绑定消息编辑");
+    expect(预览).toContain('dataset.原文');
+    // 未改动 / 空白 / Esc 时不重发
+    expect(预览).toMatch(/if \(!提交 \|\| !新值 \|\| 新值 === 原文\.trim\(\)\) return/);
+    expect(预览).toContain('if (e.key === "Escape")');
+  });
+
+  it("编辑后重发在原回复容器内形成新版本，不新增 user 气泡", () => {
+    // 重发走 处理输入重发；其中不得调用 添加消息(..., "user")
+    expect(路由器).toContain("export async function 处理输入重发");
+    const 起点 = 路由器.indexOf("export async function 处理输入重发");
+    const 块 = 路由器.slice(起点, 路由器.indexOf("export async function 执行路由", 起点));
+    expect(块).toContain("开始回复组(宿主)");
+    expect(块).toContain("结束回复组()");
+    expect(块).not.toMatch(/添加消息\([^)]*"user"/);
+  });
+
+  it("回复容器以 data-versions 持久化版本（innerHTML 可回放）", () => {
+    expect(预览).toContain("dataset.versions");
+    expect(预览).toContain("dataset.vindex");
+    expect(预览).toContain("export function 开始回复组");
+    expect(预览).toContain("export function 结束回复组");
+    // 结束回复组把历史版本与新版本合并
+    expect(预览).toMatch(/设定版本\(容器, \[\.\.\.历史, 当前\], 历史\.length\)/);
+  });
+
+  it("版本导航条位于回复下方（左下 ‹ n/N ›）", () => {
+    expect(预览).toContain("msg-reply-versions");
+    expect(预览).toContain('上一.textContent = "‹"');
+    expect(预览).toContain('下一.textContent = "›"');
+    expect(样式).toContain(".msg-reply-versions");
+  });
+
+  it("恢复对话后重新绑定编辑与版本导航（innerHTML 不保留监听器）", () => {
+    expect(聊天页).toContain("export function 恢复对话交互");
+    expect(聊天页).toContain("绑定消息编辑");
+    expect(聊天页).toContain("恢复回复交互");
+    expect(预览).toContain("export function 恢复回复交互");
+    // 切换对话时调用
+    const 起点 = 聊天页.indexOf("export function 切换对话");
+    expect(聊天页.slice(起点, 起点 + 400)).toContain("恢复对话交互()");
+  });
+
+  it("回复组期间的非指令提示归入回复容器（保证版本非空）", () => {
+    const 起点 = 预览.indexOf("export function 添加提示");
+    const 块 = 预览.slice(起点, 起点 + 700);
+    expect(块).toContain("当前回复容器");
+  });
+});

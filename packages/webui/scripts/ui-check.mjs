@@ -261,6 +261,50 @@ const 异步断言 = `(async () => {
   } catch (e) {
     R.随机汉字符合 = "异常:" + String(e);
   }
+  // 点击已发送消息就地编辑：改动后原回复栏内新增版本，左箭头可回切
+  try {
+    const inp4 = document.getElementById("chat-input");
+    if (inp4) {
+      inp4.value = "统计";
+      inp4.dispatchEvent(new Event("input", { bubbles: true }));
+      inp4.selectionStart = inp4.selectionEnd = inp4.value.length;
+      inp4.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await sleep(1800);
+      const 气泡 = [...document.querySelectorAll("#chat-log .chat-msg.user")].pop();
+      R.用户气泡可编辑属性 = !!气泡?.dataset.原文;
+      const 编辑前气泡数 = document.querySelectorAll("#chat-log .chat-msg.user").length;
+      // 点击进入编辑
+      气泡?.querySelector(".msg-content")?.click();
+      await sleep(200);
+      R.进入编辑态 = !!气泡?.querySelector("textarea.msg-edit");
+      const 编辑框 = 气泡?.querySelector("textarea.msg-edit");
+      if (编辑框) {
+        编辑框.value = "资源列表";
+        编辑框.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      }
+      await sleep(2000);
+      R.编辑后气泡数不变 = document.querySelectorAll("#chat-log .chat-msg.user").length === 编辑前气泡数;
+      const 用户气泡列表 = [...document.querySelectorAll("#chat-log .chat-msg.user")];
+      const 容器 = 用户气泡列表[用户气泡列表.length - 1]?.querySelector(".msg-replies");
+      const 版本 = JSON.parse(容器?.getAttribute("data-versions") || "[]");
+      R.版本数 = 版本.length;
+      R.版本数增加 = 版本.length >= 2;
+      R.版本导航条 = !!容器?.querySelector(".msg-reply-versions");
+      const 标 = 容器?.querySelector(".msg-reply-versions .vlabel")?.textContent || "";
+      R.版本标签 = 标;
+      R.版本标签形如 = 标.includes("/") && 标.split("/").length === 2 && 标.split("/").every((s) => s.length > 0 && Number.isFinite(Number(s)));
+      const 切前HTML = 容器?.innerHTML || "";
+      // 左箭头回切上一版
+      const 上 = 容器?.querySelectorAll(".msg-reply-versions .vbtn")[0];
+      上?.click();
+      await sleep(300);
+      R.回切后标签 = 容器?.querySelector(".msg-reply-versions .vlabel")?.textContent || "";
+      R.回切生效 = R.回切后标签 !== 标;
+      R.回切后内容变化 = (容器?.innerHTML || "") !== 切前HTML;
+    }
+  } catch (e) {
+    R.就地编辑 = "异常:" + String(e);
+  }
   document.getElementById("tab-kb")?.click();
   await sleep(800);
   R.知识库位置数 = document.querySelectorAll("#ex-locations .ex-loc-item, #ex-locations > *").length;
@@ -539,6 +583,13 @@ async function main() {
     R2.AI独立气泡不嵌user !== true ||
     R2.AI报错在独立气泡 !== true ||
     R2.随机汉字符合 !== true ||
+    R2.用户气泡可编辑属性 !== true ||
+    R2.进入编辑态 !== true ||
+    R2.编辑后气泡数不变 !== true ||
+    R2.版本数增加 !== true ||
+    R2.版本导航条 !== true ||
+    R2.版本标签形如 !== true ||
+    R2.回切生效 !== true ||
     !R2.回到文件 ||
     !R2.点全部标签 ||
     !R2.次级视图 ||
