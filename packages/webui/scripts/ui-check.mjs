@@ -342,6 +342,23 @@ async function main() {
   }
   await sleep(1500); // 等模块/WebSocket 初始化
 
+  // 等待主控桥接就绪：隔离实例下 26 个模块启动 + WS 建连可能要数十秒
+  for (let i = 0; i < 120; i++) {
+    const r = await send("Runtime.evaluate", {
+      expression: `(async () => {
+        if (!window.kugua || !window.kugua.request) return false;
+        try {
+          const r = await window.kugua.request("kugua-main", "capability.list", {});
+          return Array.isArray(r) ? r.length > 0 : !!r;
+        } catch { return false; }
+      })()`,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (r.result && r.result.value === true) break;
+    await sleep(1000);
+  }
+
   const out = await send("Runtime.evaluate", { expression: 断言, returnByValue: true, awaitPromise: false });
   if (out.exceptionDetails) {
     console.error("断言执行异常：", out.exceptionDetails.text, out.exceptionDetails.exception?.description || "");

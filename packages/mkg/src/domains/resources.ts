@@ -397,7 +397,7 @@ export function 安装资源域(proto: { [k: string]: unknown }): void {
       if (extension === ".xml") return "application/xml";
       if (extension === ".html" || extension === ".htm") return "text/html";
       if (extension === ".css") return "text/css";
-      if (extension === ".javascript" || extension === ".js" || extension === ".mjs") return "text/javascript";
+      if (extension === ".javascript" || extension === ".js" || extension === ".mjs" || extension === ".cjs" || extension === ".ts" || extension === ".tsx" || extension === ".jsx") return "text/javascript";
       return "text/plain";
     }
     if (imageExts.includes(extension)) {

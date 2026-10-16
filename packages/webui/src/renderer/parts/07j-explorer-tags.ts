@@ -466,9 +466,9 @@ export async function 在资源管理器中显示(item: Explorer.内容条目): 
 export async function 复制物理路径(item: Explorer.内容条目): Promise<void> {
   if (item.resourceId == null) { 添加消息("该内容不是文件，无法复制路径", "system"); return; }
   try {
-    const result = (await window.kugua.request("mkg", "mkg.file.physicalPath", { resourceId: item.resourceId })) as { path: string };
-    await navigator.clipboard.writeText(result.path);
-    Explorer.状态栏计数.textContent = "已复制路径：" + result.path;
+    const result = (await window.kugua.request("mkg", "mkg.file.physicalPath", { resourceId: item.resourceId })) as string;
+    await navigator.clipboard.writeText(result);
+    Explorer.状态栏计数.textContent = "已复制路径：" + result;
     setTimeout(() => { Explorer.状态栏计数.textContent = Explorer.筛选内容().length + " 个项目"; }, 2000);
   } catch (err) {
     添加消息("复制路径失败：" + String(err), "error");

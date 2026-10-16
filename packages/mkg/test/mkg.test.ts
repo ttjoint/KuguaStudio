@@ -420,3 +420,73 @@ describe("资源详情：getResourceDetail / listResourcesDetail / listResources
     expect(mkg.listResourcesByTagDetail(t.id).items).toHaveLength(1);
   });
 });
+
+/**
+ * WebUI 消费的返回形状契约（数据级）
+ *
+ * 这里固化 WebUI 各界面从 `mkg.*` 请求拿到的返回结构，
+ * 防止「后端改了返回形状、前端仍按旧形状解析」这类只能在运行时暴露的问题。
+ * （历史缺陷：`mkg.file.physicalPath` 返回裸字符串，前端却按 `{ path }` 解构。）
+ */
+describe("WebUI 返回形状契约", () => {
+  it("mkg.file.physicalPath 返回裸字符串路径（不是 {path}）", async () => {
+    const p = 造文件("契约/a.txt");
+    await mkg.index(p, { maxDepth: 0 });
+    const r = mkg.getResource(p)!;
+    const 路径 = mkg.getPhysicalPath(r.id);
+    expect(typeof 路径).toBe("string");
+    expect(路径).toBe(p);
+  });
+
+  it("mkg.tag.createTree 接受 names[] 并创建层级标签", () => {
+    // UI 传 { names: ["工作","灵感"] }；对应 MKG.createTagTree(names)
+    const 末级 = mkg.createTagTree(["工作", "灵感"]);
+    expect(末级.name).toBe("灵感");
+    const 根 = mkg.listTags().find((t) => t.name === "工作");
+    expect(根).toBeDefined();
+    expect(末级.parentId).toBe(根!.id);
+  });
+
+  it("mkg.tag.tree 每节点含 id/name/children/count", () => {
+    const t = mkg.createTag("树契约");
+    const r = mkg.createResource("契约/tree.txt", "tree.txt", "file");
+    mkg.tagResource(r.id, t.id);
+    const 树 = mkg.获取动态标签树();
+    const 节点 = 树.find((n) => n.name === "树契约")!;
+    expect(节点).toMatchObject({ id: t.id, name: "树契约" });
+    expect(Array.isArray(节点.children)).toBe(true);
+    expect(节点.count).toBe(1);
+  });
+
+  it("mkg.stats 返回中文字段名计数", () => {
+    const s = mkg.getStats();
+    for (const k of ["资源总数", "文件数", "目录数", "标签数", "关联数", "文本内容数"]) {
+      expect(typeof (s as Record<string, unknown>)[k]).toBe("number");
+    }
+  });
+
+  it("mkg.view.run 返回 { view, items }", () => {
+    const t = mkg.createTag("视图契约");
+    mkg.createNote("视图契约笔记", "内容");
+    const 笔记 = mkg.listNotes()[0];
+    mkg.setNodeTags(笔记.id, [t.id]);
+    const v = mkg.添加保存视图("契约视图", { tags: [t.id] });
+    const 运行 = { view: mkg.获取保存视图(v.id), items: mkg.执行查询(v.query) };
+    expect(运行.view?.name).toBe("契约视图");
+    expect(运行.items.map((x) => x.id)).toContain(笔记.id);
+  });
+
+  it("mkg.fts.rebuild 返回 { 节点数 }", () => {
+    mkg.createNote("FTS契约", "内容");
+    const r = mkg.重建全文索引();
+    expect(typeof r.节点数).toBe("number");
+  });
+
+  it("mkg.file.isText 相关判定可用扩展名推断（后端契约）", async () => {
+    const p = 造文件("契约/code.ts", "export const x = 1;");
+    await mkg.index(p, { maxDepth: 0 });
+    const r = mkg.getResource(p)!;
+    expect(mkg.获取扩展名(r.name)).toBe(".ts");
+    expect(mkg.推断MimeType(".ts")).toBe("text/javascript");
+  });
+});

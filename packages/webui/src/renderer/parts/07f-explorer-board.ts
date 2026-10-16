@@ -296,7 +296,7 @@ async function 新建卡片标签(): Promise<void> {
   const p = input.value.trim();
   if (!p) { 添加消息("请输入标签路径", "error"); return; }
   try {
-    await window.kugua.request("mkg", "mkg.tag.createTree", { path: p });
+    await window.kugua.request("mkg", "mkg.tag.createTree", { names: p.split("/").map((s) => s.trim()).filter(Boolean) });
     添加消息("已创建标签：" + p, "system");
     input.value = "";
     await Explorer.加载标签树();
