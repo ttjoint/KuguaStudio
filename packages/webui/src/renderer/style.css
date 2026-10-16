@@ -2101,43 +2101,11 @@ body {
 }
 .ex-search-input:focus { outline: none; border-color: var(--accent); }
 
-.ex-note-tile {
-  display: flex; flex-direction: column; gap: 0.3rem; padding: 0.6rem;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-  cursor: pointer; min-height: 90px;
-}
-.ex-note-tile:hover { background: var(--bg-hover); }
-.ex-note-tile.selected { background: rgba(78,154,241,0.25); outline: 1px solid var(--accent); }
-.ex-note-tile .en-title { font-weight: 600; font-size: 0.85rem; color: var(--text); }
-.ex-note-tile .en-preview { font-size: 0.75rem; color: var(--text-dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.ex-note-tile .en-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-
-.ex-note-detail { padding: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; margin-top: 0.5rem; }
 /* 各子页内容面板占满剩余高度，保证状态栏贴底 */
 .ex-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .ex-pane .explorer-layout { flex: 1; min-height: 0; }
-.ex-note-detail-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
-.ex-note-detail-time { font-size: 0.7rem; color: var(--text-dim); }
-.ex-note-detail-content { font-size: 0.85rem; color: var(--text); white-space: pre-wrap; margin-bottom: 0.6rem; }
-.ex-note-detail-actions { display: flex; gap: 0.4rem; margin-top: 0.6rem; }
 .ex-action-btn.danger { border-color: rgba(239,68,68,0.5); color: #f87171; }
 .ex-action-btn.danger:hover { background: rgba(239,68,68,0.15); }
-
-/* 素材视图（复用点子视图风格） */
-.ex-mat-tile {
-  display: flex; flex-direction: column; gap: 0.3rem; padding: 0.6rem;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-  cursor: pointer; min-height: 90px;
-}
-.ex-mat-tile:hover { background: var(--bg-hover); }
-.ex-mat-tile.selected { background: rgba(78,154,241,0.25); outline: 1px solid var(--accent); }
-.ex-mat-tile .em-title { font-weight: 600; font-size: 0.85rem; color: var(--text); }
-.ex-mat-tile .em-kind { font-size: 0.7rem; color: var(--accent); }
-.ex-mat-tile .em-preview { font-size: 0.75rem; color: var(--text-dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.ex-mat-tile .em-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.ex-mat-detail-meta { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.4rem; display: flex; flex-direction: column; gap: 0.15rem; }
-.ex-mat-detail-meta a { color: var(--accent); text-decoration: none; }
-.ex-mat-detail-meta img { max-width: 100%; max-height: 160px; border-radius: 6px; margin-top: 0.3rem; }
 
 /* ===== 工作流看板 ===== */
 .ex-board {
@@ -2633,19 +2601,7 @@ body {
 }
 .ex-list-tags { font-size: 0.72rem; opacity: 0.6; margin-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
 
-/* ===== 知识库子视图：列表 / 详情 布局补齐 ===== */
-.ex-note-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.5rem;
-  padding: 0.5rem;
-  align-content: start;
-}
-.ex-note-detail { flex-shrink: 0; max-height: 45%; overflow-y: auto; margin: 0 0.5rem 0.5rem; }
-.ex-note-detail-head > div:first-child { font-weight: 600; font-size: 0.9rem; color: var(--text-bright); }
+/* ===== 知识库子视图：布局补齐 ===== */
 .ex-sub-tabs { padding: 0.25rem 0.5rem 0; }
 .ex-sub-tab { height: 26px; font-size: 0.75rem; }
 .ex-pane-boards .ex-toolbar { flex-shrink: 0; }

@@ -36,12 +36,17 @@
 ```
 KuguaStudio/
 ├── docs/                       # 设计文档（见上表）
-├── kugua.config.json           # 主控配置 + 模块注册表
-├── data/generators/            # 生成类数据文件（确定性工具用）
-├── data/library/               # 受管资料目录（运行时，不入库）
+├── kugua.config.json           # 主控配置 + 模块注册表（由 sync-modules 生成）
+├── data/                       # 运行时数据（DB / 日志 / 作业 / 受管资料，不入库）
+│   └── library/                # 受管资料目录
 ├── packages/
 │   ├── nigane/                 # 苦音协议 SDK
 │   ├── capability/             # 能力注册表 @kugua/capability
+│   ├── module-kit/             # 模块启动套件 @kugua/module-kit
+│   ├── paths/                  # 路径与单实例锁工具 @kugua/paths
+│   ├── logger/                 # 日志环形缓冲 @kugua/logger
+│   ├── audit/                  # 审计日志 @kugua/audit
+│   ├── random/                 # 统一随机源（CSPRNG）@kugua/random
 │   ├── mcp/                    # MCP server/client @kugua/mcp
 │   ├── onebot11/               # OneBot 11 协议库（可选桥接）
 │   ├── plugin-sdk/             # 插件契约 SDK
@@ -50,6 +55,11 @@ KuguaStudio/
 │   ├── mkg/                    # 知识图谱核心库
 │   ├── webui/                  # 本地 Web UI（浏览器，@kugua/webui）
 │   └── modules/                # 功能模块（独立进程）
+├── scripts/
+│   ├── sync-modules.mjs        # 扫描 workspace 同步 kugua.config.json 与启动脚本
+│   ├── service/                # 常驻服务 / 登录自启脚本与模板
+│   └── modules/                # 本地脚本模块（示例 demo-echo）
+├── tools/                      # 便携工具（ImageMagick 等，不入库）
 ├── plugins/                    # 运行时插件目录
 ├── templates/                  # 模块/插件模板
 └── 参考/                       # 前身 .NET 项目（资料，不参与构建）
@@ -66,7 +76,8 @@ npm start            # 启动 WebUI：托管主控并打开浏览器
 - 直接启动主控：`npm run main`（按 `kugua.config.json` 自动拉起 `autoStart` 模块）。
 - 单独启动某模块：`npm run echo` / `npm run mkg` / `npm run calendar` 等。
 - WebUI 默认监听 `http://127.0.0.1:24600`（`KUGUA_WEBUI_PORT` 或 `kugua.config.json` 的 `webui.port` 可改）。
-- Windows 双击 `start.bat` 后台启动 WebUI 并自动打开浏览器。
+- Windows 双击 `start.bat` 后台启动 WebUI 并自动打开浏览器（首次运行会自动构建）。
+- WebUI 具**单实例保护**（`data/webui.lock`）：已有实例在运行时，重复启动会自动退出，不会结束既有实例。
 
 ## 配置
 

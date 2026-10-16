@@ -1,127 +1,24 @@
-// ===== 素材视图 =====
+// ===== 素材 =====
 // 由 07-explorer.ts 拆分而来。
+// 说明：素材已并入统一资料库（仅作类型筛选），故不再有独立的列表/详情面板；
+//       本文件只保留「新建/编辑对话框」与其事件绑定，以及供统一列表双击调用的入口。
 import { Explorer } from "./07-explorer";
 import { 素材 } from "./01-types";
 import { 添加消息 } from "./03-preview";
 
 // ---- 模块状态 ----
-let 所有素材: 素材[] = [];
-let 选中素材: 素材 | null = null;
-let 素材搜索关键词 = "";
 let 素材编辑标签ID = new Set<number>();
 let 素材编辑目标: 素材 | null = null;
 
-// ===== 素材视图 =====
+/** 刷新统一资料库内容流（素材作为类型筛选条目，无需单独列表）。 */
 export async function 加载素材(): Promise<void> {
-  try {
-    所有素材 = (await window.kugua.request("mkg", "mkg.material.list", {})) as 素材[];
-  } catch {
-    所有素材 = [];
-  }
-  渲染素材列表();
-  // 统一资料库视图需同步刷新（若已初始化）
   await Explorer.加载所有内容().catch(() => undefined);
-}
-
-function 筛选后的素材(): 素材[] {
-  const kw = 素材搜索关键词.trim().toLowerCase();
-  if (!kw) return 所有素材;
-  return 所有素材.filter((m) => m.title.toLowerCase().includes(kw) || m.content.toLowerCase().includes(kw) || m.kind.toLowerCase().includes(kw));
-}
-
-function 渲染素材列表(): void {
-  const list = document.getElementById("ex-mat-list") as HTMLDivElement;
-  if (!list) return;
-  const mats = 筛选后的素材();
-  list.innerHTML = "";
-  if (mats.length === 0) {
-    list.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;padding:1rem;text-align:center">还没有素材，点击右上角「新建素材」开始收集。</div>';
-    return;
-  }
-  for (const mat of mats) {
-    const tile = document.createElement("div");
-    tile.className = "ex-mat-tile";
-    if (选中素材?.id === mat.id) tile.classList.add("selected");
-    const title = document.createElement("div");
-    title.className = "em-title";
-    title.textContent = mat.title || "(无标题)";
-    tile.appendChild(title);
-    if (mat.kind) {
-      const kind = document.createElement("div");
-      kind.className = "em-kind";
-      kind.textContent = mat.kind;
-      tile.appendChild(kind);
-    }
-    const preview = document.createElement("div");
-    preview.className = "em-preview";
-    preview.textContent = mat.content || mat.sourceUrl || "";
-    tile.appendChild(preview);
-    if (mat.tagIds && mat.tagIds.length > 0) {
-      const tagWrap = document.createElement("div");
-      tagWrap.className = "em-tags";
-      for (const tid of mat.tagIds) {
-        const chip = document.createElement("span");
-        chip.className = "tag-chip";
-        chip.textContent = Explorer.标签ID转名称(tid);
-        tagWrap.appendChild(chip);
-      }
-      tile.appendChild(tagWrap);
-    }
-    tile.addEventListener("click", (e) => {
-      e.stopPropagation();
-      选中素材 = mat;
-      渲染素材列表();
-      渲染素材详情();
-    });
-    list.appendChild(tile);
-  }
-}
-
-function 渲染素材详情(): void {
-  const panel = document.getElementById("ex-mat-detail") as HTMLDivElement;
-  if (!panel) return;
-  if (!选中素材) { panel.classList.add("hidden"); return; }
-  panel.classList.remove("hidden");
-  (document.getElementById("ex-mat-detail-title") as HTMLDivElement).textContent = 选中素材.title || "(无标题)";
-  (document.getElementById("ex-mat-detail-time") as HTMLDivElement).textContent = "创建 " + Explorer.格式化笔记时间(选中素材.createdAt) + " · 更新 " + Explorer.格式化笔记时间(选中素材.updatedAt);
-  (document.getElementById("ex-mat-detail-content") as HTMLDivElement).textContent = 选中素材.content || "(空内容)";
-  const metaEl = document.getElementById("ex-mat-detail-meta") as HTMLDivElement;
-  metaEl.innerHTML = "";
-  if (选中素材.kind) {
-    const k = document.createElement("div");
-    k.textContent = "类型：" + 选中素材.kind;
-    metaEl.appendChild(k);
-  }
-  if (选中素材.sourceUrl) {
-    const s = document.createElement("div");
-    s.innerHTML = "来源：<a href=\"" + 选中素材.sourceUrl + "\" target=\"_blank\">" + 选中素材.sourceUrl + "</a>";
-    metaEl.appendChild(s);
-  }
-  if (选中素材.imageUrl) {
-    const img = document.createElement("img");
-    img.src = 选中素材.imageUrl;
-    img.alt = "素材预览";
-    img.onerror = () => { img.style.display = "none"; };
-    metaEl.appendChild(img);
-  }
-  const tagsEl = document.getElementById("ex-mat-detail-tags") as HTMLDivElement;
-  tagsEl.innerHTML = "";
-  if (选中素材.tagIds && 选中素材.tagIds.length > 0) {
-    for (const tid of 选中素材.tagIds) {
-      const chip = document.createElement("span");
-      chip.className = "tag-chip";
-      chip.textContent = Explorer.标签ID转名称(tid);
-      tagsEl.appendChild(chip);
-    }
-  } else {
-    tagsEl.innerHTML = '<span style="color:var(--text-dim);font-size:0.7rem">(无标签)</span>';
-  }
 }
 
 /** 供统一资料库双击时调用：按内容条目打开素材编辑对话框 */
 export function 打开素材编辑(item: Explorer.内容条目): void {
   const meta = (item.meta ?? {}) as Record<string, unknown>;
-  选中素材 = {
+  素材编辑目标 = {
     id: item.id,
     title: item.name,
     content: item.content,
@@ -142,15 +39,14 @@ function 打开素材对话框(编辑: boolean): void {
   const kindEl = document.getElementById("material-kind") as HTMLInputElement;
   const sourceEl = document.getElementById("material-source") as HTMLInputElement;
   const imageEl = document.getElementById("material-image") as HTMLInputElement;
-  if (编辑 && 选中素材) {
-    素材编辑目标 = 选中素材;
-    titleEl.value = 选中素材.title;
-    contentEl.value = 选中素材.content;
-    kindEl.value = 选中素材.kind;
-    sourceEl.value = 选中素材.sourceUrl;
-    imageEl.value = 选中素材.imageUrl;
+  if (编辑 && 素材编辑目标) {
+    titleEl.value = 素材编辑目标.title;
+    contentEl.value = 素材编辑目标.content;
+    kindEl.value = 素材编辑目标.kind;
+    sourceEl.value = 素材编辑目标.sourceUrl;
+    imageEl.value = 素材编辑目标.imageUrl;
     素材编辑标签ID.clear();
-    for (const tid of 选中素材.tagIds) 素材编辑标签ID.add(tid);
+    for (const tid of 素材编辑目标.tagIds) 素材编辑标签ID.add(tid);
   } else {
     素材编辑目标 = null;
     titleEl.value = "";
@@ -218,20 +114,6 @@ async function 保存素材(): Promise<void> {
   }
 }
 
-async function 删除素材(): Promise<void> {
-  if (!选中素材) return;
-  if (!window.confirm("确定删除这个素材吗？")) return;
-  try {
-    await window.kugua.request("mkg", "mkg.material.delete", { id: 选中素材.id });
-    选中素材 = null;
-    添加消息("已删除素材", "system");
-    await 加载素材();
-    (document.getElementById("ex-mat-detail") as HTMLDivElement)?.classList.add("hidden");
-  } catch (err) {
-    添加消息("删除素材失败：" + String(err), "error");
-  }
-}
-
 async function 新建素材标签(): Promise<void> {
   const input = document.getElementById("material-new-tag-path") as HTMLInputElement;
   const p = input.value.trim();
@@ -247,20 +129,9 @@ async function 新建素材标签(): Promise<void> {
   }
 }
 
-
 /** 绑定事件（由 07-explorer 的 init 调用） */
 export function 绑定素材事件(): void {
-  // ===== 素材视图操作 =====
   document.getElementById("ex-mat-add")?.addEventListener("click", () => 打开素材对话框(false));
-  document.getElementById("ex-mat-refresh")?.addEventListener("click", () => void 加载素材());
-  document.getElementById("ex-mat-edit")?.addEventListener("click", () => 打开素材对话框(true));
-  document.getElementById("ex-mat-delete")?.addEventListener("click", () => void 删除素材());
-  const matSearch = document.getElementById("ex-mat-search") as HTMLInputElement;
-  matSearch?.addEventListener("input", () => {
-    素材搜索关键词 = matSearch.value;
-    渲染素材列表();
-  });
-
   document.getElementById("material-cancel")?.addEventListener("click", () => document.getElementById("material-dialog")?.classList.add("hidden"));
   document.getElementById("material-dialog")?.querySelector(".modal-backdrop")?.addEventListener("click", () => document.getElementById("material-dialog")?.classList.add("hidden"));
   document.getElementById("material-save")?.addEventListener("click", () => void 保存素材());

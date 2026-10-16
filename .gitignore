@@ -168,6 +168,7 @@ data/corpus/
 data/ai/
 data/tts/
 data/bank/
+data/tray.log
 
 # GUI 测试临时配置目录
 .gui-test-data/
