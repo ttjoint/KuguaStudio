@@ -10,8 +10,8 @@
  */
 
 import { 指令库, 输入框 } from "./02-chat-core";
-import { 添加回应, 添加消息 } from "./03-preview";
-import { 处理输入, 尝试能力指令 } from "./04-router";
+import { 添加回应, 添加消息, 添加提示 } from "./03-preview";
+import { 处理输入, 尝试能力指令, 指令前缀表, 推断指令需参 } from "./04-router";
 
 // ===== 状态 =====
 
@@ -24,6 +24,8 @@ export interface 指令面板项 {
   模块?: string;
   /** 是否为「无需参数」指令（单击直接调用） */
   免参: boolean;
+  /** 前缀写法（含参数位，供需要参数的指令提示用户） */
+  写法?: string;
   /** 注册表能力名（若有） */
   能力?: string;
 }
@@ -93,7 +95,17 @@ export async function 加载指令面板数据(): Promise<void> {
     表.set(c.命令, { 命令: c.命令, 说明: c.说明, 免参: 本地免参命令.has(c.命令) });
   }
 
-  // 2) 注册表能力（提供模块与参数信息，覆盖内置说明）
+  // 2) 路由前缀表（单一事实来源）：确定性判定「需参」并补齐写法提示
+  for (const 项 of 指令前缀表) {
+    表.set(项.命令, {
+      命令: 项.命令,
+      说明: 项.说明,
+      免参: !项.需参,
+      写法: 项.写法,
+    });
+  }
+
+  // 3) 注册表能力（提供模块与参数信息，覆盖内置说明）
   try {
     const 列表 = (await window.kugua.request("nigane", "capability.list", { 入口: "GUI" })) as Array<{
       名称: string;
@@ -104,14 +116,17 @@ export async function 加载指令面板数据(): Promise<void> {
       参数?: unknown;
     }>;
     for (const 能力 of 列表 ?? []) {
-      const 免参 = 判断免参(能力.参数);
+      const 注册表免参 = 判断免参(能力.参数);
       for (const 命令 of 能力.中文指令 ?? []) {
         const 旧 = 表.get(命令);
+        // 路由前缀表优先：它知道“必须带后缀”的语法要求
+        const 推断 = 推断指令需参(命令);
         表.set(命令, {
           命令,
           说明: 能力.说明 ?? 能力.标题 ?? 旧?.说明 ?? 能力.名称,
           模块: 能力.模块,
-          免参,
+          免参: 推断 ? !推断.需参 : (旧 ? 旧.免参 : 注册表免参),
+          写法: 推断?.写法 ?? 旧?.写法,
           能力: 能力.名称,
         });
       }
@@ -153,7 +168,7 @@ export function 渲染指令面板(): void {
     const 行 = document.createElement("div");
     行.className = "cmd-item" + (项.命令 === 持续前缀 ? " active" : "");
     行.dataset.cmd = 项.命令;
-    行.title = `${项.命令}\n${项.说明}${项.模块 ? `\n模块：${项.模块}` : ""}\n单击：${项.免参 ? "直接调用" : "填入输入框"}｜双击：设为持续前缀`;
+    行.title = `${项.命令}\n${项.说明}${项.写法 ? `\n写法：${项.写法}` : ""}${项.模块 ? `\n模块：${项.模块}` : ""}\n单击：${项.免参 ? "直接调用" : "填入输入框"}｜双击：设为持续前缀`;
 
     const 主 = document.createElement("div");
     主.className = "cmd-item-main";
@@ -190,11 +205,13 @@ async function 单击指令(项: 指令面板项): Promise<void> {
     await 直接调用(项.命令);
     return;
   }
+  // 需要参数的指令：只填入前缀并等待用户补参（不直接发送）
   输入框.value = 项.命令 + " ";
   输入框.focus();
   const n = 输入框.value.length;
   输入框.selectionStart = 输入框.selectionEnd = n;
   输入框.dispatchEvent(new Event("input", { bubbles: true }));
+  if (项.写法) 添加提示(`该指令需要参数：${项.写法}`, false);
 }
 
 /** 直接调用（无需额外参数）：优先走注册表，其次走本地路由 */

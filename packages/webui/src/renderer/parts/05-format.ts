@@ -294,6 +294,33 @@ export function 格式化输出(路由: 路由结果, 结果: unknown): void {
       添加消息(d.文本 ?? `掷骰结果：${d.描述 ?? ""}`, "system", "掷骰");
       break;
     }
+    case "text.randomHans": {
+      const d = 结果 as { 结果?: string; 行数?: number; 列数?: number };
+      添加消息(d.结果 ?? "", "system", `随机汉字 ${d.列数 ?? ""}×${d.行数 ?? ""}`);
+      break;
+    }
+    case "text.historyToday": {
+      const d = 结果 as { 结果?: string; 日期?: string };
+      添加消息(d.结果 ?? "", "system", `历史上的${d.日期 ?? "今天"}`);
+      break;
+    }
+    case "text.hx":
+    case "text.reverse":
+    case "text.reverseLines":
+    case "text.toUpper":
+    case "text.toLower":
+    case "text.shuffle":
+    case "text.cut":
+    case "text.gongshou":
+    case "text.joke":
+    case "text.salad":
+    case "text.paper":
+    case "text.paper2":
+    case "text.paper3": {
+      const d = 结果 as { 结果?: string; 文本?: string };
+      添加消息(d.结果 ?? d.文本 ?? "", "system", 路由.描述);
+      break;
+    }
     default:
       添加消息(JSON.stringify(结果, null, 2), "system");
   }
@@ -324,6 +351,7 @@ export function 帮助文本(): string {
   反转/大写/小写/乱序/火星文 [内容]
   攻受 [攻] [受] / 讽刺 [话题] / 什么是 [概念]
   狗屁不通 [主题] / 云杰说道 [主题] / 营销号 [主题]
+  随机n*m      — 随机汉字矩阵（n=列，m=行）；如 随机5*4 → 五言绝句
   随机汉字 [行] [列] / 历史上的今天
 
 【万年历】

@@ -163,6 +163,19 @@ const 异步断言 = `(async () => {
   } else {
     R.单击填前缀 = "无翻译项";
   }
+  const 吃什么项 = 面板项.find((e) => e.querySelector(".cmd-item-cmd")?.textContent === "吃什么");
+  if (吃什么项 && inp) {
+    const 前消息 = document.querySelectorAll("#chat-log .chat-msg").length;
+    吃什么项.click();
+    await sleep(200);
+    // 需参指令：只填前缀，不直接发送（消息数不增）
+    R.吃什么填前缀 = inp.value === "吃什么 ";
+    R.吃什么不直接发 = document.querySelectorAll("#chat-log .chat-msg").length === 前消息;
+    inp.value = "";
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+  } else {
+    R.吃什么填前缀 = "无吃什么项";
+  }
   const ai项 = 面板项.find((e) => e.querySelector(".cmd-item-cmd")?.textContent === "ai");
   if (ai项) {
     ai项.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
@@ -226,6 +239,27 @@ const 异步断言 = `(async () => {
     if (inp2) inp2.value = "";
   } catch (e) {
     R.AI独立气泡 = "异常:" + String(e);
+  }
+  // 随机汉字：随机5*4 → 5字一行共4行（对齐参考 C#）
+  try {
+    const inp3 = document.getElementById("chat-input");
+    if (inp3) {
+      inp3.value = "随机5*4";
+      inp3.dispatchEvent(new Event("input", { bubbles: true }));
+      inp3.selectionStart = inp3.selectionEnd = inp3.value.length;
+      inp3.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await sleep(1500);
+      const 回复 = [...document.querySelectorAll("#chat-log .msg-reply-content")].pop();
+      const 文本 = (回复?.textContent || "").trim();
+      const 换行 = String.fromCharCode(10);
+      const 行 = 文本.split(换行).map((s) => s.replace(String.fromCharCode(13), ""));
+      R.随机汉字行数 = 行.length;
+      R.随机汉字每行字数 = [...new Set(行.map((s) => [...s].length))].join(",");
+      R.随机汉字符合 = 行.length === 4 && 行.every((s) => [...s].length === 5);
+      inp3.value = "";
+    }
+  } catch (e) {
+    R.随机汉字符合 = "异常:" + String(e);
   }
   document.getElementById("tab-kb")?.click();
   await sleep(800);
@@ -496,12 +530,15 @@ async function main() {
     !R.持续前缀提示条 ||
     (R2.指令面板项数 ?? 0) < 10 ||
     R2.单击填前缀 !== true ||
+    R2.吃什么填前缀 !== true ||
+    R2.吃什么不直接发 !== true ||
     R2.持续前缀高亮 !== true ||
     R2.持续前缀提示可见 !== true ||
     R2.持续前缀已退出 !== true ||
     R2.AI独立气泡 !== true ||
     R2.AI独立气泡不嵌user !== true ||
     R2.AI报错在独立气泡 !== true ||
+    R2.随机汉字符合 !== true ||
     !R2.回到文件 ||
     !R2.点全部标签 ||
     !R2.次级视图 ||

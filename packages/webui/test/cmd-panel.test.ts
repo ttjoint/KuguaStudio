@@ -96,3 +96,52 @@ describe("指令面板", () => {
     expect(对话页).not.toMatch(/添加回应\(/);
   });
 });
+
+describe("指令前缀推断（从路由）", () => {
+  it("导出前缀表与推断函数", () => {
+    expect(路由器).toContain("export const 指令前缀表");
+    expect(路由器).toContain("export function 推断指令需参");
+  });
+
+  it("必带后缀的指令标记为需参", () => {
+    for (const 命令 of ["吃什么", "谐音", "反转", "讽刺", "ai"]) {
+      const re = new RegExp(`命令: "${命令}",\\s*需参: true`);
+      expect(路由器, `${命令} 应标记需参`).toMatch(re);
+    }
+  });
+
+  it("可选参数的指令不标记需参", () => {
+    expect(路由器).toMatch(/命令: "随机",\s*需参: false/);
+    expect(路由器).toMatch(/命令: "随机汉字",\s*需参: false/);
+  });
+
+  it("面板引用路由推断且需参时只填前缀不发送", () => {
+    expect(面板).toContain("推断指令需参");
+    expect(面板).toContain("指令前缀表");
+    // 需参分支不得调用 直接调用
+    const 起点 = 面板.indexOf("async function 单击指令");
+    const 单击块 = 面板.slice(起点, 面板.indexOf("/** 直接调用", 起点));
+    // 免参分支才直接调用；需参分支只填前缀
+    expect(单击块).toContain("await 直接调用(项.命令)");
+    const 需参分支 = 单击块.slice(单击块.indexOf("需要参数的指令"));
+    expect(需参分支).toContain('输入框.value = 项.命令 + " "');
+    expect(需参分支).not.toContain("直接调用");
+  });
+});
+
+describe("随机汉字语法（对齐参考 C#）", () => {
+  it("支持 随机n*m（n=列 m=行）与 随机n、随机汉字n", () => {
+    const 模块 = readFileSync(join(仓库根, "packages", "modules", "text", "src", "index.ts"), "utf-8");
+    // 路由正则应支持可选 *m 并映射 列数=n、行数=m
+    expect(路由器).toContain("随机(?:汉字)?");
+    expect(路由器).toMatch(/参数: \{ 行数, 列数 \}/);
+    // 模块侧已有行列参数
+    expect(模块).toContain('客户端.onRequest("text.randomHans"');
+    expect(模块).toContain("随机汉字(rows, cols)");
+  });
+
+  it("格式化层不再把随机汉字当 JSON 输出", () => {
+    const 格式化 = 读("parts/05-format.ts");
+    expect(格式化).toContain('case "text.randomHans"');
+  });
+});
