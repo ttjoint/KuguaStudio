@@ -88,4 +88,11 @@ describe("指令面板", () => {
   it("面板被入口显式引入", () => {
     expect(入口).toContain('import "./16-cmd-panel"');
   });
+
+  it("AI 应答（含报错）单独成气泡，不吸附上一条消息", () => {
+    const 对话页 = 读("parts/10-chat-page.ts");
+    expect(对话页).toContain("添加独立回应");
+    // AI 不应再走吸附式的 添加回应
+    expect(对话页).not.toMatch(/添加回应\(/);
+  });
 });

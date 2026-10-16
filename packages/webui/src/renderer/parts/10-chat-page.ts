@@ -1,5 +1,5 @@
 import { 聊天日志 } from "./02-chat-core";
-import { 添加回应 } from "./03-preview";
+import { 添加独立回应 } from "./03-preview";
 
 // ===== 对话页：多对话 / 多项目（类 Open WebUI）=====
 export interface 对话记录 {
@@ -221,9 +221,9 @@ export async function 与AI对话(文本: string): Promise<void> {
       { prompt: 文本, chatId, provider: d?.provider || undefined, model: d?.model || undefined },
       180000,
     )) as { reply: string; model: string; 提供方: string };
-    添加回应(r.reply, `AI（${r.提供方}${r.model ? "/" + r.model : ""}）`);
+    添加独立回应(r.reply, `AI（${r.提供方}${r.model ? "/" + r.model : ""}）`);
   } catch (err) {
-    添加回应("AI 调用失败：" + String(err), "AI", true);
+    添加独立回应("AI 调用失败：" + String(err), "AI", true);
   }
 }
 

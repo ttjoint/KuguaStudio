@@ -380,6 +380,10 @@ body {
   color: #f0a0a0;
   border: 1px solid #5a2a2a;
 }
+/* 独立应答气泡（如 AI）：与指令回复区分，左侧加一条强调色条 */
+.chat-msg.chat-msg-independent {
+  border-left: 3px solid var(--accent);
+}
 .chat-msg .msg-sender {
   font-size: 0.75rem;
   color: var(--text-dim);

@@ -544,6 +544,32 @@ export function 添加回应(内容: string, 发送者?: string, 错误 = false)
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }
 
+/** 独立回应：自建一个 system 气泡承载回复（不吸附上一条 user 消息）。
+ *  用于 AI 对话等：每条应答（含报错）都单独成对话框。
+ *  返回可继续追加内容的回复块（msg-reply），便于以后扩展。*/
+export function 添加独立回应(内容: string, 发送者?: string, 错误 = false): HTMLDivElement {
+  const div = 创建消息节点("system");
+  div.classList.add("chat-msg-independent");
+  const 块 = document.createElement("div");
+  块.className = "msg-reply" + (错误 ? " error" : "");
+  if (发送者) {
+    const 标签 = document.createElement("div");
+    标签.className = "msg-reply-sender";
+    标签.textContent = 发送者;
+    块.appendChild(标签);
+  }
+  const 内容块 = document.createElement("div");
+  内容块.className = "msg-reply-content";
+  内容块.textContent = 内容;
+  块.appendChild(内容块);
+  div.appendChild(块);
+  div.dataset.text = 内容;
+  聊天日志.appendChild(div);
+  筛选聊天消息(div);
+  聊天日志.scrollTop = 聊天日志.scrollHeight;
+  return 块;
+}
+
 /** 非指令回应的提示：不带气泡的小框（已导入/已上传等） */
 export function 添加提示(内容: string, 错误 = false): void {
   const div = document.createElement("div");

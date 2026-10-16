@@ -201,6 +201,32 @@ const 异步断言 = `(async () => {
   await sleep(300);
   R.主题 = document.documentElement.dataset.theme || "";
   R.AI模型选项数 = document.getElementById("chat-ai-model")?.options?.length ?? 0;
+  // AI 应答（含报错）应单独成气泡，不吸附到上一条消息
+  try {
+    const 保存请求 = window.kugua.request;
+    window.kugua.request = async (目标, 动作, 参数, 超时) => {
+      if (目标 === "ai" && 动作 === "ai.chat") throw new Error("模拟 AI 失败");
+      return 保存请求.call(window.kugua, 目标, 动作, 参数, 超时);
+    };
+    const inp2 = document.getElementById("chat-input");
+    const 前 = document.querySelectorAll("#chat-log .chat-msg.chat-msg-independent").length;
+    if (inp2) {
+      inp2.value = "ai 测试独立气泡";
+      inp2.dispatchEvent(new Event("input", { bubbles: true }));
+      inp2.selectionStart = inp2.selectionEnd = inp2.value.length;
+      inp2.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    }
+    await sleep(1200);
+    const 独立 = document.querySelectorAll("#chat-log .chat-msg.chat-msg-independent");
+    R.AI独立气泡 = 独立.length > 前;
+    const 最后 = 独立[独立.length - 1];
+    R.AI独立气泡不嵌user = !!最后 && !最后.closest(".chat-msg.user");
+    R.AI报错在独立气泡 = !!最后 && (最后.textContent || "").includes("AI 调用失败");
+    window.kugua.request = 保存请求;
+    if (inp2) inp2.value = "";
+  } catch (e) {
+    R.AI独立气泡 = "异常:" + String(e);
+  }
   document.getElementById("tab-kb")?.click();
   await sleep(800);
   R.知识库位置数 = document.querySelectorAll("#ex-locations .ex-loc-item, #ex-locations > *").length;
@@ -473,6 +499,9 @@ async function main() {
     R2.持续前缀高亮 !== true ||
     R2.持续前缀提示可见 !== true ||
     R2.持续前缀已退出 !== true ||
+    R2.AI独立气泡 !== true ||
+    R2.AI独立气泡不嵌user !== true ||
+    R2.AI报错在独立气泡 !== true ||
     !R2.回到文件 ||
     !R2.点全部标签 ||
     !R2.次级视图 ||
