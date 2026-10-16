@@ -5,7 +5,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { 模块资源, 读模块资源 } from "@kugua/paths";
 import { 启动模块 } from "@kugua/module-kit";
 import { DScriptFile, DValue } from "@kugua/dscript";
 import { 简体字符集, 繁体字符集, 火星字符集 } from "./data/hx_chars.js";
@@ -38,7 +38,7 @@ function 规范参数(参数: unknown): unknown {
 }
 
 function 读数据(名: string): string {
-  return readFileSync(resolve(process.cwd(), "data/generators", 名), "utf-8");
+  return 读模块资源(import.meta.url, 名);
 }
 
 function 载入语料(): 语料 {
@@ -56,11 +56,11 @@ function 载入语料(): 语料 {
   const 营销号 = new DScriptFile();
   营销号.Load(读数据("data_hyly3.txt"));
   const 随机汉字串 = readFileSync(
-    resolve(process.cwd(), "data/generators", "随机-随机汉字.txt"),
+    模块资源(import.meta.url, "随机-随机汉字.txt"),
     "utf-8"
   ).trim();
   const 历史行 = readFileSync(
-    resolve(process.cwd(), "data/generators", "history_in_today.txt"),
+    模块资源(import.meta.url, "history_in_today.txt"),
     "utf-8"
   )
     .replace(/^\uFEFF/, "")
@@ -385,12 +385,6 @@ function 历史上的今天(输入: string): string {
 void 启动模块({
   name: "text",
   version: "0.1.0",
-  capabilities: [
-    "text.reverse", "text.reverseLines", "text.toUpper", "text.toLower",
-    "text.shuffle", "text.cut", "text.gongshou", "text.joke", "text.salad",
-    "text.paper", "text.paper2", "text.paper3", "text.hx", "text.randomHans",
-    "text.historyToday",
-  ],
   注册: (客户端) => {
     // 中文指令调用时，把 参数文本/原文 补齐到 文本/输入/主题/日期
     const 原始注册 = 客户端.onRequest.bind(客户端);

@@ -326,18 +326,6 @@ void 启动模块({
   version: "0.1.0",
   仅在主模块启动: true,
   入口文件URL: import.meta.url,
-  capabilities: [
-    "plugins.list",
-    "plugins.refresh",
-    "plugins.info",
-    "plugins.enable",
-    "plugins.disable",
-    "plugins.reload",
-    "plugins.install",
-    "plugins.update",
-    "plugins.uninstall",
-    "plugins.market.list",
-  ],
   读配置: (文件配置: Record<string, unknown>) => {
     const p = (文件配置.plugins ?? {}) as {
       dir?: string;

@@ -54,12 +54,12 @@ export interface 启动模块选项<配置 extends 基础模块配置 = 基础�
   /** 模块版本（握手用） */
   version?: string;
   /**
-   * 能力声明列表。若提供，`capabilities` 与 `capabilityDefs` 均由此派生
-   * （名称取 声明.动作 ?? 声明.名称），无需另行手写。
+   * 能力声明列表。声明会被上报给主控用于能力注册表（GUI/指令/定时/MCP 派生）。
+   * 能力名（capabilities）无需手写：握手时由「声明 + 已注册处理器」自动合并派生。
    * 也可传函数（可异步），用于需要运行时发现能力的模块（如 MCP 接入）。
    */
   能力?: 能力声明[] | (() => 能力声明[] | Promise<能力声明[]>);
-  /** 直接指定能力名列表（未用 能力 声明时使用） */
+  /** 直接指定能力名列表（一般不需要；不传则自动由声明与注册派生） */
   capabilities?: string[];
   /** action -> 请求处理器。键即苦音 action 名。 */
   处理器?: Record<string, 模块请求处理器>;
@@ -159,7 +159,10 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
   const { url, token } = 解析连接参数({ ...文件配置, ...自定义 });
 
   const 能力声明 = typeof 选项.能力 === "function" ? await 选项.能力() : 选项.能力;
-  const capabilities = 选项.capabilities ?? 派生能力名(能力声明);
+  // 能力名：仅当调用方显式指定时才直接传递；否则交给 NiganeClient 在握手时
+  // 自动由「能力声明 + 已注册处理器」合并派生，避免遗漏手动注册的动作
+  // （如 mcp-client.providers）——能力声明与注册完全驱动能力表。
+  const capabilities = 选项.capabilities;
 
   const 客户端 = new NiganeClient({
     name: 选项.name,

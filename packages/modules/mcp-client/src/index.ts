@@ -136,7 +136,6 @@ void 启动模块({
     }
     return 能力清单;
   },
-  capabilities: ["mcp-client.providers"],
   注册: (客户端) => {
     // 为每个外部工具注册动作处理器
     for (const 提供者 of 提供者列表) {

@@ -15,12 +15,6 @@ let 调度器: 任务调度器 | null = null;
 void 启动模块({
   name: "scheduler",
   version: "0.6.0",
-  capabilities: [
-    "scheduler.task.create",
-    "scheduler.task.list",
-    "scheduler.task.runNow",
-    "scheduler.actions",
-  ],
   注册: (客户端) => {
     const 存储 = new 任务存储(默认数据路径());
     调度器 = new 任务调度器(存储, 创建动作执行者(客户端), (任务, 结果) => {

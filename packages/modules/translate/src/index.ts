@@ -97,7 +97,6 @@ async function 启动(): Promise<void> {
     url: envURL ?? `ws://${host}:${port}`,
     token: envToken ?? 配置.token ?? "",
     version: "0.1.0",
-    capabilities: ["translate.translate", "translate.rounds"],
   });
 
   // 译英 你好啊 / 译英译日译中 共是风，还是法律的。

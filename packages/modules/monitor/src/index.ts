@@ -11,7 +11,6 @@ import { 注册监控处理器 } from "./handlers.js";
 void 启动模块({
   name: "monitor",
   version: "0.6.0",
-  capabilities: ["monitor.stats", "monitor.watch"],
   注册: (客户端) => 注册监控处理器(客户端),
   就绪: (_客户端, _配置, 连接) => console.log(`[监控] 已接入主控：${连接.url}`),
 });

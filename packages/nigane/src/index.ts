@@ -558,6 +558,30 @@ export class NiganeClient extends EventEmitter {
     super();
   }
 
+  /** 已注册的请求动作名（按注册顺序） */
+  已注册请求动作(): string[] {
+    return [...this.请求表.keys()];
+  }
+
+  /** 已注册的事件动作名（按注册顺序） */
+  已注册事件动作(): string[] {
+    return [...this.事件表.keys()];
+  }
+
+  /**
+   * 计算握手时要上报的能力名列表。
+   * 若构造时显式传了 `capabilities`，以它为准；否则自动由「能力声明 + 已注册处理器」派生，
+   * 便于模块不再手写能力名清单（能力声明完全驱动注册）。
+   */
+  private 计算能力名(): string[] {
+    if (this.选项.capabilities) return this.选项.capabilities;
+    const 声明 = (this.选项.capabilityDefs ?? []).map((c) => c.动作 ?? c.名称);
+    const 已注册 = this.已注册请求动作();
+    const 合并 = [...声明];
+    for (const a of 已注册) if (!合并.includes(a)) 合并.push(a);
+    return 合并;
+  }
+
   /** 建立连接并完成握手；认证失败或超时则 reject */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -579,7 +603,7 @@ export class NiganeClient extends EventEmitter {
               params: {
                 name: this.选项.name,
                 version: this.选项.version,
-                capabilities: this.选项.capabilities ?? [],
+                capabilities: this.计算能力名(),
                 capabilityDefs: this.选项.capabilityDefs ?? [],
                 token: this.选项.token ?? "",
               },
