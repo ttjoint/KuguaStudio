@@ -1,0 +1,422 @@
+/**
+ * 知识库（MKG）操作集成测试
+ *
+ * 覆盖 WebUI 资源管理器依赖的各类知识库操作，确保各 UI 界面（资源/标签/笔记/
+ * 素材/看板/片段/视图/位置/侧车/检索）对应的后端行为正确。
+ *
+ * 直接测试 `@kugua/mkg` 的 MKG 类（不经 IPC），保证快速且确定。
+ */
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MKG } from "../src/index";
+
+let 目录: string;
+let mkg: MKG;
+
+beforeEach(() => {
+  目录 = mkdtempSync(join(tmpdir(), "mkg-test-"));
+  mkg = new MKG(join(目录, "test.db"));
+});
+
+afterEach(() => {
+  mkg.close();
+  rmSync(目录, { recursive: true, force: true });
+});
+
+/** 造一个真实文件，返回路径 */
+function 造文件(相对: string, 内容 = "hello"): string {
+  const 全路径 = join(目录, 相对);
+  mkdirSync(join(全路径, ".."), { recursive: true });
+  writeFileSync(全路径, 内容, "utf-8");
+  return 全路径;
+}
+
+describe("标签：创建 / 树 / 树形批量 / 相关标签", () => {
+  it("createTag 与 listTags（含父标签筛选）", () => {
+    const 父 = mkg.createTag("技术");
+    const 子 = mkg.createTag("前端", 父.id, "前端相关");
+    const 全部 = mkg.listTags();
+    expect(全部.map((t) => t.name).sort()).toEqual(["前端", "技术"]);
+    const 子集 = mkg.listTags(父.id);
+    expect(子集.map((t) => t.name)).toEqual(["前端"]);
+    expect(子.description).toBe("前端相关");
+  });
+
+  it("getTagTree 返回嵌套结构", () => {
+    const 父 = mkg.createTag("技术");
+    mkg.createTag("前端", 父.id);
+    mkg.createTag("后端", 父.id);
+    const 树 = mkg.getTagTree();
+    expect(树).toHaveLength(1);
+    expect(树[0].name).toBe("技术");
+    expect(树[0].children.map((c) => c.name).sort()).toEqual(["前端", "后端"]);
+  });
+
+  it("createTagTree 用路径数组一次建链", () => {
+    const 叶 = mkg.createTagTree(["技术", "前端", "React"]);
+    expect(叶.name).toBe("React");
+    const 链 = mkg.getTagTree()[0];
+    expect(链.name).toBe("技术");
+    expect(链.children[0].name).toBe("前端");
+    expect(链.children[0].children[0].name).toBe("React");
+  });
+
+  it("deleteTag 删除标签", () => {
+    const t = mkg.createTag("临时");
+    mkg.deleteTag(t.id);
+    expect(mkg.listTags()).toHaveLength(0);
+  });
+
+  it("getRelatedTags 依据共现计算相关度", () => {
+    const a = mkg.createTag("A");
+    const b = mkg.createTag("B");
+    const c = mkg.createTag("C");
+    const r1 = mkg.createResource("a.txt", "a.txt", "file");
+    const r2 = mkg.createResource("b.txt", "b.txt", "file");
+    mkg.setResourceTags(r1.id, [a.id, b.id]);
+    mkg.setResourceTags(r2.id, [a.id, b.id, c.id]);
+    const 相关 = mkg.getRelatedTags(a.id);
+    expect(相关.map((x) => x.tag.name)).toContain("B");
+    expect(相关[0].共现).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("资源：创建 / 列表 / 重命名 / 删除", () => {
+  it("createResource + getResource（按 id 与路径）", () => {
+    const r = mkg.createResource("docs/readme.md", "readme.md", "file", 128);
+    expect(r.id).toBeGreaterThan(0);
+    expect(mkg.getResource(r.id)?.path).toBe("docs/readme.md");
+    expect(mkg.getResource("docs/readme.md")?.id).toBe(r.id);
+  });
+
+  it("listResources 分页", () => {
+    for (let i = 0; i < 5; i++) mkg.createResource(`f${i}.txt`, `f${i}.txt`, "file");
+    const 全 = mkg.listResources({ limit: 10 });
+    expect(全.items).toHaveLength(5);
+    const 首页 = mkg.listResources({ limit: 2 });
+    expect(首页.items).toHaveLength(2);
+    expect(首页.total).toBe(5);
+  });
+
+  it("renameResourceFile 改真实文件名（含扩展名）", () => {
+    const 全路径 = 造文件("old.txt", "内容");
+    const r = mkg.createResource(全路径, "old.txt", "file");
+    const 详情 = mkg.renameResourceFile(r.id, "new.md");
+    expect(详情.path.endsWith("new.md")).toBe(true);
+    expect(existsSync(join(目录, "new.md"))).toBe(true);
+    expect(existsSync(join(目录, "old.txt"))).toBe(false);
+    expect(详情.name).toBe("new.md");
+  });
+
+  it("renameNodeTitle 改节点标题（不改磁盘）", async () => {
+    const 全路径 = 造文件("t.txt", "x");
+    await mkg.index(全路径, { maxDepth: 0 });
+    const 节点 = mkg.listNodes("file").items[0];
+    mkg.renameNodeTitle(节点.id, "新标题");
+    expect(mkg.listNodes("file").items[0].title).toBe("新标题");
+    // 磁盘文件名不应变化
+    expect(existsSync(全路径)).toBe(true);
+  });
+
+  it("deleteResource 删除资源", () => {
+    const r = mkg.createResource("x.txt", "x.txt", "file");
+    mkg.deleteResource(r.id);
+    expect(mkg.getResource(r.id)).toBeUndefined();
+  });
+});
+
+describe("别名：set / get / getByPath / displayName", () => {
+  it("设置与读取别名，displayName 优先别名", () => {
+    const r = mkg.createResource("p.txt", "p.txt", "file");
+    mkg.setAlias(r.id, "项目文档");
+    expect(mkg.getAlias(r.id)).toBe("项目文档");
+    expect(mkg.getAliasByPath("p.txt")).toBe("项目文档");
+    expect(mkg.getDisplayName(r.id)).toBe("项目文档");
+  });
+
+  it("未设别名时 displayName 回退真实名", () => {
+    const r = mkg.createResource("q.txt", "q.txt", "file");
+    expect(mkg.getDisplayName(r.id)).toBe("q.txt");
+  });
+});
+
+describe("标签关联：set / add / remove / query", () => {
+  it("setResourceTags 覆盖式设置", () => {
+    const a = mkg.createTag("A");
+    const b = mkg.createTag("B");
+    const r = mkg.createResource("r.txt", "r.txt", "file");
+    mkg.setResourceTags(r.id, [a.id]);
+    expect(mkg.getResourceTags(r.id).map((t) => t.name)).toEqual(["A"]);
+    mkg.setResourceTags(r.id, [b.id]);
+    expect(mkg.getResourceTags(r.id).map((t) => t.name)).toEqual(["B"]);
+  });
+
+  it("addResourceTags / removeResourceTags 增量修改", () => {
+    const a = mkg.createTag("A");
+    const b = mkg.createTag("B");
+    const r = mkg.createResource("r2.txt", "r2.txt", "file");
+    mkg.addResourceTags(r.id, [a.id]);
+    mkg.addResourceTags(r.id, [b.id]);
+    expect(mkg.getResourceTags(r.id)).toHaveLength(2);
+    mkg.removeResourceTags(r.id, [a.id]);
+    expect(mkg.getResourceTags(r.id).map((t) => t.name)).toEqual(["B"]);
+  });
+
+  it("searchByTags 需同时命中所有标签", () => {
+    const 父 = mkg.createTag("技术");
+    const 子 = mkg.createTag("前端", 父.id);
+    const r1 = mkg.createResource("a1.txt", "a1.txt", "file");
+    mkg.tagResource(r1.id, 子.id);
+    // 只带子标签：命中
+    expect(mkg.searchByTags([子.id]).items.map((x) => x.name)).toContain("a1.txt");
+    // 父 + 子：AND 语义，资源只带子标签时不应命中
+    expect(mkg.searchByTags([父.id, 子.id]).items).toHaveLength(0);
+  });
+});
+
+describe("统一内容节点（listAllContent / listNodes / searchNodes）", () => {
+  it("listAllContent 汇总各类内容并按分类筛选", () => {
+    mkg.createNote("我的笔记", "正文");
+    mkg.createMaterial({ title: "参考素材", content: "x" });
+    const 全 = mkg.listAllContent();
+    const 名 = 全.map((x) => x.name);
+    expect(名).toContain("我的笔记");
+    expect(名).toContain("参考素材");
+    const 仅笔记 = mkg.listAllContent({ categories: ["note"] });
+    expect(仅笔记.every((x) => x.category === "note")).toBe(true);
+  });
+
+  it("listAllContent 关键词过滤", () => {
+    mkg.createNote("番茄种植", "如何种番茄");
+    mkg.createNote("黄瓜种植", "如何种黄瓜");
+    const 结果 = mkg.listAllContent({ keyword: "番茄" });
+    expect(结果.map((x) => x.name)).toEqual(["番茄种植"]);
+  });
+
+  it("listAllContent 按标签（含后代）过滤", () => {
+    const 父 = mkg.createTag("植物");
+    const 子 = mkg.createTag("蔬菜", 父.id);
+    const n = mkg.createNote("番茄", "x");
+    mkg.setNodeTags(n.id, [子.id]);
+    const 结果 = mkg.listAllContent({ tagId: 父.id });
+    expect(结果.map((x) => x.name)).toContain("番茄");
+  });
+
+  it("noTag 只返回无标签内容", () => {
+    const a = mkg.createNote("有标签", "x");
+    mkg.createNote("无标签", "y");
+    const t = mkg.createTag("T");
+    mkg.setNodeTags(a.id, [t.id]);
+    const 结果 = mkg.listAllContent({ noTag: true });
+    expect(结果.map((x) => x.name)).toEqual(["无标签"]);
+  });
+
+  it("searchNodes 搜索标题与正文（返回 title 字段）", () => {
+    mkg.createNote("会议纪要", "讨论了预算问题");
+    const 结果 = mkg.searchNodes("预算");
+    expect(结果.items.map((x) => x.title)).toContain("会议纪要");
+  });
+
+  it("getNodeTags / setNodeTags / tagNode / untagNode", () => {
+    const t1 = mkg.createTag("T1");
+    const t2 = mkg.createTag("T2");
+    const n = mkg.createNote("节点", "x");
+    mkg.setNodeTags(n.id, [t1.id]);
+    expect(mkg.getNodeTags(n.id).map((t) => t.name)).toEqual(["T1"]);
+    mkg.tagNode(n.id, t2.id);
+    expect(mkg.getNodeTags(n.id)).toHaveLength(2);
+    mkg.untagNode(n.id, t1.id);
+    expect(mkg.getNodeTags(n.id).map((t) => t.name)).toEqual(["T2"]);
+  });
+});
+
+describe("笔记：CRUD", () => {
+  it("创建 / 读取 / 列表 / 更新 / 删除", () => {
+    const n = mkg.createNote("标题", "内容");
+    expect(mkg.getNote(n.id)?.title).toBe("标题");
+    expect(mkg.listNotes()).toHaveLength(1);
+    const 更新 = mkg.updateNote(n.id, { title: "新标题", content: "新内容" });
+    expect(更新?.title).toBe("新标题");
+    expect(更新?.content).toBe("新内容");
+    mkg.deleteNote(n.id);
+    expect(mkg.getNote(n.id)).toBeUndefined();
+    expect(mkg.listNotes()).toHaveLength(0);
+  });
+
+  it("创建时可带标签", () => {
+    const t = mkg.createTag("标签");
+    const n = mkg.createNote("带标签笔记", "x", [t.id]);
+    expect(mkg.getNodeTags(n.id).map((x) => x.name)).toEqual(["标签"]);
+  });
+});
+
+describe("素材：CRUD（含来源 / 图片 URL）", () => {
+  it("创建 / 读取 / 列表 / 更新 / 删除", () => {
+    const m = mkg.createMaterial({ title: "素材", content: "描述", sourceUrl: "https://a.com" });
+    expect(mkg.getMaterial(m.id)?.title).toBe("素材");
+    expect(mkg.listMaterials()).toHaveLength(1);
+    const 更新 = mkg.updateMaterial(m.id, { title: "新素材", sourceUrl: "https://b.com" });
+    expect(更新?.title).toBe("新素材");
+    expect(更新?.sourceUrl).toBe("https://b.com");
+    mkg.deleteMaterial(m.id);
+    expect(mkg.getMaterial(m.id)).toBeUndefined();
+  });
+});
+
+describe("文本片段：CRUD", () => {
+  it("创建 / 读取 / 列表 / 更新 / 删除", () => {
+    const s = mkg.createSnippet("片段", "一段文本");
+    expect(mkg.getSnippet(s.id)?.content).toBe("一段文本");
+    expect(mkg.listSnippets()).toHaveLength(1);
+    const 更新 = mkg.updateSnippet(s.id, { content: "改后文本" });
+    expect(更新?.content).toBe("改后文本");
+    mkg.deleteSnippet(s.id);
+    expect(mkg.getSnippet(s.id)).toBeUndefined();
+  });
+});
+
+describe("看板：列 + 卡片 CRUD", () => {
+  it("列的创建 / 列表 / 更新 / 删除", () => {
+    const c1 = mkg.createColumn("待办");
+    const c2 = mkg.createColumn("进行中");
+    expect(mkg.listColumns().map((c) => c.name)).toEqual(["待办", "进行中"]);
+    const 更新 = mkg.updateColumn(c1.id, { name: "已排期" });
+    expect(更新?.name).toBe("已排期");
+    mkg.deleteColumn(c2.id);
+    expect(mkg.listColumns()).toHaveLength(1);
+  });
+
+  it("卡片的创建 / 列表（可按列筛选）/ 更新 / 删除", () => {
+    const 列 = mkg.createColumn("待办");
+    const c1 = mkg.createCard({ title: "卡片1", columnId: 列.id });
+    mkg.createCard({ title: "卡片2" });
+    expect(mkg.listCards()).toHaveLength(2);
+    expect(mkg.listCards(列.id).map((x) => x.title)).toEqual(["卡片1"]);
+    const 更新 = mkg.updateCard(c1.id, { title: "卡片1改", columnId: null });
+    expect(更新?.title).toBe("卡片1改");
+    mkg.deleteCard(c1.id);
+    expect(mkg.getCard(c1.id)).toBeUndefined();
+  });
+
+  it("看板卡片不参与统一内容浏览", () => {
+    const 列 = mkg.createColumn("待办");
+    mkg.createCard({ title: "卡片", columnId: 列.id });
+    expect(mkg.listAllContent().map((x) => x.name)).not.toContain("卡片");
+  });
+});
+
+describe("保存视图（智能文件夹）：save / list / get / run / delete", () => {
+  it("保存 / 列出 / 读取 / 删除", () => {
+    const v = mkg.添加保存视图("我的视图", { keyword: "x" }, "star");
+    expect(mkg.列出保存视图().map((x) => x.name)).toEqual(["我的视图"]);
+    expect(mkg.获取保存视图(v.id)?.icon).toBe("star");
+    mkg.删除保存视图(v.id);
+    expect(mkg.列出保存视图()).toHaveLength(0);
+  });
+
+  it("执行查询按条件返回内容（关键词字段为 text）", () => {
+    mkg.createNote("番茄", "x");
+    mkg.createNote("黄瓜", "y");
+    const 结果 = mkg.执行查询({ text: "番茄" });
+    expect(结果.map((x) => x.name)).toEqual(["番茄"]);
+  });
+});
+
+describe("受管位置：add / list / remove", () => {
+  it("添加 / 列出 / 删除", () => {
+    const p = mkg.添加位置(join(目录, "watch"), "监视目录");
+    expect(mkg.列出位置().map((x) => x.path)).toContain(p.path);
+    mkg.删除位置(p.id);
+    expect(mkg.列出位置()).toHaveLength(0);
+  });
+});
+
+describe("打开方式：set / get / list / delete（WebUI 依赖）", () => {
+  it("设置 / 读取 / 列出 / 删除", () => {
+    const cfg = mkg.setOpenWith(".md", "C:/notepad.exe", "-n", "记事本");
+    expect(cfg.extension).toBe(".md");
+    expect(mkg.getOpenWith(".md")?.programPath).toBe("C:/notepad.exe");
+    expect(mkg.listOpenWith()).toHaveLength(1);
+    mkg.deleteOpenWith(cfg.id);
+    expect(mkg.listOpenWith()).toHaveLength(0);
+  });
+
+  it("同扩展名重复设置应更新而非新增", () => {
+    mkg.setOpenWith(".md", "C:/a.exe");
+    mkg.setOpenWith(".md", "C:/b.exe");
+    const 列表 = mkg.listOpenWith().filter((x) => x.extension === ".md");
+    expect(列表).toHaveLength(1);
+    expect(列表[0].programPath).toBe("C:/b.exe");
+  });
+});
+
+describe("侧车（sidecar）：读 / 写 / 合并 / 信息 / 导出 / 导入", () => {
+  it("写入 / 读取 / 合并 / 信息", () => {
+    const 路径 = join(目录, "note.md");
+    mkg.写入侧车(路径, { tags: ["A"], note: "第一条" });
+    expect(mkg.读取侧车(路径)?.note).toBe("第一条");
+    mkg.合并侧车(路径, { note: "改后" });
+    expect(mkg.读取侧车(路径)?.note).toBe("改后");
+    expect(mkg.侧车信息(路径).exists).toBe(true);
+  });
+
+  it("导出侧车（文件节点写入同目录侧车文件）", async () => {
+    const t = mkg.createTag("导出标签");
+    const 全路径 = 造文件("export.md", "正文");
+    await mkg.index(全路径, { maxDepth: 0 });
+    const 节点 = mkg.listNodes("file").items[0];
+    mkg.setNodeTags(节点.id, [t.id]);
+    const 数据 = mkg.导出侧车(节点.id);
+    expect(数据?.tags).toContain("导出标签");
+    // 侧车文件应真实落盘
+    expect(mkg.侧车信息(全路径).exists).toBe(true);
+  });
+});
+
+describe("全文检索（FTS）", () => {
+  it("重建索引并检索", () => {
+    mkg.createNote("深度学习笔记", "卷积神经网络的反向传播");
+    const { 节点数 } = mkg.重建全文索引();
+    expect(节点数).toBeGreaterThanOrEqual(1);
+    const 结果 = mkg.全文检索("反向传播");
+    expect(结果.map((x) => x.name)).toContain("深度学习笔记");
+  });
+
+  it("检索无结果时返回空数组", () => {
+    mkg.createNote("无关", "内容");
+    mkg.重建全文索引();
+    expect(mkg.全文检索("不存在的关键词xyz")).toEqual([]);
+  });
+});
+
+describe("统计：getStats", () => {
+  it("返回各类计数", () => {
+    mkg.createTag("T");
+    mkg.createNote("N", "x");
+    const s = mkg.getStats();
+    expect(s.标签数).toBe(1);
+    expect(typeof s.资源总数).toBe("number");
+  });
+});
+
+describe("资源详情：getResourceDetail / listResourcesDetail / listResourcesByTagDetail", () => {
+  it("详情含标签路径与扩展名", () => {
+    const 父 = mkg.createTag("技术");
+    const 子 = mkg.createTag("前端", 父.id);
+    const r = mkg.createResource("detail.ts", "detail.ts", "file");
+    mkg.tagResource(r.id, 子.id);
+    const 详情 = mkg.getResourceDetail(r.id);
+    expect(详情?.extension).toBe(".ts");
+    expect(详情?.tagPaths.some((p) => p.includes("前端"))).toBe(true);
+  });
+
+  it("列表详情与按标签列表详情", () => {
+    const t = mkg.createTag("列表标签");
+    const r = mkg.createResource("l.txt", "l.txt", "file");
+    mkg.tagResource(r.id, t.id);
+    expect(mkg.listResourcesDetail({ limit: 10 }).items).toHaveLength(1);
+    expect(mkg.listResourcesByTagDetail(t.id).items).toHaveLength(1);
+  });
+});

@@ -830,7 +830,7 @@ export namespace Explorer {
       await 打开内容(选中内容, programPath);
       if (owSetDefault.checked) {
         try {
-          await window.kugua.request("mkg", "mkg.openwith.add", {
+          await window.kugua.request("mkg", "mkg.openwith.set", {
             extension: 选中内容.extension,
             programPath,
             arguments: owArgs.value,
