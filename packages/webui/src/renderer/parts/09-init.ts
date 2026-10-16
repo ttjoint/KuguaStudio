@@ -1,6 +1,7 @@
 import { 同步能力指令库 } from "./02-chat-core";
 import { 添加消息 } from "./03-preview";
 import { 刷新本地插件, 刷新模块列表 } from "./06-shell";
+import { 初始化指令面板, 加载指令面板数据 } from "./16-cmd-panel";
 
 // ===== 初始化 =====
 
@@ -19,10 +20,13 @@ function 排队刷新(动作: () => void): void {
 }
 
 window.kugua.onBus((action) => {
-  if (action === "capability.changed") 排队刷新(() => void 同步能力指令库());
+  if (action === "capability.changed") 排队刷新(() => { void 同步能力指令库(); void 加载指令面板数据(); });
   else if (action === "registry.changed") 排队刷新(() => void 刷新模块列表());
   else if (action === "plugins.changed") 排队刷新(() => void 刷新本地插件());
 });
+
+// 初始化聊天页左侧「指令面板」
+初始化指令面板();
 
 // 低频兜底：仅用于事件丢失时的最终一致（例如初次连接前的变更），不参与常态刷新
 setInterval(() => {

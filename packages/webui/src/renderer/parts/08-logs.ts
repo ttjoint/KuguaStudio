@@ -5,6 +5,7 @@ import { 刷新本地插件, 刷新模块列表, 刷新统计 } from "./06-shell
 import { Explorer } from "./07-explorer";
 import { 初始化对话页 } from "./10-chat-page";
 import { 加载插件页面 } from "./14-plugin-ui";
+import { 应用持续前缀, 记录使用 } from "./16-cmd-panel";
 
 // ===== 事件绑定 =====
 
@@ -12,7 +13,14 @@ export function 发送当前输入(): void {
   const 附件批次 = 当前附件.slice();
   当前附件.length = 0;
   刷新附件区();
-  void 处理输入(输入框.value, 附件批次);
+  let 文本 = 输入框.value;
+  // 持续前缀（对话模式）：自动为每一条输入加上前缀
+  const 前缀 = 应用持续前缀(文本);
+  if (前缀) {
+    记录使用(前缀.命令);
+    文本 = `${前缀.命令} ${前缀.参数}`.trim();
+  }
+  void 处理输入(文本, 附件批次);
   输入框.value = "";
   输入框.style.height = "auto";
 }

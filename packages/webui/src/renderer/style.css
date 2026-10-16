@@ -2561,6 +2561,74 @@ body {
 
 /* ===== 对话页（多对话 / 多项目）===== */
 .chat-page { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+/* ===== 指令面板（聊天页最左侧）===== */
+.cmd-panel {
+  position: relative;
+  width: 240px; min-width: 160px; max-width: 420px;
+  display: flex; flex-direction: column; overflow: hidden;
+  border-right: 1px solid rgba(128, 128, 128, 0.2);
+}
+.cmd-panel.collapsed { width: 34px !important; min-width: 34px; }
+.cmd-panel.collapsed .cmd-panel-search,
+.cmd-panel.collapsed .cmd-panel-list,
+.cmd-panel.collapsed .cmd-panel-title {
+  display: none;
+}
+.cmd-panel.collapsed .cmd-panel-toggle { transform: rotate(180deg); }
+.cmd-panel-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  flex-shrink: 0;
+}
+.cmd-panel-title { font-weight: 600; font-size: 0.86rem; white-space: nowrap; }
+.cmd-panel-search {
+  flex: 1; min-width: 0; font-size: 0.76rem; padding: 3px 6px;
+  border-radius: 6px; border: 1px solid rgba(128, 128, 128, 0.3);
+  background: rgba(128, 128, 128, 0.08); color: inherit;
+}
+.cmd-panel-toggle {
+  flex-shrink: 0; font-size: 0.7rem; line-height: 1;
+  padding: 4px 6px; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(128, 128, 128, 0.3); background: transparent; color: inherit;
+}
+.cmd-panel-toggle:hover { background: rgba(128, 128, 128, 0.16); }
+.cmd-panel-list { flex: 1; overflow: auto; padding: 6px; }
+.cmd-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 0.8rem; user-select: none;
+}
+.cmd-item:hover { background: rgba(128, 128, 128, 0.14); }
+.cmd-item.active { background: rgba(120, 160, 255, 0.28); box-shadow: inset 2px 0 0 rgba(120, 160, 255, 0.9); }
+.cmd-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cmd-item-cmd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmd-item-desc { opacity: 0.55; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmd-item-mod { flex-shrink: 0; opacity: 0.4; font-size: 0.66rem; }
+.cmd-empty { opacity: 0.5; font-size: 0.8rem; padding: 8px; }
+.cmd-panel-resize {
+  position: absolute; top: 0; right: 0; width: 5px; height: 100%;
+  cursor: col-resize; z-index: 2;
+}
+.cmd-panel-resize:hover { background: rgba(120, 160, 255, 0.4); }
+.cmd-panel.collapsed .cmd-panel-resize { display: none; }
+
+/* 持续前缀（对话模式）提示条 */
+.cmd-sticky-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin: 0 0 6px;
+  border-radius: 8px; font-size: 0.8rem;
+  background: rgba(120, 160, 255, 0.22);
+  border: 1px solid rgba(120, 160, 255, 0.45);
+}
+.cmd-sticky-bar.hidden { display: none; }
+.cmd-sticky-text { flex: 1; }
+.cmd-sticky-exit {
+  flex-shrink: 0; font-size: 0.74rem; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.4); background: transparent; color: inherit; cursor: pointer;
+}
+.cmd-sticky-exit:hover { background: rgba(128, 128, 128, 0.2); }
+
 .chat-conv-panel {
   width: 260px; min-width: 200px; max-width: 360px;
   display: flex; flex-direction: column; overflow: hidden;

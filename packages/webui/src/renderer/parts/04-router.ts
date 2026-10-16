@@ -22,9 +22,14 @@ export async function 处理输入(原文: string, 附件?: 附件[]): Promise<v
     if (路由) {
       await 执行路由(路由);
     } else {
-      // 阶段 1：回退到能力注册表的中文指令；再不行则当作 AI 对话（类 Open WebUI）
+      // 回退到能力注册表的中文指令；命中即调用
       const 已处理 = await 尝试能力指令(文本);
-      if (!已处理) await 与AI对话(文本);
+      if (!已处理) {
+        添加消息(
+          `未识别的指令：「${文本}」。可从左侧指令列表点击，或输入 ai <内容> 与 AI 对话。`,
+          "system",
+        );
+      }
     }
   } catch (err) {
     添加消息(`执行失败：${String(err)}`, "error");
@@ -199,10 +204,10 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
     return { 目标: "monitor", 动作: "monitor.stats", 描述: "系统状态" };
   }
 
-  // AI 问答 / 图像生成（M6）
-  const AI匹配 = 文本.match(/^(问AI|AI问答|ai)\s+(.+)$/);
+  // AI 问答 / 图像生成（M6）：前缀 `ai`（忽略大小写）或 `问AI` / `AI问答`
+  const AI匹配 = 文本.match(/^(?:问AI|AI问答|ai)\s+(.+)$/i);
   if (AI匹配) {
-    return { 目标: "ai", 动作: "ai.chat", 参数: { prompt: AI匹配[2].trim() }, 描述: "AI 问答" };
+    return { 目标: "ai", 动作: "ai.chat", 参数: { prompt: AI匹配[1].trim() }, 描述: "AI 问答" };
   }
   const AI图片匹配 = 文本.match(/^AI图片\s+(.+)$/);
   if (AI图片匹配) {
@@ -485,6 +490,12 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
 export async function 执行路由(路由: 路由结果): Promise<void> {
   if (路由.本地提示) {
     添加消息(路由.本地提示, "system", 路由.描述);
+    return;
+  }
+  // AI 对话：走带 chatId / 模型选择的专用通道（保留会话记忆）
+  if (路由.目标 === "ai" && 路由.动作 === "ai.chat") {
+    const p = (路由.参数 ?? {}) as { prompt?: string };
+    await 与AI对话(String(p.prompt ?? ""));
     return;
   }
   try {

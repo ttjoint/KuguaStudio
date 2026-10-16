@@ -406,6 +406,15 @@
 
       <!-- 对话页（多对话 / 多项目，类 Open WebUI） -->
       <div id="chat-page-view" class="chat-page">
+        <aside id="cmd-panel" class="cmd-panel">
+          <div class="cmd-panel-head">
+            <span class="cmd-panel-title">&#x1F4DC; 指令</span>
+            <input id="cmd-panel-search" class="cmd-panel-search" type="text" placeholder="筛选…" autocomplete="off">
+            <button id="cmd-panel-toggle" class="cmd-panel-toggle" title="折叠 / 展开">&#x25C0;</button>
+          </div>
+          <div id="cmd-panel-list" class="cmd-panel-list"></div>
+          <div id="cmd-panel-resize" class="cmd-panel-resize" title="拖拽调整宽度"></div>
+        </aside>
         <aside id="chat-conv-panel" class="chat-conv-panel">
           <div class="conv-head">
             <span class="conv-title">对话</span>
@@ -432,6 +441,7 @@
             <div id="chat-log" class="chat-log"></div>
             <div class="chat-input-bar">
               <div id="chat-attachments" class="chat-attachments hidden"></div>
+              <div id="cmd-sticky-bar" class="cmd-sticky-bar hidden"></div>
               <div id="chat-cmd-hint" class="chat-cmd-hint hidden"></div>
               <div class="chat-input-row">
                 <textarea id="chat-input" rows="1" placeholder="输入指令或对话，或拖拽资源到此处让机器人处理…（Enter 发送，Ctrl+Enter 换行）" autocomplete="off"></textarea>

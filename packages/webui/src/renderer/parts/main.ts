@@ -14,3 +14,4 @@ import "./12-jobs";
 import "./13-tools";
 import "./14-plugin-ui";
 import "./15-misc";
+import "./16-cmd-panel";

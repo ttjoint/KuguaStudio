@@ -115,6 +115,9 @@ const 断言 = `(() => {
   R.筛选摘要 = has("ex-filter-summary");
   R.聊天日志 = has("chat-log");
   R.输入框 = has("chat-input");
+  R.指令面板 = has("cmd-panel") && has("cmd-panel-list");
+  R.指令面板搜索 = has("cmd-panel-search");
+  R.持续前缀提示条 = has("cmd-sticky-bar");
   try { document.getElementById("tab-logs")?.click(); R.切日志页 = !document.getElementById("logs-view")?.classList.contains("hidden"); } catch (e) { R.切日志页异常 = String(e); }
   try { document.getElementById("tab-kb")?.click(); R.切知识库 = !document.getElementById("explorer-area")?.classList.contains("hidden"); } catch (e) { R.切知识库异常 = String(e); }
   try { document.getElementById("tab-chat")?.click(); R.切对话页 = !document.getElementById("chat-page-view")?.classList.contains("hidden"); } catch (e) { R.切对话页异常 = String(e); }
@@ -132,6 +135,8 @@ const 异步断言 = `(async () => {
   R.系统日志条数 = document.querySelectorAll("#syslog-list > *").length;
   document.getElementById("tab-chat")?.click();
   await sleep(600);
+  // 等指令面板从注册表加载完成
+  for (let i = 0; i < 20 && document.querySelectorAll("#cmd-panel-list .cmd-item").length === 0; i++) await sleep(300);
   R.对话条数 = document.querySelectorAll("#conv-list .conv-item").length;
   document.getElementById("conv-new")?.click();
   await sleep(500);
@@ -145,6 +150,31 @@ const 异步断言 = `(async () => {
   R.指令提示条数 = document.querySelectorAll("#chat-cmd-hint .cmd-hint-item").length;
   // 输入框改为多行 textarea，并验证 Enter 语义（末尾发送 / 中间换行 / Ctrl+Enter 换行）
   R.输入框为多行 = inp instanceof HTMLTextAreaElement;
+  // 指令面板：数据从注册表加载、单击填前缀、双击进入持续前缀模式
+  R.指令面板项数 = document.querySelectorAll("#cmd-panel-list .cmd-item").length;
+  const 面板项 = [...document.querySelectorAll("#cmd-panel-list .cmd-item")];
+  const 翻译项 = 面板项.find((e) => e.querySelector(".cmd-item-cmd")?.textContent === "翻译");
+  if (翻译项 && inp) {
+    翻译项.click();
+    await sleep(150);
+    R.单击填前缀 = inp.value === "翻译 ";
+    inp.value = "";
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+  } else {
+    R.单击填前缀 = "无翻译项";
+  }
+  const ai项 = 面板项.find((e) => e.querySelector(".cmd-item-cmd")?.textContent === "ai");
+  if (ai项) {
+    ai项.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await sleep(150);
+    R.持续前缀高亮 = !!document.querySelector("#cmd-panel-list .cmd-item.active");
+    R.持续前缀提示可见 = !document.getElementById("cmd-sticky-bar")?.classList.contains("hidden");
+    document.getElementById("cmd-sticky-exit")?.click();
+    await sleep(150);
+    R.持续前缀已退出 = document.getElementById("cmd-sticky-bar")?.classList.contains("hidden");
+  } else {
+    R.持续前缀高亮 = "无ai项";
+  }
   if (inp && inp instanceof HTMLTextAreaElement) {
     inp.value = "第一行";
     inp.selectionStart = inp.selectionEnd = inp.value.length;
@@ -435,6 +465,14 @@ async function main() {
     R2.末尾Enter发送 !== true ||
     R2.中间Enter换行 !== true ||
     R2.ctrlEnter换行 !== true ||
+    !R.指令面板 ||
+    !R.指令面板搜索 ||
+    !R.持续前缀提示条 ||
+    (R2.指令面板项数 ?? 0) < 10 ||
+    R2.单击填前缀 !== true ||
+    R2.持续前缀高亮 !== true ||
+    R2.持续前缀提示可见 !== true ||
+    R2.持续前缀已退出 !== true ||
     !R2.回到文件 ||
     !R2.点全部标签 ||
     !R2.次级视图 ||
