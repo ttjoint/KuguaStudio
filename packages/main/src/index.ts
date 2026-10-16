@@ -9,7 +9,7 @@
  * 配置：读取 KUGUA_CONFIG 指定的文件，缺省为当前目录下 kugua.config.json（可选）
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as 创建探测服务器 } from "node:net";
@@ -34,9 +34,7 @@ interface 主控配置 {
 /** 加载配置：文件缺失或非法时回落到默认值 */
 function 加载配置(): 主控配置 {
   const 默认: 主控配置 = { host: "127.0.0.1", port: 24601, token: "", modules: [] };
-  const 路径 = process.env.KUGUA_CONFIG
-    ? pathResolve(process.cwd(), process.env.KUGUA_CONFIG)
-    : pathResolve(process.cwd(), "kugua.config.json");
+  const 路径 = 配置路径();
   if (!existsSync(路径)) return 默认;
   try {
     const 文本 = readFileSync(路径, "utf-8");
@@ -50,6 +48,23 @@ function 加载配置(): 主控配置 {
   } catch (err) {
     console.warn(`[主控] 配置文件解析失败，使用默认配置：${String(err)}`);
     return 默认;
+  }
+}
+
+/** 配置文件路径 */
+function 配置路径(): string {
+  return process.env.KUGUA_CONFIG
+    ? pathResolve(process.cwd(), process.env.KUGUA_CONFIG)
+    : pathResolve(process.cwd(), "kugua.config.json");
+}
+
+/** 配置指纹：文件不存在返回空串，存在返回修改时间+大小 */
+function 配置指纹(): string {
+  try {
+    const st = statSync(配置路径());
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return "";
   }
 }
 
@@ -156,8 +171,20 @@ async function 启动(): Promise<void> {
     }
   });
 
+  // —— 配置热检测：kugua.config.json 变化后自动重新检测模块（新增/卸载/变更）——
+  let 上次配置指纹 = 配置指纹();
+  const 检测定时器 = setInterval(() => {
+    const 指纹 = 配置指纹();
+    if (指纹 === 上次配置指纹) return;
+    上次配置指纹 = 指纹;
+    console.log("[主控] 检测到 kugua.config.json 变更，自动重新检测模块……");
+    重新检测模块(true).catch((err) => console.error("[主控] 自动检测模块失败：" + String(err)));
+  }, 5000);
+  if (typeof 检测定时器.unref === "function") 检测定时器.unref();
+
   // —— 关闭 ——
   const 关闭 = async (): Promise<void> => {
+    clearInterval(检测定时器);
     console.log("[主控] 正在关闭……");
     if (!服务端) return;
     // 1) 广播 system.shutdown，同时等待 server.stop 内置的 200ms
@@ -322,6 +349,101 @@ function 注册内置动作(服务端: NiganeServer): void {
       停止模块(name).then(() => ({ stopped: true })),
     );
   });
+
+  // 重新检测模块：重读配置/目录，动态加载新增、卸载已移除
+  服务端.handle("nigane.registry.reload", async (params) => {
+    const p = (params ?? {}) as { autoStart新增?: boolean };
+    return 重新检测模块(p.autoStart新增 !== false);
+  });
+}
+
+/**
+ * 动态检测模块表：重新读取 kugua.config.json，与当前描述表做差集。
+ *
+ *   - 新增模块：写入描述表；若为 process 且 autoStart 且请求了自动启动，则拉起。
+ *   - 移除模块：从描述表移除；若其子进程在跑，则先停掉。
+ *   - 变更模块：更新描述（入口/自启等）；若进程在跑且入口变化，重启它。
+ *
+ * 返回本次变更摘要，供 WebUI/定时/MCP 展示。整个过程不误杀非本平台的进程。
+ */
+async function 重新检测模块(自动启动新增: boolean): Promise<{
+  新增: string[];
+  移除: string[];
+  更新: string[];
+  已启动: string[];
+  已停止: string[];
+}> {
+  const 新配置 = 加载配置();
+  const 新表 = new Map<string, 模块描述>();
+  for (const m of 新配置.modules ?? []) 新表.set(m.name, m);
+
+  const 旧名集 = new Set(服务端?.descriptionNames() ?? []);
+  const 新名集 = new Set(新表.keys());
+  const 新增: string[] = [];
+  const 移除: string[] = [];
+  const 更新: string[] = [];
+  const 已启动: string[] = [];
+  const 已停止: string[] = [];
+
+  // —— 新增 + 更新 ——
+  for (const [名, 描述] of 新表) {
+    if (!旧名集.has(名)) {
+      新增.push(名);
+      服务端?.setDescription(描述);
+      if (描述.type === "library" && 描述.file) {
+        库文件状态.set(名, existsSync(pathResolve(process.cwd(), 描述.file)));
+      }
+    } else {
+      const 旧 = 服务端?.getDescription(名);
+      if (旧 && (旧.entry !== 描述.entry || 旧.autoStart !== 描述.autoStart || 旧.type !== 描述.type)) {
+        更新.push(名);
+        服务端?.setDescription(描述);
+        // 入口/类型变更时，若旧进程在跑则重启以加载新代码
+        if (旧.entry !== 描述.entry && 子进程表.has(名)) {
+          await 停止模块(名);
+          已停止.push(名);
+        }
+      }
+    }
+  }
+
+  // —— 移除 ——
+  for (const 名 of 旧名集) {
+    if (新名集.has(名)) continue;
+    移除.push(名);
+    if (子进程表.has(名)) {
+      await 停止模块(名);
+      已停止.push(名);
+    }
+    库文件状态.delete(名);
+    服务端?.removeDescription(名);
+  }
+
+  // —— 自动启动新增模块 ——
+  if (自动启动新增) {
+    for (const 名 of 新增) {
+      const 描述 = 新表.get(名)!;
+      if (描述.type !== "process" || !描述.autoStart) continue;
+      if (子进程表.has(名)) continue;
+      try {
+        await 启动模块(描述);
+        已启动.push(名);
+      } catch (err) {
+        console.error(`[主控] 动态启动新模块失败：${名} — ${String(err)}`);
+      }
+    }
+  }
+
+  const 变更 = 新增.length + 移除.length + 更新.length + 已停止.length + 已启动.length;
+  if (变更 > 0) {
+    console.log(
+      `[主控] 模块重新检测：新增 [${新增.join("、") || "-"}]，移除 [${移除.join("、") || "-"}]，` +
+        `更新 [${更新.join("、") || "-"}]，已启动 [${已启动.join("、") || "-"}]，已停止 [${已停止.join("、") || "-"}]`,
+    );
+  }
+  // 广播变更，让 WebUI 等实时刷新
+  服务端?.broadcast("registry.changed", { 新增, 移除, 更新, 已启动, 已停止 });
+  return { 新增, 移除, 更新, 已启动, 已停止 };
 }
 
 /** 组装模块详情（把子进程 pid / library 存在性塞进去） */

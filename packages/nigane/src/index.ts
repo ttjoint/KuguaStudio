@@ -187,6 +187,16 @@ export class NiganeServer extends EventEmitter {
     for (const d of 列表) this.描述表.set(d.name, d);
   }
 
+  /** 移除一条模块描述（模块被从配置/目录中删除时调用） */
+  removeDescription(name: string): void {
+    this.描述表.delete(name);
+  }
+
+  /** 当前描述表中的模块名 */
+  descriptionNames(): string[] {
+    return [...this.描述表.keys()];
+  }
+
   /** 获取模块描述 */
   getDescription(name: string): 模块描述 | undefined {
     return this.描述表.get(name);

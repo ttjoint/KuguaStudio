@@ -11,6 +11,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as 创建探测服务器 } from "node:net";
 import { spawn, exec, execFile, type ChildProcess } from "node:child_process";
 import { resolve, join, extname } from "node:path";
 import {
@@ -30,8 +31,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { NiganeClient } from "@kugua/nigane";
 import { MCP服务器 } from "@kugua/mcp";
 import type { 能力声明 } from "@kugua/capability";
+import { 获取单实例锁, 读取单实例锁, 数据根 } from "@kugua/paths";
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const 渲染根 = resolve(__dirname, "renderer");
@@ -77,6 +78,10 @@ const 自动打开 = process.argv.includes("--no-open") ? false : 配置.webui?.
 let 主控进程: ChildProcess | null = null;
 let 苦音客户端: NiganeClient | null = null;
 let 已就绪 = false;
+/** 平台实例锁（单实例守卫） */
+const 实例锁路径 = resolve(数据根(), "webui.lock");
+/** 释放当前实例锁（由 主流程 注入） */
+let 释放实例锁: () => void = () => undefined;
 
 /** 已连接的浏览器 WebSocket 客户端 */
 const 订阅者 = new Set<WebSocket>();
@@ -122,47 +127,27 @@ const mcp服务器 = new MCP服务器({
 
 // ===== 主控进程 =====
 
-/** 清理占用指定端口的旧进程（仅用于主控端口） */
-async function 清理端口占用(port: number): Promise<void> {
-  try {
-    if (process.platform === "win32") {
-      const { stdout } = await execAsync(`netstat -aon | findstr :${port} | findstr LISTENING`);
-      const pids = new Set<number>();
-      for (const line of stdout.trim().split(/\r?\n/).filter(Boolean)) {
-        const parts = line.split(/\s+/).filter(Boolean);
-        const pid = parseInt(parts[parts.length - 1] ?? "", 10);
-        if (!Number.isNaN(pid)) pids.add(pid);
-      }
-      for (const pid of pids) {
-        if (pid === process.pid) continue;
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch {
-          try {
-            await execAsync(`taskkill /F /PID ${pid}`);
-          } catch {
-            /* 忽略 */
-          }
-        }
-      }
-      if (pids.size > 0) await new Promise((r) => setTimeout(r, 500));
-    } else {
-      const { stdout } = await execAsync(`lsof -ti:${port} 2>/dev/null || true`);
-      for (const s of stdout.trim().split(/\s+/).filter(Boolean)) {
-        const pid = parseInt(s, 10);
-        if (!Number.isNaN(pid) && pid !== process.pid) {
-          try {
-            process.kill(pid, "SIGTERM");
-          } catch {
-            /* 忽略 */
-          }
-        }
-      }
-    }
-  } catch {
-    /* 无旧进程 */
-  }
+/**
+ * 单实例守卫：若已有平台实例在运行，返回其实例信息；否则获取锁。
+ * 注意：本函数**不会**结束任何进程（不按端口/进程名误杀）；
+ * 这修掉了旧实现「启动 WebUI 就把在跑的主控 kill 掉」的危险行为。
+ */
+function 单实例守卫(): { 已有: boolean; 信息?: { pid: number; 附加?: Record<string, unknown> } } {
+  const 已有 = 读取单实例锁(实例锁路径);
+  if (已有) return { 已有: true, 信息: { pid: 已有.pid, 附加: 已有.附加 } };
+  return { 已有: false };
 }
+
+/** 探测主控端口是否已被占用（仅探测，不杀进程） */
+function 主控端口被占用(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const 探测 = 创建探测服务器();
+    探测.once("error", (err: NodeJS.ErrnoException) => resolve(err.code === "EADDRINUSE"));
+    探测.once("listening", () => 探测.close(() => resolve(false)));
+    探测.listen(port, 主控host);
+  });
+}
+
 
 function 启动主控(): Promise<void> {
   return new Promise((res) => {
@@ -548,8 +533,23 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
       );
       return;
     }
+    if (req.method === "POST" && 路径 === "/api/restart") {
+      // 重启平台：先把响应发回去，再异步重启自己（子进程/模块随主控一起重启）
+      发送JSON(res, 200, { restarting: true });
+      setTimeout(() => 重启平台().catch((e) => console.error("[WebUI] 重启失败：", e)), 300);
+      return;
+    }
+    if (req.method === "POST" && 路径 === "/api/shutdown") {
+      发送JSON(res, 200, { shuttingDown: true });
+      setTimeout(() => {
+        苦音客户端?.close();
+        主控进程?.kill();
+        process.exit(0);
+      }, 300);
+      return;
+    }
     if (req.method === "GET" && 路径 === "/api/status") {
-      发送JSON(res, 200, { ready: 已就绪, main: `ws://${主控host}:${主控port}`, webui: WebUI端口 });
+      发送JSON(res, 200, { ready: 已就绪, main: `ws://${主控host}:${主控port}`, webui: WebUI端口, pid: process.pid });
       return;
     }
     发送JSON(res, 404, { error: "未知接口" });
@@ -561,7 +561,34 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
 // ===== 启动 =====
 
 async function 主流程(): Promise<void> {
-  await 清理端口占用(主控port);
+  // —— 单实例守卫：已有平台实例则直接退出，不重复启动，也绝不杀已有实例 ——
+  const 守卫 = 单实例守卫();
+  if (守卫.已有) {
+    console.log(
+      `[WebUI] 检测到已有苦瓜工作室实例在运行（pid=${守卫.信息?.pid}），本实例退出。\n` +
+        `        若要访问已运行的实例，请打开：http://127.0.0.1:${WebUI端口}`,
+    );
+    process.exit(0);
+  }
+  // 额外保险：主控端口已被占用（且不是本实例）也视为已有实例
+  if (await 主控端口被占用(主控port)) {
+    console.log(`[WebUI] 检测到主控端口 ${主控host}:${主控port} 已被占用，视为已有实例在运行，本实例退出。`);
+    process.exit(0);
+  }
+  // 获取实例锁（含退出时释放）
+  const 锁 = 获取单实例锁(实例锁路径, "webui", {
+    端口: WebUI端口,
+    主控端口: 主控port,
+    地址: `http://127.0.0.1:${WebUI端口}`,
+  });
+  if (!锁.获得) {
+    console.log(`[WebUI] 已有实例在运行（pid=${锁.已有?.pid}），本实例退出。`);
+    process.exit(0);
+  }
+  const 释放锁 = (): void => 锁.释放();
+  释放实例锁 = 释放锁;
+  process.on("exit", 释放锁);
+
   await 启动主控();
   await 连接苦音();
 
@@ -681,6 +708,51 @@ function 启动托盘(url: string): void {
   } catch {
     /* 托盘启动失败不影响服务 */
   }
+}
+
+/**
+ * 重启平台：
+ *   1) 先关闭子模块与主控（避免端口占用/孤儿进程）；
+ *   2) 以 detached 方式重新启动本 WebUI 脚本（同一 cwd / 环境变量 / 参数）；
+ *   3) 退出当前进程。
+ * 新实例会通过单实例守卫确认旧实例已退出后再接管。
+ */
+async function 重启平台(): Promise<void> {
+  console.log("[WebUI] 正在重启平台……");
+  const 入口 = process.argv[1];
+  const 参数 = process.argv.slice(2);
+  // 关闭主控（主控会广播 system.shutdown 并结束所有子模块）
+  try {
+    苦音客户端?.close();
+  } catch {
+    /* 忽略 */
+  }
+  const 主控 = 主控进程;
+  if (主控 && !主控.killed) {
+    await new Promise<void>((resolve) => {
+      const 完成 = (): void => resolve();
+      主控.once("exit", 完成);
+      主控.kill("SIGTERM");
+      setTimeout(完成, 3000);
+    });
+  }
+  if (入口) {
+    try {
+      const 子 = spawn(process.execPath, [入口, ...参数], {
+        cwd: process.cwd(),
+        env: process.env,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      子.unref();
+    } catch (err) {
+      console.error("[WebUI] 重启时启动新实例失败：", err);
+    }
+  }
+  // 释放实例锁后退出（新实例才能接管）
+  释放实例锁();
+  process.exit(0);
 }
 
 /** 退出清理 */

@@ -11,7 +11,7 @@
  *   { "plugins": { "dir": "plugins", "marketIndex": "https://raw.githubusercontent.com/.../plugins.json" } }
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, watch as 监视目录 } from "node:fs";
 import { join, resolve } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import type { NiganeClient } from "@kugua/nigane";
@@ -305,10 +305,72 @@ export function 启动插件运行时(
     return { url: 市场索引, entries: 带状态 };
   });
 
+  // 动态探测插件目录：未加载的插件自动加载启用，已消失的插件自动卸载
+  客户端.onRequest("plugins.detect", async () => {
+    return 动态检测();
+  });
+
+  /** 扫描目录与当前加载表做差集：新增则加载启用，消失则卸载 */
+  const 动态检测 = async (): Promise<{ 已加载: string[]; 已卸载: string[] }> => {
+    const 已加载: string[] = [];
+    const 已卸载: string[] = [];
+    const 磁盘 = 加载器.扫描();
+    const 磁盘名集 = new Set(磁盘.map((r) => r.name));
+    // 新出现的插件：加载并启用
+    for (const 记录 of 磁盘) {
+      if (加载器.获取(记录.name)) continue;
+      try {
+        await 加载器.加载(记录.name);
+        await 加载器.启用(记录.name);
+        已加载.push(记录.name);
+        日志.信息(`动态发现并启用插件：${记录.name}`);
+      } catch (err) {
+        日志.错误(`动态加载插件 ${记录.name} 失败：${String(err)}`);
+      }
+    }
+    // 目录已消失的插件：卸载
+    for (const 记录 of 加载器.列表()) {
+      if (磁盘名集.has(记录.name)) continue;
+      try {
+        await 加载器.卸载(记录.name);
+        已卸载.push(记录.name);
+        日志.信息(`插件目录已消失，自动卸载：${记录.name}`);
+      } catch (err) {
+        日志.警告(`自动卸载 ${记录.name} 失败：${String(err)}`);
+      }
+    }
+    if (已加载.length || 已卸载.length) {
+      客户端.sendEvent("plugins.changed", { 已加载, 已卸载 });
+    }
+    return { 已加载, 已卸载 };
+  };
+
+  // —— 目录监听：插件目录下新增/删除目录时自动检测（防抖）——
+  let 目录监听: import("node:fs").FSWatcher | null = null;
+  let 防抖定时: NodeJS.Timeout | null = null;
+  try {
+    目录监听 = 监视目录(插件目录, () => {
+      if (防抖定时) clearTimeout(防抖定时);
+      防抖定时 = setTimeout(() => void 动态检测().catch((err) => 日志.错误(`自动检测插件失败：${String(err)}`)), 1200);
+    });
+  } catch (err) {
+    日志.警告(`插件目录监听启动失败（将定时兜底）：${String(err)}`);
+  }
+  // 定时兜底：目录监听在部分平台（如网络盘）不可靠
+  const 定时检测 = setInterval(() => void 动态检测().catch(() => undefined), 15000);
+  if (typeof 定时检测.unref === "function") 定时检测.unref();
+
   return {
     加载器,
     关闭: async () => {
       日志.信息("正在关闭插件运行时……");
+      if (防抖定时) clearTimeout(防抖定时);
+      clearInterval(定时检测);
+      try {
+        目录监听?.close();
+      } catch {
+        /* 忽略 */
+      }
       await 加载器.卸载全部();
     },
   };

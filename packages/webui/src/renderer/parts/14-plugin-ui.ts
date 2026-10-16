@@ -43,6 +43,19 @@ document.getElementById("plugins-refresh")?.addEventListener("click", () => {
   void 刷新模块列表();
   void 刷新统计();
 });
+// 检测模块：重新扫描配置/目录，动态加载或卸载发生变化的模块
+document.getElementById("plugins-modules-detect")?.addEventListener("click", async () => {
+  try {
+    await window.kugua.request("nigane", "nigane.registry.reload", {});
+    await window.kugua.request("plugins", "plugins.detect", {}).catch(() => undefined);
+    添加消息("已重新检测模块与插件（自动加载/卸载变更）", "system");
+  } catch (err) {
+    添加消息(`检测模块失败：${String(err)}`, "error");
+  }
+  void 刷新模块列表();
+  void 刷新本地插件();
+  void 刷新统计();
+});
 document.getElementById("plugins-refresh-local")?.addEventListener("click", () => void 刷新本地插件());
 document.getElementById("plugins-market-refresh")?.addEventListener("click", () => void 刷新插件市场());
 document.getElementById("plugins-install-btn")?.addEventListener("click", async () => {
@@ -87,5 +100,17 @@ document.getElementById("plugins-market-list")?.addEventListener("click", (ev) =
     btn.dataset.name ?? "",
     btn.dataset.repo,
   );
+});
+
+// ===== 平台运行控制：重启 / 退出 =====
+document.getElementById("settings-restart")?.addEventListener("click", () => {
+  添加消息("正在重启平台……", "system");
+  void fetch("/api/restart", { method: "POST" }).catch(() => undefined);
+  // 重启期间断连，稍后自动刷新页面重新连接
+  setTimeout(() => window.location.reload(), 8000);
+});
+document.getElementById("settings-shutdown")?.addEventListener("click", () => {
+  添加消息("正在关闭平台……", "system");
+  void fetch("/api/shutdown", { method: "POST" }).catch(() => undefined);
 });
 

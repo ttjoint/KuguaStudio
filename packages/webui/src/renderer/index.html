@@ -358,7 +358,10 @@
           <div class="oc-section">
             <div class="oc-section-title">
               <span>已接入节点 / 模块</span>
-              <button id="plugins-refresh" class="tb-btn small">&#x21BB; 刷新</button>
+              <span class="oc-section-tools">
+                <button id="plugins-modules-detect" class="tb-btn small" title="重新探测模块目录与配置，动态加载/卸载变更">&#x1F50D; 检测</button>
+                <button id="plugins-refresh" class="tb-btn small">&#x21BB; 刷新</button>
+              </span>
             </div>
             <ul id="plugins-module-list" class="oc-module-list"></ul>
           </div>
@@ -399,6 +402,17 @@
               <button id="settings-fts-rebuild" class="tb-btn small">重建全文索引</button>
             </div>
             <div class="oc-about" style="opacity:0.7">标签随文件：在文件右键菜单选择「导出侧车」，标签或关系会写入文件旁的 <code>.mkg.json</code>。</div>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title"><span>平台运行</span></div>
+            <div class="oc-setting-row">
+              <span class="oc-setting-label">重启平台</span>
+              <span class="oc-section-tools">
+                <button id="settings-restart" class="tb-btn small" title="关闭并重新启动主控与全部模块">&#x21BB; 重启</button>
+                <button id="settings-shutdown" class="tb-btn small" title="关闭整个平台">&#x23FB; 退出</button>
+              </span>
+            </div>
+            <div class="oc-about" style="opacity:0.7">重启会关闭主控与全部模块后重新拉起；平台同一时刻只允许运行一个实例，重复启动会被自动检测并拒绝。</div>
           </div>
           <div class="oc-section">
             <div class="oc-section-title"><span>关于</span></div>
