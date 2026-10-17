@@ -26,7 +26,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NiganeClient } from "@kugua/nigane";
-import type { 配置声明, 配置载荷 } from "@kugua/nigane";
+import type { 配置声明, 配置载荷, 模块UI声明 } from "@kugua/nigane";
 import type { 能力声明 } from "@kugua/capability";
 
 /** 配置热重载回调：收到平台推送的新配置 */
@@ -110,6 +110,13 @@ export interface 启动模块选项<配置 extends 基础模块配置 = 基础�
    * 载荷里是**合并后的完整配置**，模块无需自己处理两层文件。
    */
   配置变更?: 模块配置处理器;
+  /**
+   * 自定义 UI 页（可选）：声明式表单表达不了的复杂交互（试听、进度条等）时使用。
+   *
+   * `entry` 是**相对模块入口文件所在目录**的路径，平台据此提供
+   * `GET /module-ui/<模块名>/<路径>` 并在顶栏生成一个 iframe 标签页。
+   */
+  界面?: 模块UI声明;
 }
 
 /**
@@ -189,6 +196,7 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
     capabilities,
     capabilityDefs: 能力声明,
     配置声明: 选项.配置声明,
+    ui: 选项.界面,
   });
 
   // —— 注册处理器 ——

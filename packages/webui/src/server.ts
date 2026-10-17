@@ -13,7 +13,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as 创建探测服务器 } from "node:net";
 import { spawn, exec, execFile, type ChildProcess } from "node:child_process";
-import { resolve, join, extname } from "node:path";
+import { resolve, join, extname, dirname, sep } from "node:path";
 import {
   existsSync,
   readFileSync,
@@ -286,6 +286,96 @@ async function 发送插件UI(req: IncomingMessage, res: ServerResponse, url: UR
   const 根 = join(插件根(), 名);
   const 目标 = resolve(根, 相对);
   if (!目标.startsWith(根) || !existsSync(目标) || !statSync(目标).isFile()) {
+    res.writeHead(404).end("Not Found");
+    return;
+  }
+  发送文件(req, res, 目标);
+}
+
+
+/** 模块页声明（来自模块握手时的 `ui` 字段） */
+interface 模块页 {
+  name: string;
+  title: string;
+  entry: string;
+}
+
+/** 模块 UI 根目录缓存：模块名 → 物理根目录（由模块入口路径推断） */
+const 模块UI根缓存 = new Map<string, string>();
+
+/**
+ * 取得模块 UI 的物理根目录。
+ *
+ * 模块可能在任意位置，平台只知道它的入口文件路径（`entry`），
+ * 因此约定 UI 目录**相对于入口文件所在目录**。
+ */
+async function 解析模块UI根(名: string): Promise<string | null> {
+  const 缓存 = 模块UI根缓存.get(名);
+  if (缓存 && existsSync(缓存)) return 缓存;
+
+  if (!苦音客户端) return null;
+  try {
+    const 详情 = (await 苦音客户端.request("nigane", "nigane.registry.details", {}, 3000)) as Array<{
+      name: string;
+      entry?: string;
+    }>;
+    const 项 = 详情.find((d) => d.name === 名);
+    if (!项?.entry) return null;
+    const 根 = dirname(resolve(process.cwd(), 项.entry));
+    if (!existsSync(根)) return null;
+    模块UI根缓存.set(名, 根);
+    return 根;
+  } catch {
+    return null;
+  }
+}
+
+/** 列出所有带 UI 声明的模块 */
+async function 列出模块页面(): Promise<模块页[]> {
+  if (!苦音客户端) return [];
+  try {
+    const 详情 = (await 苦音客户端.request("nigane", "nigane.registry.details", {}, 3000)) as Array<{
+      name: string;
+      ui?: { title?: string; entry?: string };
+    }>;
+    return (详情 ?? [])
+      .filter((d) => d.ui)
+      .map((d) => ({
+        name: d.name,
+        title: d.ui?.title ?? d.name,
+        entry: d.ui?.entry ?? "index.html",
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** 发送模块 UI 文件（防目录穿越） */
+async function 发送模块UI(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  const 路径 = decodeURIComponent(url.pathname).replace(/^\/module-ui\//, "");
+  const 斜 = 路径.indexOf("/");
+  const 名 = 斜 === -1 ? 路径 : 路径.slice(0, 斜);
+  let 相对 = 斜 === -1 ? "" : 路径.slice(斜 + 1);
+  if (!名) {
+    res.writeHead(404).end("Not Found");
+    return;
+  }
+  const 根 = await 解析模块UI根(名);
+  if (!根) {
+    res.writeHead(404).end("Not Found");
+    return;
+  }
+  if (!相对) {
+    const 页 = (await 列出模块页面()).find((p) => p.name === 名);
+    相对 = 页?.entry ?? "index.html";
+  }
+  const 目标 = resolve(根, 相对);
+  // 防目录穿越：解析后必须仍在根目录内
+  if (!目标.startsWith(根 + sep) && 目标 !== 根) {
+    res.writeHead(403).end("Forbidden");
+    return;
+  }
+  if (!existsSync(目标) || !statSync(目标).isFile()) {
     res.writeHead(404).end("Not Found");
     return;
   }
@@ -634,9 +724,21 @@ async function 主流程(): Promise<void> {
       return;
     }
 
+    // 模块 UI 静态资源（模块自己声明的 iframe 页面）
+    if (url.pathname.startsWith("/module-ui/")) {
+      void 发送模块UI(req, res, url);
+      return;
+    }
+
     // 插件页面列表
     if (req.method === "GET" && url.pathname === "/api/plugin-pages") {
       发送JSON(res, 200, 列出插件页面());
+      return;
+    }
+
+    // 模块页面列表
+    if (req.method === "GET" && url.pathname === "/api/module-pages") {
+      void 列出模块页面().then((页) => 发送JSON(res, 200, 页));
       return;
     }
 

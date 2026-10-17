@@ -20,6 +20,7 @@ import {
   type 模块详情,
 } from "@kugua/nigane";
 import { 能力注册表, type 能力声明, type 能力入口 } from "@kugua/capability";
+import { 归一全部能力 } from "./capability-normalize.js";
 import type { 配置声明 } from "@kugua/nigane";
 import { 审计日志, type 审计过滤 } from "@kugua/audit";
 import { 日志器, type 日志级别 } from "@kugua/logger";
@@ -1479,13 +1480,23 @@ function 保存配置(配置对象: 主控配置): boolean {
 
 function 汇总能力(信息: 模块信息): void {
   能力表.移除模块(信息.name);
-  const 显式 = new Map<string, 能力声明>();
-  for (const 声明 of 信息.capabilityDefs ?? []) 显式.set(声明.名称, 声明);
+  const { 合法: 显式, 问题 } = 归一全部能力(信息.capabilityDefs);
+  for (const { 声明, 原因 } of 问题) {
+    console.warn(
+      `[主控] 警告：模块「${信息.name}」上报的能力声明被忽略（${原因}）：` +
+        JSON.stringify(声明).slice(0, 200),
+    );
+  }
   const 名称集 = new Set<string>([...(信息.capabilities ?? []), ...显式.keys()]);
   for (const 名称 of 名称集) {
     const 声明 = 显式.get(名称);
     if (声明) {
-      能力表.注册({ ...声明, 模块: 声明.模块 || 信息.name });
+      try {
+        能力表.注册({ ...声明, 模块: 声明.模块 || 信息.name });
+      } catch (err) {
+        // 单条能力声明不合法不应拖垮整个平台
+        console.warn(`[主控] 警告：模块「${信息.name}」的能力「${名称}」注册失败：${String(err)}`);
+      }
     } else {
       // 跳过与模块同名的自标识（如 capabilities: ["webui"]）
       if (名称 === 信息.name) continue;

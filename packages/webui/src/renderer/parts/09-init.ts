@@ -1,6 +1,7 @@
 import { 同步能力指令库 } from "./02-chat-core";
 import { 添加消息 } from "./03-preview";
 import { 刷新本地插件, 刷新模块列表 } from "./06-shell";
+import { 初始化扩展列表, 刷新扩展列表 } from "./18-extensions";
 import { Explorer } from "./07-explorer";
 import { 刷新模块配置, 绑定模块管理事件 } from "./14-plugin-ui";
 import { 初始化指令面板, 加载指令面板数据 } from "./16-cmd-panel";
@@ -23,8 +24,8 @@ function 排队刷新(动作: () => void): void {
 
 window.kugua.onBus((action) => {
   if (action === "capability.changed") 排队刷新(() => { void 同步能力指令库(); void 加载指令面板数据(); });
-  else if (action === "registry.changed") 排队刷新(() => void 刷新模块列表());
-  else if (action === "plugins.changed") 排队刷新(() => void 刷新本地插件());
+  else if (action === "registry.changed") 排队刷新(() => { void 刷新模块列表(); void 刷新扩展列表(); });
+  else if (action === "plugins.changed") 排队刷新(() => { void 刷新本地插件(); void 刷新扩展列表(); });
 });
 
 // 初始化聊天页左侧「指令面板」
@@ -33,6 +34,9 @@ window.kugua.onBus((action) => {
 // 初始化设置页「模块管理」
 绑定模块管理事件();
 void 刷新模块配置();
+
+// 插件页的「全部扩展」统一列表
+初始化扩展列表();
 
 // 知识库浏览器的初始化统一在这里编排。
 // 放在 09 而不是 08-logs，是为了断开 08-logs ↔ 07-explorer 的循环依赖：

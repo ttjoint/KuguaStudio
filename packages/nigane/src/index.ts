@@ -161,6 +161,19 @@ export interface 模块信息 {
    * 平台据此自动渲染配置表单，无需模块自带前端页面。
    */
   配置声明?: 配置声明;
+  /**
+   * 自定义 UI 页（可选）：需要声明式表单表达不了的复杂交互时使用。
+   * `entry` 是相对模块入口文件所在目录的路径。
+   */
+  ui?: 模块UI声明;
+}
+
+/** 模块自带的 UI 页声明（iframe 加载） */
+export interface 模块UI声明 {
+  /** 顶栏标签页标题 */
+  title: string;
+  /** 相对模块入口目录的 HTML 路径，默认 index.html */
+  entry?: string;
 }
 
 /** 外部模块自报的托管启动信息 */
@@ -286,6 +299,7 @@ export class NiganeServer extends EventEmitter {
         description: 描述?.description,
         entry: 描述?.entry,
         file: 描述?.file,
+        ui: 已注册?.info.ui,
       });
     }
     return 结果;
@@ -469,6 +483,7 @@ export class NiganeServer extends EventEmitter {
         capabilities: 参数.capabilities,
         capabilityDefs: 参数.capabilityDefs,
         配置声明: 参数.配置声明,
+        ui: 参数.ui,
         path: 参数.path,
         instance: 参数.instance,
         托管: 参数.托管,
@@ -492,6 +507,7 @@ export class NiganeServer extends EventEmitter {
       capabilities: 参数.capabilities,
       capabilityDefs: 参数.capabilityDefs,
       配置声明: 参数.配置声明,
+      ui: 参数.ui,
       path: 参数.path,
       instance: 参数.instance,
       托管: 参数.托管,
@@ -619,6 +635,8 @@ export class NiganeServer extends EventEmitter {
 export interface 客户端选项 {
   /** 模块名（唯一） */
   name: string;
+  /** 自定义 UI 页声明（可选，平台据此生成 iframe 标签页） */
+  ui?: 模块UI声明;
   /** 主控地址，如 ws://127.0.0.1:24601 */
   url: string;
   token?: string;
@@ -709,6 +727,7 @@ export class NiganeClient extends EventEmitter {
                 capabilities: this.计算能力名(),
                 capabilityDefs: this.选项.capabilityDefs ?? [],
                 配置声明: this.选项.配置声明,
+                ui: this.选项.ui,
                 托管: this.选项.托管,
                 token: this.选项.token ?? "",
               },

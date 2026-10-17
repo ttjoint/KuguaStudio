@@ -17,3 +17,5 @@ import "./15-misc";
 import "./16-cmd-panel";
 // 声明式配置表单（模块自报配置声明 → 平台自动渲染）
 import "./17-config-form";
+// 扩展统一列表（模块 + 插件合表展示）
+import "./18-extensions";

@@ -5,7 +5,7 @@
   "description": "语音合成模块（M6）：sherpa-onnx 离线 TTS / ChatTTS HTTP / Windows SAPI，输出 base64 音频",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"const{cpSync}=require('node:fs');cpSync('ui','dist/ui',{recursive:true})\"",
     "start": "node dist/index.js"
   },
   "dependencies": {

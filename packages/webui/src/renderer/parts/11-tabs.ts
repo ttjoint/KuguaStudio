@@ -1,5 +1,6 @@
 import { 聊天日志 } from "./02-chat-core";
 import { 刷新插件市场, 刷新本地插件, 刷新模块列表, 刷新统计 } from "./06-shell";
+import { 刷新扩展列表 } from "./18-extensions";
 import { 刷新系统日志 } from "./08-logs";
 import { 初始化对话页 } from "./10-chat-page";
 import { 刷新作业列表 } from "./12-jobs";
@@ -29,7 +30,7 @@ export const 视图映射: Record<string, { 视图: HTMLElement; 激活时?: () 
   "tab-plugins": {
     视图: 插件视图El,
     激活时: async () => {
-      await Promise.all([刷新模块列表(), 刷新统计(), 刷新本地插件()]);
+      await Promise.all([刷新扩展列表(), 刷新模块列表(), 刷新统计(), 刷新本地插件()]);
       void 刷新插件市场();
     },
   },

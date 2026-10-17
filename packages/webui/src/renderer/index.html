@@ -322,6 +322,21 @@
         <div class="oc-page-body">
           <div class="oc-section">
             <div class="oc-section-title">
+              <span>&#x1F4E6; 全部扩展</span>
+              <span class="oc-section-tools">
+                <input id="ext-filter" class="oc-repo-input" type="text" placeholder="搜索名称 / 能力 / 命令">
+                <button id="ext-refresh" class="tb-btn small">&#x21BB; 刷新</button>
+              </span>
+            </div>
+            <div class="oc-about" style="opacity:0.7;margin-bottom:8px">
+              模块与插件是两种不同的东西：<strong>模块</strong>跑在独立进程里，可被外部程序调用；
+              <strong>插件</strong>在主控内动态加载，用于注册聊天命令。下面统一列出两者。
+            </div>
+            <div id="ext-summary" class="ext-summary"></div>
+            <ul id="ext-list" class="oc-module-list"><li style="color:var(--text-dim)">加载中…</li></ul>
+          </div>
+          <div class="oc-section">
+            <div class="oc-section-title">
               <span>本地插件（plugins/）</span>
               <span class="oc-section-tools">
                 <input id="plugins-repo-input" class="oc-repo-input" type="text" placeholder="git 仓库地址或市场名" />

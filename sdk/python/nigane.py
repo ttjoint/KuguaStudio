@@ -51,6 +51,46 @@ Handler = Callable[[Dict[str, Any], Dict[str, Any]], Any]
 EventHandler = Callable[[Dict[str, Any], Dict[str, Any]], None]
 
 
+
+# Protocol field aliases. The wire format uses Chinese field names, which is
+# idiomatic for the platform but awkward in Python. Accept the common English
+# spellings too, so a capability can be written either way:
+#
+#   {"名称": "tts.speak", "说明": "..."}   # canonical
+#   {"name": "tts.speak", "description": "..."}  # also accepted
+_CAPABILITY_ALIASES = {
+    "name": "名称",
+    "description": "说明",
+    "title": "标题",
+    "action": "动作",
+    "params": "参数",
+    "returns": "返回",
+    "permissions": "权限",
+    "expose": "暴露",
+    "dangerous": "危险",
+    "long_running": "长任务",
+}
+
+
+def normalize_capability(decl: Dict[str, Any]) -> Dict[str, Any]:
+    """Map English keys in a capability declaration to protocol field names.
+
+    Keys already using the canonical names are left untouched, so both styles
+    can be mixed. Unrecognised keys pass through unchanged.
+    """
+    out: Dict[str, Any] = {}
+    for key, value in decl.items():
+        out[_CAPABILITY_ALIASES.get(key, key)] = value
+    return out
+
+
+def normalize_capabilities(decls: Optional[list]) -> Optional[list]:
+    """Apply :func:`normalize_capability` to a whole list (None passes through)."""
+    if decls is None:
+        return None
+    return [normalize_capability(d) if isinstance(d, dict) else d for d in decls]
+
+
 def make_envelope(msg_type: str, sender: str, **fields: Any) -> Dict[str, Any]:
     """Build a Nigane protocol envelope."""
     envelope = {
@@ -105,6 +145,8 @@ class NiganeClient:
         managed_args: Optional[list[str]] = None,
         managed_cwd: str | None = None,
         path: str | None = None,
+        config_schema: Optional[Dict[str, Any]] = None,
+        ui: Optional[Dict[str, Any]] = None,
         request_timeout: float = 10.0,
         max_retries: int = 5,
     ) -> None:
@@ -113,7 +155,7 @@ class NiganeClient:
         self.port = port or int(os.environ.get("KUGUA_PORT", "24601"))
         self.token = token if token is not None else os.environ.get("KUGUA_TOKEN", "")
         self.version = version
-        self.capabilities = capabilities or []
+        self.capabilities = normalize_capabilities(capabilities) or []
         self.request_timeout = request_timeout
         self.max_retries = max_retries
 
@@ -128,6 +170,16 @@ class NiganeClient:
         self.managed_entry = managed_entry
         self.managed_args = managed_args or []
         self.managed_cwd = managed_cwd
+
+        # Declarative settings schema (protocol field ``配置声明``).
+        # The platform renders a settings form from it, so you never write
+        # any frontend code. See README section 4.3.
+        self.config_schema = config_schema
+
+        # Custom UI page (protocol field ``ui``). Use it only for interactions
+        # a form cannot express (playback preview, progress bars).
+        # ``entry`` is relative to the module entry file directory.
+        self.ui = ui
 
         self._ws: Any = None
         self._pending: Dict[str, asyncio.Future] = {}
@@ -153,13 +205,18 @@ class NiganeClient:
         correct name/version/path is what lets an offline module come back
         online (status light turns green again).
         """
-        return {
+        payload = {
             "name": self.name,
             "version": self.version,
             "path": self.path,
             "capabilityDefs": self.capabilities,
             "托管": self._managed_payload(),
         }
+        if self.config_schema is not None:
+            payload["配置声明"] = self.config_schema
+        if self.ui is not None:
+            payload["ui"] = self.ui
+        return payload
 
     def _handle_shutdown(self, params: Dict[str, Any], message: Dict[str, Any]) -> Dict[str, Any]:
         """The platform asks us to unregister / exit. Honour it politely."""
@@ -300,6 +357,10 @@ class NiganeClient:
             managed_payload = self._managed_payload()
             if managed_payload is not None:
                 hello["托管"] = managed_payload
+            if self.config_schema is not None:
+                hello["配置声明"] = self.config_schema
+            if self.ui is not None:
+                hello["ui"] = self.ui
 
             await ws.send(
                 json.dumps(make_envelope("hello", self.name, params=hello), ensure_ascii=False)

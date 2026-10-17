@@ -31,30 +31,61 @@ function 提示全局(文本: string, 错 = false): void {
 }
 
 // ===== 插件自带 UI 页（动态标签 + iframe） =====
+/** 自定义页来源：插件（plugins/ 目录）或模块（模块握手自报 ui） */
+interface 自定义页 {
+  name: string;
+  title: string;
+  /** iframe 基地址前缀 */
+  前缀: "/plugin-ui/" | "/module-ui/";
+  /** 来源标签，用于 tooltip */
+  来源: "插件" | "模块";
+}
+
+/** 拉取两侧的自定义页列表 */
+async function 读取自定义页(): Promise<自定义页[]> {
+  const 取 = async (地址: string, 前缀: 自定义页["前缀"], 来源: 自定义页["来源"]): Promise<自定义页[]> => {
+    try {
+      const r = await fetch(地址);
+      if (!r.ok) return [];
+      const 列 = (await r.json()) as Array<{ name: string; title: string }>;
+      return (列 ?? []).map((p) => ({ name: p.name, title: p.title, 前缀, 来源 }));
+    } catch {
+      return [];
+    }
+  };
+  // 模块页优先展示：模块的核心功能通常比插件更重
+  const [模块页, 插件页] = await Promise.all([
+    取("/api/module-pages", "/module-ui/", "模块"),
+    取("/api/plugin-pages", "/plugin-ui/", "插件"),
+  ]);
+  return [...模块页, ...插件页];
+}
+
+/**
+ * 加载自定义页（插件 + 模块）。
+ *
+ * 两者共用同一套 iframe 机制与 `window.kugua` 桥，区别只在静态资源前缀——
+ * 这正是「上层统一、底层保留」的具体体现。
+ */
 export async function 加载插件页面(): Promise<void> {
-  let 页列表: Array<{ name: string; title: string }> = [];
-  try {
-    页列表 = (await (await fetch("/api/plugin-pages")).json()) as Array<{ name: string; title: string }>;
-  } catch {
-    return;
-  }
+  const 页列表 = await 读取自定义页();
   const 工作区 = document.getElementById("workspace");
   const 设置按钮 = document.getElementById("tab-settings");
-  for (const 页 of 页列表 ?? []) {
-    const tabId = `tab-plugin-${页.name}`;
+  for (const 页 of 页列表) {
+    const tabId = 页.来源 === "模块" ? `tab-mod-${页.name}` : `tab-plugin-${页.name}`;
     if (document.getElementById(tabId)) continue;
     const btn = document.createElement("button");
     btn.id = tabId;
     btn.className = "tb-btn nav-tab";
     btn.textContent = 页.title;
-    btn.title = `插件页面：${页.name}`;
+    btn.title = `${页.来源}页面：${页.name}`;
     设置按钮?.parentElement?.insertBefore(btn, 设置按钮);
     const view = document.createElement("div");
-    view.id = `view-plugin-${页.name}`;
+    view.id = `view-${tabId}`;
     view.className = "oc-view plugin-view hidden";
     const frame = document.createElement("iframe");
     frame.className = "plugin-frame";
-    frame.dataset.src = `/plugin-ui/${encodeURIComponent(页.name)}/`;
+    frame.dataset.src = `${页.前缀}${encodeURIComponent(页.name)}/`;
     view.appendChild(frame);
     工作区?.appendChild(view);
     视图映射[tabId] = {

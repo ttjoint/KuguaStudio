@@ -318,6 +318,45 @@ You may include a `声明` field to update your own schema at the same time.
 | `nigane.moduleConfig.set` | `{name, 变更}` → persist and push |
 | `nigane.moduleConfig.report` | `{变更, 声明?}` → module-initiated update |
 
+### 4.4 Custom UI page (when a declarative form is not enough)
+
+If your settings need interactions a form cannot express, ship an HTML page:
+
+```python
+client = NiganeClient(
+    name="my-tool",
+    url="ws://127.0.0.1:24601",
+    ui={"title": "My Tool", "entry": "ui/index.html"},  # key: 界面 in Python SDK
+)
+```
+
+- `entry` is relative to the **module's entry file directory**. If your entry is
+  `packages/modules/tts/dist/index.js`, then `ui/index.html` resolves to
+  `packages/modules/tts/dist/ui/index.html`.
+- The page is served at `GET /module-ui/<module-name>/<path>`.
+- Inside the page, include `/plugin-sdk.js` to get `window.kugua`:
+
+```html
+<script src="/plugin-sdk.js"></script>
+<script>
+  const r = await window.kugua.request("my-tool", "my.action", {});
+</script>
+```
+
+**Which to use:**
+
+| Need | Declarative form (4.3) | Custom page (this section) |
+|---|---|---|
+| Toggles, URLs, paths, dropdowns | ✅ | overkill |
+| Editable lists (voices, models) | ✅ | fine |
+| Playback preview, progress bars | ❌ | ✅ |
+| Complex table editing | ❌ | ✅ |
+
+Both can coexist. The `tts` module uses the form for engine settings and a
+custom page for voice audition and quick synthesis.
+
+---
+
 ---
 
 ## 五、生命周期：平台退出时会发生什么
