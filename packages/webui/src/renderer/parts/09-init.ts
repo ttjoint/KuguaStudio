@@ -1,6 +1,7 @@
 import { 同步能力指令库 } from "./02-chat-core";
 import { 添加消息 } from "./03-preview";
 import { 刷新本地插件, 刷新模块列表 } from "./06-shell";
+import { Explorer } from "./07-explorer";
 import { 初始化指令面板, 加载指令面板数据 } from "./16-cmd-panel";
 
 // ===== 初始化 =====
@@ -27,6 +28,14 @@ window.kugua.onBus((action) => {
 
 // 初始化聊天页左侧「指令面板」
 初始化指令面板();
+
+// 知识库浏览器的初始化统一在这里编排。
+// 放在 09 而不是 08-logs，是为了断开 08-logs ↔ 07-explorer 的循环依赖：
+// 07-explorer 依赖日志模块的工具函数，若日志模块又反向依赖 Explorer，
+// 打包后 onReady 回调里拿到的 Explorer 绑定可能尚未就绪。
+window.kugua.onReady(() => {
+  void Explorer.init();
+});
 
 // 低频兜底：仅用于事件丢失时的最终一致（例如初次连接前的变更），不参与常态刷新
 setInterval(() => {

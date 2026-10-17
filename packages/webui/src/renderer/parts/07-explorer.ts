@@ -2,7 +2,6 @@ import { 卡片, 打开方式配置, 标签节点, 看板列, 笔记, 素材 } f
 import { 渲染Markdown } from "./02-chat-core";
 import { base64转字节, 取媒体编解码, 打开图片预览弹窗, 添加消息, 清理图片预览 } from "./03-preview";
 import { 关闭确认对话框, 刷新统计, 显示确认对话框 } from "./06-shell";
-import { 格式化时间, 转义HTML } from "./08-logs";
 import { 切换视图 } from "./11-tabs";
 import { 找到标签名, 搜索标签节点, 导航到标签, 更新内容信息面板, 渲染关联标签, 渲染标签树, 渲染标签chips, 绑定标签联想输入, 内联保存标签, 在资源管理器中显示, 复制物理路径, 设置别名, 加载打开方式列表, 渲染筛选摘要 } from "./07j-explorer-tags";
 import { 显示右键菜单, 隐藏右键菜单, 显示上下文菜单, 复制文本, 更新批量删除按钮, 删除选中内容, 删除到回收站, 开始内联编辑名称, 开始内联编辑真实文件名, 绑定框选 } from "./07i-explorer-actions";

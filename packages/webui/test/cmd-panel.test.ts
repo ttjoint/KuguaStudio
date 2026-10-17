@@ -10,7 +10,7 @@
  * 采用源码静态断言，避免依赖真实浏览器。
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -331,5 +331,45 @@ describe("文本编辑器重做：布局与操作逻辑", () => {
     const 块 = 源码.slice(起点, 起点 + 1800);
     expect(块).toContain("这将直接修改原始文件");
     expect(块).toContain("编辑目标非原件");
+  });
+});
+
+describe("渲染层模块依赖（防止循环依赖回归）", () => {
+  /** 提取某 parts 文件的静态 import 目标 */
+  const 依赖表 = (文件名: string): string[] => {
+    const 源码 = 读(`parts/${文件名}`);
+    const 结果: string[] = [];
+    for (const 行 of 源码.split("\n")) {
+      if (!行.startsWith("import ")) continue;
+      const m = /from\s+"\.\/([^"]+)"/.exec(行);
+      if (m) 结果.push(m[1]);
+    }
+    return 结果;
+  };
+
+  it("07-explorer 不得依赖 08-logs（否则 08-logs ↔ 07-explorer 成环）", () => {
+    expect(依赖表("07-explorer.ts")).not.toContain("08-logs");
+  });
+
+  it("08-logs 不得依赖 07-explorer", () => {
+    expect(依赖表("08-logs.ts")).not.toContain("07-explorer");
+  });
+
+  it("Explorer.init() 只在 09-init 中编排调用", () => {
+    const 调用者: string[] = [];
+    for (const 文件 of readdirSync(渲染层 + "/parts")) {
+      if (!文件.endsWith(".ts")) continue;
+      const 源码 = readFileSync(join(渲染层, "parts", 文件), "utf-8");
+      // 排除 Explorer 内部定义自己的 init
+      const 命中 = 源码
+        .split("\n")
+        .filter((行) => {
+          const 去空白 = 行.trim();
+          if (去空白.startsWith("//") || 去空白.startsWith("*") || 去空白.startsWith("/*")) return false;
+          return /Explorer\.init\(\)/.test(去空白);
+        });
+      if (命中.length > 0) 调用者.push(文件);
+    }
+    expect(调用者).toEqual(["09-init.ts"]);
   });
 });

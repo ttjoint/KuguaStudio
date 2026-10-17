@@ -2,7 +2,6 @@ import { 刷新附件区, 同步能力指令库, 当前附件, 提示过滤列�
 import { 筛选聊天消息, 聊天搜索框 } from "./03-preview";
 import { 处理输入 } from "./04-router";
 import { 刷新本地插件, 刷新模块列表, 刷新统计 } from "./06-shell";
-import { Explorer } from "./07-explorer";
 import { 初始化对话页 } from "./10-chat-page";
 import { 加载插件页面 } from "./14-plugin-ui";
 import { 应用持续前缀, 记录使用 } from "./16-cmd-panel";
@@ -301,6 +300,10 @@ window.kugua.onLog((entry: unknown) => {
 });
 
 // 客户端连接成功后刷新侧边栏数据
+// 注：知识库浏览器的 `Explorer.init()` 不在这里调用。
+// 本文件属于「日志/侧边栏」，而 Explorer 又反过来依赖日志模块的纯工具函数，
+// 两边互相 import 会形成循环依赖，打包后拿到的 Explorer 绑定可能尚未就绪。
+// 故把 Explorer.init() 交给 09-init.ts 统一编排。
 window.kugua.onReady(() => {
   void 刷新模块列表();
   void 刷新统计();
@@ -308,6 +311,5 @@ window.kugua.onReady(() => {
   void 同步能力指令库();
   void 加载插件页面();
   初始化对话页();
-  void Explorer.init();
 });
 
