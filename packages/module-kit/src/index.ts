@@ -30,6 +30,9 @@ import type { 配置声明, 配置载荷, 模块UI声明 } from "@kugua/nigane";
 import type { 能力声明 } from "@kugua/capability";
 
 /** 配置热重载回调：收到平台推送的新配置 */
+export { 安装进程兜底, 重置兜底 } from "./process-guard.js";
+export type { 兜底选项 } from "./process-guard.js";
+
 export type 模块配置处理器 = (载荷: 配置载荷) => void | Promise<void>;
 
 /** 主控地址解析所需的配置字段（各模块 config 的公共子集） */

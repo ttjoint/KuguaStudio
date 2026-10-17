@@ -85,6 +85,13 @@ export interface 服务端选项 {
   port: number;
   /** 认证令牌；为空串时不校验 */
   token?: string;
+  /**
+   * 单个请求处理器的超时（毫秒），默认 30000。
+   *
+   * 请求方自己有传输层超时，但服务端 handler 若内部永久等待，
+   * 这边会一直挂着不返回，占用闭包与连接。攒多了就是「越用越卡」。
+   */
+  请求超时毫秒?: number;
 }
 
 /** 模块类型：process=独立进程；library=静态库/无需启动进程 */
@@ -635,6 +642,13 @@ export class NiganeServer extends EventEmitter {
 export interface 客户端选项 {
   /** 模块名（唯一） */
   name: string;
+  /**
+   * 处理主控请求的超时（毫秒），默认 30000。
+   *
+   * 模块侧 handler 卡住时，主控会一直等这个 response。主控本身有超时，
+   * 但模块侧按时放弃能更快释放资源，也便于在日志里定位是哪个动作慢。
+   */
+  请求超时毫秒?: number;
   /** 自定义 UI 页声明（可选，平台据此生成 iframe 标签页） */
   ui?: 模块UI声明;
   /** 主控地址，如 ws://127.0.0.1:24601 */
@@ -892,7 +906,20 @@ export class NiganeClient extends EventEmitter {
       return;
     }
     try {
-      const data = await 处理器(消息.params, 消息);
+      // 处理器超时保护：请求方（如 WebUI）自己有传输层超时，但如果服务端
+      // handler 内部永久等待（例如等另一个永不回应的模块），这边会一直挂着
+      // 不返回——每个这样的挂起都占用一份闭包与连接，越积越多最终表现为
+      // 「界面越来越卡」。这里按时放弃，至少让连接资源能回收。
+      const data = await Promise.race([
+        处理器(消息.params, 消息),
+        new Promise<never>((_, reject) => {
+          const 定时 = setTimeout(
+            () => reject(new Error(`处理超时（${this.选项.请求超时毫秒 ?? 30000}ms）：${消息.action ?? ""}`)),
+            this.选项.请求超时毫秒 ?? 30000,
+          );
+          if (typeof 定时.unref === "function") 定时.unref();
+        }),
+      ]);
       ws.send(
         JSON.stringify(
           构造信封({

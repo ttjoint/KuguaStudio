@@ -13,7 +13,7 @@
 
 import { existsSync, mkdirSync, watch as 监视目录 } from "node:fs";
 import { join, resolve } from "node:path";
-import { 启动模块 } from "@kugua/module-kit";
+import { 安装进程兜底, 启动模块 } from "@kugua/module-kit";
 import type { NiganeClient } from "@kugua/nigane";
 import { 段, 提取纯文本, type 标识, type 消息段 } from "@kugua/onebot11";
 import {
@@ -61,6 +61,13 @@ export function 启动插件运行时(
   const 插件目录 = 配置.插件目录;
   const 市场索引 = 配置.市场索引;
   const 日志 = 创建日志器("[插件运行时]");
+
+  // 插件与平台同进程（刻意的设计：常用功能不值得 IPC 往返，生命周期也归平台管），
+  // 所以插件里任何逃逸到事件循环根部的错误都会带走整个 Studio。
+  // 这里兜住，至少让用户能看到「哪个插件出了问题」而不是窗口直接消失。
+  安装进程兜底({
+    记录: (级别, 消息) => (级别 === "错误" ? 日志.错误(消息) : 日志.警告(消息)),
+  });
 
   // —— 模块级事件扇出表：插件订阅与内部消息分发共享一个底层处理器，避免互相覆盖 ——
   const 事件表 = new Map<string, Set<(参数: unknown) => void | Promise<void>>>();

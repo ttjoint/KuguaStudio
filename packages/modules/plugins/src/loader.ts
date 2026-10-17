@@ -46,6 +46,43 @@ export interface 加载器选项 {
   /** 动态导入函数（测试可注入；默认 Node ESM import，带缓存清理参数） */
   导入?: (url: string) => Promise<unknown>;
   日志?: 加载器日志;
+  /** 单条命令处理的超时（毫秒），默认 15000 */
+  命令超时毫秒?: number;
+  /** 回复当前会话的超时（毫秒），默认 15000 */
+  回复超时毫秒?: number;
+}
+
+
+/**
+ * 给一个 Promise 加超时。
+ *
+ * 不取消底层操作（做不到），只是让等待方按时放弃——目的是不让一条卡死的
+ * 命令把消息分发流程永久挂住。
+ */
+function 限时<T>(任务: Promise<T> | T, 毫秒: number, 描述: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let 已完成 = false;
+    const 定时 = setTimeout(() => {
+      if (已完成) return;
+      已完成 = true;
+      reject(new Error(`超时（${毫秒}ms）：${描述}`));
+    }, 毫秒);
+    if (typeof 定时.unref === "function") 定时.unref();
+    Promise.resolve(任务).then(
+      (值) => {
+        if (已完成) return;
+        已完成 = true;
+        clearTimeout(定时);
+        resolve(值);
+      },
+      (错误) => {
+        if (已完成) return;
+        已完成 = true;
+        clearTimeout(定时);
+        reject(错误);
+      },
+    );
+  });
 }
 
 const 空日志: 加载器日志 = {
@@ -258,6 +295,18 @@ export class 插件加载器 {
   /**
    * 分发一条消息：按启用插件注册顺序查找首个命中的命令并执行。
    * 返回是否已处理。处理函数返回 string/消息段数组时自动回复当前会话。
+   *
+   * 两个保护（插件与平台同进程，插件卡住就是平台卡住）：
+   *
+   *  1. **超时**。命令处理里可能有网络请求、磁盘 IO，或干脆是个死循环之前
+   *     的长时间等待。没有超时的话，这条消息会一直挂着，占住一份闭包与
+   *     上下文引用；高频消息下会不断堆积直到内存涨满。
+   *  2. **回复也单独兜底**。`回复` 走总线下发，同样可能失败（机器人掉线）；
+   *     它失败不该被算成「命令处理失败」，更不该把异常抛给调用方。
+   *
+   * 超时并不中断正在跑的函数（JS 无法从外部杀同步循环），但能让**分发流程**
+   * 按时结束、不再等待，从而不拖垮后续消息。真正的死循环需要隔离才能根治，
+   * 那与「插件要高效调用平台」的初衷冲突，此处不做。
    */
   async 分发消息(上下文: 消息上下文): Promise<boolean> {
     for (const 记录 of this.插件表.values()) {
@@ -266,9 +315,17 @@ export class 插件加载器 {
         const 匹配 = 上下文.文本.match(命令.匹配);
         if (!匹配) continue;
         try {
-          const 结果 = await 命令.处理(上下文, 匹配);
+          const 结果 = await 限时(
+            命令.处理(上下文, 匹配),
+            this.选项.命令超时毫秒 ?? 15000,
+            `插件 ${记录.name} 的命令处理`,
+          );
           if (结果 !== null && 结果 !== undefined) {
-            await 上下文.回复(结果);
+            await 限时(
+              上下文.回复(结果),
+              this.选项.回复超时毫秒 ?? 15000,
+              `插件 ${记录.name} 的回复`,
+            );
           }
         } catch (err) {
           this.日志.错误(`插件 ${记录.name} 命令处理失败：${String(err)}`);
