@@ -1,21 +1,24 @@
 """
-苦瓜工作室 · Python 外部模块接入示例
+KuguaStudio external module example (Python).
 
-演示一个完整可运行的外部模块，覆盖接入方最常用的四种能力：
-  1. 声明能力（中文指令）→ 出现在平台指令面板 / 可被 AI 路由
-  2. 被平台调用 → 处理请求并返回结果
-  3. 主动调用平台能力 → 平台 ↔ 外部模块双向通信
-  4. 订阅 system.shutdown → 平台退出时自行决定是否退出
+Demonstrates the four things an external module usually needs:
+  1. Declare capabilities (command words -> command panel / AI routing)
+  2. Be called by the platform and return a result
+  3. Call platform capabilities (bidirectional communication)
+  4. React to system.shutdown -- and decide whether to exit
 
-运行：
+Also shows how to request *managed startup* (``managed=True``): the first time
+this module registers, the platform records its path and arguments so it can
+be launched together with KuguaStudio next time. Existing user-edited config
+is never overwritten.
+
+Run:
     pip install websockets
     python example.py
 
-环境变量：
-    KUGUA_PORT   主控端口（默认 24601）
-    KUGUA_TOKEN  主控令牌（主控配置了 token 时必填）
-
-接入成功后，在平台对话里输入「打招呼」即可看到本模块的响应。
+Environment:
+    KUGUA_PORT    main controller port (default 24601)
+    KUGUA_TOKEN   auth token (required when the controller has one)
 """
 
 from __future__ import annotations
@@ -25,42 +28,41 @@ import logging
 import os
 import sys
 
-# SDK 就在同目录；实际使用时把 nigane.py 复制到你的项目里即可
-from nigane import NiganeClient, 建能力
+from nigane import NiganeClient, capability
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
-日志 = logging.getLogger("示例")
+log = logging.getLogger("example")
 
-模块名 = "Python示例模块"
+MODULE_NAME = "PythonExampleModule"
 
 
-# ===== 1. 声明能力：决定平台如何暴露本模块 =====
+# ===== 1. Capability declarations =====
 
-能力声明 = [
-    建能力(
-        "Python示例模块.打招呼",
-        模块名,
-        标题="打招呼",
-        说明="返回一句问候。演示外部模块被平台调用",
-        中文指令=["打招呼", "py打招呼"],
-        参数={
+CAPABILITIES = [
+    capability(
+        "PythonExampleModule.greet",
+        MODULE_NAME,
+        title="Greet",
+        description="Return a greeting. Demonstrates being called by the platform.",
+        commands=["pygreet", "py打招呼"],
+        params={
             "type": "object",
             "properties": {
-                "名字": {"type": "string", "description": "要问候的对象"},
+                "name": {"type": "string", "description": "who to greet"},
             },
         },
     ),
-    建能力(
-        "Python示例模块.加法",
-        模块名,
-        标题="加法",
-        说明="两数相加，演示参数与返回值的结构",
-        中文指令=["py加法"],
-        参数={
+    capability(
+        "PythonExampleModule.add",
+        MODULE_NAME,
+        title="Add",
+        description="Add two numbers. Demonstrates parameter and result shapes.",
+        commands=["pyadd", "py加法"],
+        params={
             "type": "object",
             "properties": {
                 "a": {"type": "number"},
@@ -69,117 +71,134 @@ logging.basicConfig(
             "required": ["a", "b"],
         },
     ),
-    建能力(
-        "Python示例模块.系统信息",
-        模块名,
-        标题="系统信息",
-        说明="返回本机 Python 版本与进程信息",
-        中文指令=["py信息"],
+    capability(
+        "PythonExampleModule.info",
+        MODULE_NAME,
+        title="Runtime info",
+        description="Return Python version and process info.",
+        commands=["pyinfo", "py信息"],
     ),
 ]
 
 
-# ===== 2. 处理器：被平台调用时执行 =====
+# ===== 2. Handlers =====
 
-def 处理打招呼(params: dict, 消息: dict) -> dict:
-    名字 = params.get("名字") or "世界"
-    日志.info("被平台调用：打招呼（名字=%s，来自 %s）", 名字, 消息.get("from"))
-    return {"文本": f"你好，{名字}！这是来自 Python 外部模块的问候。"}
+def handle_greet(params: dict, message: dict) -> dict:
+    who = params.get("name") or "world"
+    log.info("called: greet (name=%s, from=%s)", who, message.get("from"))
+    return {"text": f"Hello, {who}! Greetings from a Python external module."}
 
 
-def 处理加法(params: dict, 消息: dict) -> dict:
+def handle_add(params: dict, message: dict) -> dict:
     a = params.get("a", 0)
     b = params.get("b", 0)
-    日志.info("被平台调用：加法（%s + %s）", a, b)
-    return {"和": a + b}
+    log.info("called: add (%s + %s)", a, b)
+    return {"sum": a + b}
 
 
-def 处理系统信息(params: dict, 消息: dict) -> dict:
+def handle_info(params: dict, message: dict) -> dict:
     return {
-        "Python": sys.version.split()[0],
-        "平台": sys.platform,
-        "PID": os.getpid(),
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+        "pid": os.getpid(),
     }
 
 
-# ===== 3. 组装客户端 =====
+# ===== 3. Build the client =====
+#
+# managed=True / managed_entry / managed_args:
+#   ask KuguaStudio to launch this script together with the platform next time.
+#   On the very first registration the platform stores these values.
+#   If a config entry with the same module name already exists, whatever the
+#   user edited in the UI wins -- your reported values are NOT applied.
+#
+#   Set managed=False (or omit) for a plain temporary registration.
 
-客户端 = NiganeClient(
-    名称=模块名,
-    版本="0.1.0",
-    能力声明=能力声明,
+CLIENT = NiganeClient(
+    name=MODULE_NAME,
+    version="0.1.0",
+    capabilities=CAPABILITIES,
+    managed=True,
+    managed_entry=sys.executable,          # e.g. C:\Python312\python.exe
+    managed_args=[os.path.abspath(__file__), "--hosted"],
 )
 
-客户端.register("Python示例模块.打招呼", 处理打招呼)
-客户端.register("Python示例模块.加法", 处理加法)
-客户端.register("Python示例模块.系统信息", 处理系统信息)
+CLIENT.register("PythonExampleModule.greet", handle_greet)
+CLIENT.register("PythonExampleModule.add", handle_add)
+CLIENT.register("PythonExampleModule.info", handle_info)
 
 
-# ===== 4. 订阅平台广播 =====
+# ===== 4. Platform broadcast subscriptions =====
 
-def 平台退出(params: dict, 消息: dict) -> None:
+def on_platform_shutdown(params: dict, message: dict) -> None:
     """
-    平台退出/重启时收到 system.shutdown。
+    Received when the platform is exiting.
 
-    平台此时**不会**对本进程发任何信号 —— 退出与否完全由你决定：
-      * 直接退出（本示例的选择）
-      * 继续运行，下次平台起来后客户端会自动重连
-      * 先把未完成的工作收尾，再退出
+    The platform never signals your process -- whether to exit is up to you:
+      * exit now (this example)
+      * keep running and let the client reconnect when the platform returns
+      * finish pending work, then exit
     """
-    日志.info("收到 system.shutdown，平台正在退出。")
-    客户端.已收到退出通知 = True
-    客户端.stop()
+    log.info("received system.shutdown, platform is exiting.")
+    CLIENT.shutdown_requested = True
+    CLIENT.stop()
 
 
-def 能力变更(params: dict, 消息: dict) -> None:
-    日志.info(
-        "能力注册表变化：模块 %s，现有 %s 项",
-        params.get("模块"),
-        params.get("数量"),
+def on_capability_changed(params: dict, message: dict) -> None:
+    log.info(
+        "capability registry changed: module=%s count=%s",
+        params.get("module"),
+        params.get("count"),
     )
 
 
-客户端.on_event("system.shutdown", 平台退出)
-客户端.on_event("capability.changed", 能力变更)
+def on_registry_conflict(params: dict, message: dict) -> None:
+    """The platform declined to overwrite an existing config entry."""
+    log.warning("registry conflict: %s", params)
 
 
-# ===== 5. 演示「主动调用平台能力」 =====
+CLIENT.on_event("system.shutdown", on_platform_shutdown)
+CLIENT.on_event("capability.changed", on_capability_changed)
+CLIENT.on_event("registry.conflict", on_registry_conflict)
 
-async def 主动调用演示() -> None:
-    """接入后主动查一次模块列表，证明双向通信就绪。"""
+
+# ===== 5. Demo: call a platform capability =====
+
+async def demo_call_platform() -> None:
     await asyncio.sleep(3)
     try:
-        模块列表 = await 客户端.request("kugua-main", "nigane.modules.names", {})
-        日志.info("主动调用 nigane.modules.names 成功：%s", 模块列表)
-    except Exception as 错误:
-        日志.warning("主动调用失败：%s", 错误)
+        names = await CLIENT.request("kugua-main", "nigane.modules.names", {})
+        log.info("called nigane.modules.names ok: %s", names)
+    except Exception as err:
+        log.warning("call failed: %s", err)
 
 
-async def 主流程() -> None:
-    print("=" * 56)
-    print("  苦瓜工作室 · Python 外部模块示例")
-    print("=" * 56)
-    print(f"  模块名：{模块名}")
-    print(f"  目标：  {客户端.地址}")
+async def main() -> None:
+    print("=" * 60)
+    print("  KuguaStudio - Python external module example")
+    print("=" * 60)
+    print(f"  module : {MODULE_NAME}")
+    print(f"  target : {CLIENT.url}")
+    print(f"  managed: {CLIENT.managed}")
     print()
-    print("  接入后在平台对话输入「打招呼」即可验证。")
-    print("  Ctrl+C 退出。")
-    print("=" * 56)
+    print("  Type 'pygreet' in the platform chat to verify.")
+    print("  Ctrl+C to quit.")
+    print("=" * 60)
     print()
 
-    asyncio.create_task(主动调用演示())
+    asyncio.create_task(demo_call_platform())
 
     try:
-        await 客户端.运行()
+        await CLIENT.run()
     except KeyboardInterrupt:
         pass
     finally:
-        客户端.stop()
-        日志.info("示例已退出。")
+        CLIENT.stop()
+        log.info("example exited.")
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(主流程())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n已中断。")
+        print("\ninterrupted.")

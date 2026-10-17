@@ -10,7 +10,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -423,6 +423,162 @@ describe.skipIf(!已构建)("平台退出通知", () => {
     } finally {
       观察者?.close();
       外部?.进程.kill();
+      await 主控.结束();
+    }
+  }, 90000);
+});
+
+/**
+ * 托管注册：外部模块自报「下次随平台启动」，平台写入配置。
+ *
+ * 关键约束（防止回归）：
+ *   1) 首次注册 → 按上报信息写入配置（路径、参数、是否随平台启动）；
+ *   2) 已有配置 → 绝不覆盖用户改过的值，两边都留痕；
+ *   3) 管理接口能查看与编辑（路径 / 参数 / 启用状态）。
+ */
+describe.skipIf(!已构建)("托管注册", () => {
+  const 临时目录 = mkdtempSync(join(tmpdir(), "kugua-managed-"));
+  /** 用户路径用常量拼出，避开反斜杠转义 */
+  const 用户路径 = ["D:", "custom", "x.exe"].join(String.fromCharCode(92));
+
+  afterAll(() => {
+    rmSync(临时目录, { recursive: true, force: true });
+  });
+
+  /** 起一个只做握手 + 上报托管信息的外部程序（真实脚本，不是 mock） */
+  function 写托管探针(路径: string, 模块名: string, 入口: string, 参数: string[]): void {
+    writeFileSync(
+      路径,
+      `// 托管注册探针：连上平台、上报托管意愿，然后保持在线
+const 端口 = process.env.KUGUA_PORT;
+const 令牌 = process.env.KUGUA_TOKEN ?? "";
+const 信封 = (类型, 额外) => JSON.stringify({
+  nigane: "0.2",
+  id: Math.random().toString(36).slice(2),
+  type: 类型,
+  from: ${JSON.stringify(模块名)},
+  time: Math.floor(Date.now() / 1000),
+  ...额外,
+});
+const ws = new WebSocket("ws://127.0.0.1:" + 端口);
+ws.addEventListener("open", () => {
+  ws.send(信封("hello", {
+    params: {
+      name: ${JSON.stringify(模块名)},
+      version: "0.0.1",
+      capabilities: [],
+      token: 令牌,
+      托管: {
+        enabled: true,
+        entry: ${JSON.stringify(入口)},
+        args: ${JSON.stringify(参数)},
+      },
+    },
+  }));
+});
+ws.addEventListener("message", (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === "hello_ack") console.log("握手成功");
+  if (m.type === "event" && m.action === "system.shutdown") process.exit(0);
+});
+setInterval(() => {}, 1000);
+`,
+      "utf-8",
+    );
+  }
+
+  it("首次注册写入配置；已有配置不覆盖；管理接口可查看与编辑", async () => {
+    const 主控端口 = await 空闲端口();
+    const 配置路径 = join(临时目录, "kugua.config.json");
+    writeFileSync(
+      配置路径,
+      JSON.stringify({ host: "127.0.0.1", port: 主控端口, token: "", modules: [] }),
+      "utf-8",
+    );
+
+    const 主控 = 启动(主控脚本, {
+      KUGUA_CONFIG: 配置路径,
+      KUGUA_GLOBAL_LOCK: join(临时目录, "studio.lock"),
+      KUGUA_DATA_DIR: join(临时目录, "data"),
+    });
+
+    let 探针: 子实例 | null = null;
+    let 观察者: Awaited<ReturnType<typeof 连接主控>> | null = null;
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        if (主控.输出().includes("苦音服务端已启动")) break;
+        await sleep(500);
+      }
+      expect(主控.输出()).toContain("苦音服务端已启动");
+
+      // —— 第一次接入：应新建配置项 ——
+      const 探针脚本 = join(临时目录, "managed-probe.mjs");
+      const 上报入口 = process.execPath;
+      const 上报参数 = ["--demo", "--hosted"];
+      写托管探针(探针脚本, "托管探针模块", 上报入口, 上报参数);
+      探针 = 启动(探针脚本, { KUGUA_PORT: String(主控端口), KUGUA_TOKEN: "" });
+
+      let 已接入 = false;
+      for (let i = 0; i < 30; i += 1) {
+        if (探针.输出().includes("握手成功")) { 已接入 = true; break; }
+        await sleep(500);
+      }
+      expect(已接入).toBe(true);
+
+      // 配置应已被写入
+      let 配置对象 = JSON.parse(readFileSync(配置路径, "utf-8")) as {
+        modules: Array<{ name: string; entry?: string; args?: string[]; autoStart?: boolean }>;
+      };
+      let 项 = 配置对象.modules.find((m) => m.name === "托管探针模块");
+      expect(项).toBeTruthy();
+      expect(项?.entry).toBe(上报入口);
+      expect(项?.args).toEqual(上报参数);
+      expect(项?.autoStart).toBe(true);
+      expect(主控.输出()).toContain("托管注册：新建模块「托管探针模块」");
+
+      // —— 模拟用户在管理界面改过配置 ——
+      观察者 = await 连接主控(主控端口);
+      await 观察者.request("kugua-main", "nigane.registry.config.set", {
+        name: "托管探针模块",
+        启用: false,
+        路径: 用户路径,
+        参数: ["--user-edited"],
+      });
+
+      // —— 再次接入：不得覆盖用户配置 ——
+      探针.进程.kill();
+      await sleep(1500);
+      const 探针2 = 启动(探针脚本, { KUGUA_PORT: String(主控端口), KUGUA_TOKEN: "" });
+      探针 = 探针2;
+      for (let i = 0; i < 30; i += 1) {
+        if (探针.输出().includes("握手成功")) break;
+        await sleep(500);
+      }
+      await sleep(800); // 等主控处理完托管申请
+
+      配置对象 = JSON.parse(readFileSync(配置路径, "utf-8"));
+      项 = 配置对象.modules.find((m) => m.name === "托管探针模块");
+      expect(项?.entry).toBe(用户路径); // 用户值保留
+      expect(项?.args).toEqual(["--user-edited"]); // 用户值保留
+      expect(项?.autoStart).toBe(false); // 用户值保留
+      // 冲突应在主控日志里明确记录
+      expect(主控.输出()).toContain("已有配置，本次不覆盖");
+      expect(主控.输出()).toContain("保留本地");
+
+      // —— 管理接口：可查看 ——
+      const 列表 = (await 观察者.request("kugua-main", "nigane.registry.config.list", {})) as Array<{
+        name: string;
+        启用: boolean;
+        路径: string;
+        参数: string[];
+      }>;
+      const 查看项 = 列表.find((m) => m.name === "托管探针模块");
+      expect(查看项?.启用).toBe(false);
+      expect(查看项?.路径).toBe(用户路径);
+      expect(查看项?.参数).toEqual(["--user-edited"]);
+    } finally {
+      观察者?.close();
+      探针?.进程.kill();
       await 主控.结束();
     }
   }, 90000);

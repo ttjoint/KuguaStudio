@@ -398,6 +398,21 @@
             <div class="oc-about" style="opacity:0.7">重启会关闭主控与全部模块后重新拉起；平台同一时刻只允许运行一个实例，重复启动会被自动检测并拒绝。</div>
           </div>
           <div class="oc-section">
+            <div class="oc-section-title">
+              <span>模块管理</span>
+              <span class="oc-section-tools">
+                <button id="settings-mod-refresh" class="tb-btn small" title="重新读取模块配置与运行状态">&#x21BB; 刷新</button>
+              </span>
+            </div>
+            <div class="oc-about" style="opacity:0.7;margin-bottom:8px">
+              外部程序首次接入时可自报托管意愿，平台写入配置；<strong>已存在的配置不会被外部覆盖</strong>，以此处编辑结果为准。
+              修改后需重启对应模块生效。
+            </div>
+            <div id="settings-module-list" class="mod-list">
+              <div class="mod-empty">加载中…</div>
+            </div>
+          </div>
+          <div class="oc-section">
             <div class="oc-section-title"><span>关于</span></div>
             <div class="oc-about">苦瓜工作室 v0.5.0 ｜ 本地知识库与模块化自动操作平台，基于苦音（Nigane）协议与苦瓜知识图谱（MKG）。</div>
           </div>

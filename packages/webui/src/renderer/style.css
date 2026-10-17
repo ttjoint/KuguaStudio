@@ -2895,3 +2895,90 @@ body {
 .ex-sub-tabs { padding: 0.25rem 0.5rem 0; }
 .ex-sub-tab { height: 26px; font-size: 0.75rem; }
 .ex-pane-boards .ex-toolbar { flex-shrink: 0; }
+
+/* ===== 设置页：模块管理 ===== */
+.mod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mod-empty {
+  opacity: 0.6;
+  padding: 12px 4px;
+  font-size: 13px;
+}
+.mod-item {
+  border: 1px solid var(--oc-border, #333);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--oc-panel, rgba(255, 255, 255, 0.02));
+}
+.mod-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.mod-row-head {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--oc-border, #333);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+.mod-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.mod-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mod-badge {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.mod-badge.on { color: #4ade80; }
+.mod-badge.off { color: #9ca3af; }
+.mod-badge.managed { color: #60a5fa; }
+.mod-badge.temp { color: #fbbf24; }
+.mod-badge.type { color: #a78bfa; }
+.mod-label {
+  width: 64px;
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+.mod-hint {
+  font-size: 11px;
+  opacity: 0.55;
+}
+.mod-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 5px;
+  border: 1px solid var(--oc-border, #333);
+  background: var(--oc-input-bg, rgba(0, 0, 0, 0.2));
+  color: inherit;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.mod-row-actions {
+  gap: 6px;
+  margin-top: 2px;
+}
+.mod-msg {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.mod-msg.err {
+  color: #f87171;
+  opacity: 1;
+}

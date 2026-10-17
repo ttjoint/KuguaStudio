@@ -1,19 +1,17 @@
 """
-苦音协议 Python SDK（单文件，可直接复制到你的项目里用）
+Nigane Protocol Python SDK (single file, copy it into your own project)
 
-用途：让你的 Python 程序以「外部模块」身份动态接入苦瓜工作室，
-      注册自身能力，与平台双向通信。
+Make your Python program join KuguaStudio as an "external module":
+declare capabilities, communicate bidirectionally, optionally ask the
+platform to host you on next startup.
 
-依赖：pip install websockets   （唯一依赖）
+Dependency: pip install websockets
 
-协议规范：docs/接入协议.md
-最小示例：sdk/external-module-python/example.py
+Protocol spec: docs/接入协议.md
+Example:       sdk/python/example.py
 
-—— 设计要点 ——
-* 本文件不依赖苦瓜工作室仓库的任何代码，可独立复制。
-* 所有协议细节（信封、握手、请求配对、重连）封装在 NiganeClient 里，
-  业务代码只需 register / on_event / request 三种调用。
-* 生命周期由你掌控：平台退出只广播 system.shutdown，不会对你发信号。
+All public API is English; docstrings note the protocol terms in Chinese
+where they map to server-side field names (capabilityDefs, 托管, ...).
 """
 
 from __future__ import annotations
@@ -29,324 +27,354 @@ try:
     import websockets
 except ImportError as 错误:  # pragma: no cover
     raise ImportError(
-        "缺少依赖 websockets，请先执行：pip install websockets"
+        "Missing dependency 'websockets'. Install it with: pip install websockets"
     ) from 错误
 
-日志 = logging.getLogger("nigane")
+log = logging.getLogger("nigane")
 
-# 协议版本（与 packages/nigane/src/index.ts 的 协议版本 保持一致）
-协议版本 = "0.2"
+# Protocol version (keep in sync with packages/nigane/src/index.ts)
+PROTOCOL_VERSION = "0.2"
 
-# 错误码（与协议规范一致）
-错误码 = {
-    "认证失败": 1001,
-    "目标不存在": 1002,
-    "未注册": 1003,
-    "格式非法": 1004,
-    "请求超时": 1005,
-    "内部异常": 2000,
+# Error codes from the protocol spec
+ERROR_CODES = {
+    "auth_failed": 1001,
+    "target_not_found": 1002,
+    "not_registered": 1003,
+    "bad_format": 1004,
+    "timeout": 1005,
+    "internal": 2000,
 }
 
 Handler = Callable[[Dict[str, Any], Dict[str, Any]], Any]
-Event_Handler = Callable[[Dict[str, Any], Dict[str, Any]], None]
+EventHandler = Callable[[Dict[str, Any], Dict[str, Any]], None]
 
 
-def 建信封(类型: str, 发送者: str, **部分: Any) -> Dict[str, Any]:
-    """构造苦音协议信封"""
-    信封 = {
-        "nigane": 协议版本,
+def make_envelope(msg_type: str, sender: str, **fields: Any) -> Dict[str, Any]:
+    """Build a Nigane protocol envelope."""
+    envelope = {
+        "nigane": PROTOCOL_VERSION,
         "id": str(uuid.uuid4()),
-        "type": 类型,
-        "from": 发送者,
+        "type": msg_type,
+        "from": sender,
         "time": int(time.time()),
     }
-    信封.update({k: v for k, v in 部分.items() if v is not None})
-    return 信封
+    envelope.update({k: v for k, v in fields.items() if v is not None})
+    return envelope
 
 
 class NiganeClient:
-    """苦音协议客户端。
+    """Nigane protocol client.
 
-    典型用法::
+    Typical usage::
 
-        客户端 = NiganeClient(名称="我的工具", 端口=24601)
-        客户端.register("我的工具.回声", 处理函数)
-        客户端.on_event("system.shutdown", lambda p, m: 退出())
-        asyncio.run(客户端.运行())
+        client = NiganeClient(name="my-tool", port=24601)
+        client.register("my-tool.echo", handler)
+        client.on_event("system.shutdown", lambda p, m: client.stop())
+        asyncio.run(client.run())
 
-    参数：
-        名称     —— 模块名，全局唯一
-        端口     —— 主控端口（默认 24601，读环境变量 KUGUA_PORT）
-        主机     —— 默认 127.0.0.1
-        令牌     —— 主控配置了 token 时必填（读环境变量 KUGUA_TOKEN）
-        能力声明 —— 名单，决定平台如何暴露你的模块（见 docs/接入协议.md 第五节）
+    Args:
+        name:        Module name, globally unique.
+        host:        Main controller host, default 127.0.0.1.
+        port:        Main controller port. Defaults to env KUGUA_PORT or 24601.
+        token:       Auth token. Defaults to env KUGUA_TOKEN.
+        version:     Your module version.
+        capabilities: Capability declarations (see docs/接入协议.md).
+        managed:     Ask the platform to host this module on the next start
+                     (protocol field ``托管``). Only used as the initial value
+                     on first registration; existing user config always wins.
+        managed_entry: Physical executable/script path used when hosted.
+        managed_args: Arguments passed to the hosted process.
+        managed_cwd:  Working directory for the hosted process.
+        request_timeout: Default request timeout in seconds.
+        max_retries: Give up after this many consecutive connection failures.
     """
 
     def __init__(
         self,
-        名称: str,
+        name: str,
         *,
-        主机: str = "127.0.0.1",
-        端口: int | None = None,
-        令牌: str | None = None,
-        版本: str = "0.1.0",
-        能力声明: Optional[list[Dict[str, Any]]] = None,
-        请求超时: float = 10.0,
-        重连上限: int = 5,
+        host: str = "127.0.0.1",
+        port: int | None = None,
+        token: str | None = None,
+        version: str = "0.1.0",
+        capabilities: Optional[list[Dict[str, Any]]] = None,
+        managed: bool = False,
+        managed_entry: str | None = None,
+        managed_args: Optional[list[str]] = None,
+        managed_cwd: str | None = None,
+        request_timeout: float = 10.0,
+        max_retries: int = 5,
     ) -> None:
         import os
 
-        self.名称 = 名称
-        self.主机 = 主机
-        self.端口 = 端口 or int(os.environ.get("KUGUA_PORT", "24601"))
-        self.令牌 = 令牌 if 令牌 is not None else os.environ.get("KUGUA_TOKEN", "")
-        self.版本 = 版本
-        self.能力声明 = 能力声明 or []
-        self.请求超时 = 请求超时
-        self.重连上限 = 重连上限
+        self.name = name
+        self.host = host
+        self.port = port or int(os.environ.get("KUGUA_PORT", "24601"))
+        self.token = token if token is not None else os.environ.get("KUGUA_TOKEN", "")
+        self.version = version
+        self.capabilities = capabilities or []
+        self.request_timeout = request_timeout
+        self.max_retries = max_retries
+
+        # Managed-startup request (protocol field ``托管``).
+        # Only sent when explicitly enabled, so plain clients stay unchanged.
+        self.managed = managed
+        self.managed_entry = managed_entry
+        self.managed_args = managed_args or []
+        self.managed_cwd = managed_cwd
 
         self._ws: Any = None
-        self._挂起: Dict[str, asyncio.Future] = {}
-        self._请求表: Dict[str, Handler] = {}
-        self._事件表: Dict[str, Event_Handler] = {}
-        self._已握手 = asyncio.Event()
-        self._停止 = asyncio.Event()
-        self._连续失败 = 0
-        # 由外部设置的「平台已通知退出」标志
-        self.已收到退出通知 = False
+        self._pending: Dict[str, asyncio.Future] = {}
+        self._handlers: Dict[str, Handler] = {}
+        self._event_handlers: Dict[str, EventHandler] = {}
+        self._handshaked = asyncio.Event()
+        self._stop = asyncio.Event()
+        self._failures = 0
+        # Set by you when the platform broadcast system.shutdown
+        self.shutdown_requested = False
 
-    # ---------- 注册 ----------
+    # ---------- registration ----------
 
-    def register(self, action: str, 处理器: Handler) -> None:
-        """注册一个可被平台调用的动作。
+    def register(self, action: str, handler: Handler) -> None:
+        """Register an action the platform can call.
 
-        处理器签名：处理函数(params: dict, 消息: dict) -> Any
-        返回值会作为 response 的 data 发回平台；抛异常则回 error(2000)。
+        Handler signature: handler(params: dict, message: dict) -> Any
+        The return value becomes the response ``data``; a raised exception
+        is turned into an ``error`` (code 2000).
         """
-        self._请求表[action] = 处理器
+        self._handlers[action] = handler
 
-    def on_event(self, action: str, 处理器: Event_Handler) -> None:
-        """订阅一个广播事件（无响应）。
+    def on_event(self, action: str, handler: EventHandler) -> None:
+        """Subscribe to a broadcast event (no response)."""
+        self._event_handlers[action] = handler
 
-        处理器签名：处理函数(params: dict, 消息: dict) -> None
-        """
-        self._事件表[action] = 处理器
-
-    # ---------- 调用平台 ----------
+    # ---------- calling the platform ----------
 
     async def request(
         self,
-        目标: str,
+        target: str,
         action: str,
         params: Any = None,
-        超时: float | None = None,
+        timeout: float | None = None,
     ) -> Any:
-        """调用平台能力（目标填 "kugua-main"）或其它模块（填其模块名）。"""
+        """Call a platform capability ("kugua-main") or another module by name."""
         if self._ws is None:
-            raise RuntimeError("尚未连接到主控")
-        消息 = 建信封("request", self.名称, to=目标, action=action, params=params)
-        未来: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._挂起[消息["id"]] = 未来
-        await self._ws.send(json.dumps(消息, ensure_ascii=False))
+            raise RuntimeError("not connected to the main controller")
+        message = make_envelope("request", self.name, to=target, action=action, params=params)
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[message["id"]] = future
+        await self._ws.send(json.dumps(message, ensure_ascii=False))
         try:
-            return await asyncio.wait_for(未来, 超时 or self.请求超时)
+            return await asyncio.wait_for(future, timeout or self.request_timeout)
         finally:
-            self._挂起.pop(消息["id"], None)
+            self._pending.pop(message["id"], None)
 
     async def broadcast(self, action: str, params: Any = None) -> None:
-        """向平台广播一个事件（所有在线模块都会收到，除自己外）。"""
+        """Broadcast an event to all other online modules."""
         if self._ws is None:
-            raise RuntimeError("尚未连接到主控")
-        消息 = 建信封("event", self.名称, action=action, params=params)
-        await self._ws.send(json.dumps(消息, ensure_ascii=False))
+            raise RuntimeError("not connected to the main controller")
+        message = make_envelope("event", self.name, action=action, params=params)
+        await self._ws.send(json.dumps(message, ensure_ascii=False))
 
-    # ---------- 连接与主循环 ----------
+    # ---------- connection ----------
 
     @property
-    def 地址(self) -> str:
-        return f"ws://{self.主机}:{self.端口}"
+    def url(self) -> str:
+        return f"ws://{self.host}:{self.port}"
 
-    async def 运行(self) -> None:
-        """连接并在断线后按退避重连，直到 stop() 被调用。
+    @property
+    def is_connected(self) -> bool:
+        return self._ws is not None
 
-        连续失败达到「重连上限」时返回 —— 这通常意味着平台已经退出
-        （平台被强杀时来不及广播 system.shutdown，只能靠这个兜底）。
+    def _managed_payload(self) -> Dict[str, Any] | None:
+        """Build the ``托管`` handshake field (None when not requested)."""
+        if not self.managed and not self.managed_entry:
+            return None
+        payload: Dict[str, Any] = {"enabled": self.managed}
+        if self.managed_entry:
+            payload["entry"] = self.managed_entry
+        if self.managed_args:
+            payload["args"] = self.managed_args
+        if self.managed_cwd:
+            payload["cwd"] = self.managed_cwd
+        return payload
+
+    async def run(self) -> None:
+        """Connect and reconnect with backoff until stop() is called.
+
+        Returns after ``max_retries`` consecutive failures, which usually means
+        the platform is gone (a force-killed platform cannot broadcast
+        system.shutdown, so this is the fallback signal).
         """
-        while not self._停止.is_set():
+        while not self._stop.is_set():
             try:
-                await self._单次连接()
-            except Exception as 错误:
-                if self._停止.is_set():
+                await self._connect_once()
+            except Exception as err:
+                if self._stop.is_set():
                     break
-                self._连续失败 += 1
-                日志.warning("连接异常：%s（第 %d 次）", 错误, self._连续失败)
+                self._failures += 1
+                log.warning("connection error: %s (failure #%d)", err, self._failures)
 
-            if self._停止.is_set():
+            if self._stop.is_set():
                 break
 
-            if self.已收到退出通知:
-                日志.info("平台已通知退出，本客户端结束。")
+            if self.shutdown_requested:
+                log.info("platform requested shutdown, client stops.")
                 break
 
-            if self._连续失败 >= self.重连上限:
-                日志.warning(
-                    "连续 %d 次连不上平台，判定平台已退出，本客户端结束。"
-                    "（可调大 重连上限）",
-                    self._连续失败,
+            if self._failures >= self.max_retries:
+                log.warning(
+                    "gave up after %d consecutive failures; assuming the platform "
+                    "has exited (increase max_retries to keep retrying).",
+                    self._failures,
                 )
                 break
 
-            延迟 = min(2 ** (self._连续失败 - 1), 30)
-            日志.info("%d 秒后重连…", 延迟)
+            delay = min(2 ** (self._failures - 1), 30)
+            log.info("reconnecting in %d s ...", delay)
             try:
-                await asyncio.wait_for(self._停止.wait(), 延迟)
+                await asyncio.wait_for(self._stop.wait(), delay)
             except asyncio.TimeoutError:
                 pass
 
-    async def _单次连接(self) -> None:
-        async with websockets.connect(self.地址, ping_interval=None) as ws:
+    async def _connect_once(self) -> None:
+        async with websockets.connect(self.url, ping_interval=None) as ws:
             self._ws = ws
-            self._已握手.clear()
+            self._handshaked.clear()
 
-            # 握手：name 必填；capabilityDefs 决定平台如何暴露本模块
-            握手参数: Dict[str, Any] = {
-                "name": self.名称,
-                "version": self.版本,
-                "capabilityDefs": self.能力声明,
+            hello: Dict[str, Any] = {
+                "name": self.name,
+                "version": self.version,
+                "capabilityDefs": self.capabilities,
             }
-            if self.令牌:
-                握手参数["token"] = self.令牌
+            if self.token:
+                hello["token"] = self.token
+            managed_payload = self._managed_payload()
+            if managed_payload is not None:
+                hello["托管"] = managed_payload
 
             await ws.send(
-                json.dumps(
-                    建信封("hello", self.名称, params=握手参数), ensure_ascii=False
-                )
+                json.dumps(make_envelope("hello", self.name, params=hello), ensure_ascii=False)
             )
 
-            # 必须先启动接收循环，才能收到 hello_ack；
-            # 否则「等待握手」会与「接收消息」互相阻塞（死锁）。
-            接收 = asyncio.create_task(self._接收循环(ws))
-            心跳 = asyncio.create_task(self._心跳循环(ws))
+            # The receive loop must start before waiting for hello_ack,
+            # otherwise both sides block forever (deadlock).
+            receiver = asyncio.create_task(self._receive_loop(ws))
+            heartbeat = asyncio.create_task(self._heartbeat_loop(ws))
             try:
                 try:
-                    await asyncio.wait_for(self._已握手.wait(), 10)
+                    await asyncio.wait_for(self._handshaked.wait(), 10)
                 except asyncio.TimeoutError:
-                    raise RuntimeError("握手超时，未收到 hello_ack") from None
+                    raise RuntimeError("handshake timeout: no hello_ack received") from None
 
-                self._连续失败 = 0
-                日志.info("已接入 %s", self.地址)
+                self._failures = 0
+                log.info("connected to %s", self.url)
 
-                # 接收循环结束（断开）或主动停止时退出
-                await 接收
+                await receiver
             finally:
-                心跳.cancel()
-                接收.cancel()
+                heartbeat.cancel()
+                receiver.cancel()
                 self._ws = None
-                # 所有挂起请求失败，避免调用方永久等待
-                for 未来 in self._挂起.values():
-                    if not 未来.done():
-                        未来.set_exception(RuntimeError("连接已断开"))
-                self._挂起.clear()
+                for future in self._pending.values():
+                    if not future.done():
+                        future.set_exception(RuntimeError("connection closed"))
+                self._pending.clear()
 
-    async def _接收循环(self, ws: Any) -> None:
-        async for 文本 in ws:
-            await self._处理消息(文本)
+    async def _receive_loop(self, ws: Any) -> None:
+        async for text in ws:
+            await self._dispatch(text)
 
-    async def _心跳循环(self, ws: Any) -> None:
+    async def _heartbeat_loop(self, ws: Any) -> None:
         while True:
             await asyncio.sleep(30)
             try:
-                await ws.send(
-                    json.dumps(建信封("ping", self.名称), ensure_ascii=False)
-                )
+                await ws.send(json.dumps(make_envelope("ping", self.name), ensure_ascii=False))
             except Exception:
                 return
 
     def stop(self) -> None:
-        """请求停止（不会立刻断开，等当前消息处理完由主循环退出）。"""
-        self._停止.set()
+        """Ask the client to stop (the run loop exits gracefully)."""
+        self._stop.set()
 
-    # ---------- 收消息分发 ----------
+    # ---------- inbound dispatch ----------
 
-    async def _处理消息(self, 文本: str) -> None:
+    async def _dispatch(self, text: str) -> None:
         try:
-            消息 = json.loads(文本)
+            message = json.loads(text)
         except json.JSONDecodeError:
-            日志.warning("收到非 JSON 帧，忽略")
+            log.warning("received a non-JSON frame, ignored")
             return
 
-        if not isinstance(消息, dict) or "nigane" not in 消息:
+        if not isinstance(message, dict) or "nigane" not in message:
             return
 
-        类型 = 消息.get("type")
+        msg_type = message.get("type")
 
-        if 类型 == "hello_ack":
-            self._已握手.set()
-            模块列表 = (消息.get("data") or {}).get("modules") or []
-            日志.info("握手成功，平台当前模块：%s", "、".join(模块列表))
+        if msg_type == "hello_ack":
+            self._handshaked.set()
+            modules = (message.get("data") or {}).get("modules") or []
+            log.info("handshake ok, platform modules: %s", ", ".join(modules))
             return
 
-        if 类型 in ("response", "error"):
-            未来 = self._挂起.get(消息.get("echo", ""))
-            if 未来 is not None and not 未来.done():
-                if 类型 == "error":
-                    未来.set_exception(
-                        RuntimeError(
-                            f"[{消息.get('code')}] {消息.get('message', '模块错误')}"
-                        )
+        if msg_type in ("response", "error"):
+            future = self._pending.get(message.get("echo", ""))
+            if future is not None and not future.done():
+                if msg_type == "error":
+                    future.set_exception(
+                        RuntimeError(f"[{message.get('code')}] {message.get('message', 'module error')}")
                     )
                 else:
-                    未来.set_result(消息.get("data"))
+                    future.set_result(message.get("data"))
             return
 
-        if 类型 == "request":
-            await self._处理请求(消息)
+        if msg_type == "request":
+            await self._handle_request(message)
             return
 
-        if 类型 == "event":
-            处理器 = self._事件表.get(消息.get("action", ""))
-            if 处理器 is not None:
+        if msg_type == "event":
+            handler = self._event_handlers.get(message.get("action", ""))
+            if handler is not None:
                 try:
-                    处理器(消息.get("params") or {}, 消息)
+                    handler(message.get("params") or {}, message)
                 except Exception:
-                    日志.exception("事件处理器异常：%s", 消息.get("action"))
+                    log.exception("event handler failed: %s", message.get("action"))
             return
 
-        if 类型 == "ping":
-            await self._回复(消息, 类型="pong", echo=消息.get("id"))
+        if msg_type == "ping":
+            await self._reply(message, msg_type="pong", echo=message.get("id"))
             return
 
-    async def _处理请求(self, 消息: Dict[str, Any]) -> None:
-        action = 消息.get("action", "")
-        处理器 = self._请求表.get(action)
-        if 处理器 is None:
-            await self._回复(
-                消息,
-                类型="error",
-                code=错误码["未注册"],
-                message=f"未实现的动作：{action}",
+    async def _handle_request(self, message: Dict[str, Any]) -> None:
+        action = message.get("action", "")
+        handler = self._handlers.get(action)
+        if handler is None:
+            await self._reply(
+                message,
+                msg_type="error",
+                code=ERROR_CODES["not_registered"],
+                message=f"action not implemented: {action}",
             )
             return
 
         try:
-            结果 = 处理器(消息.get("params") or {}, 消息)
-            if asyncio.iscoroutine(结果) or isinstance(结果, Awaitable):
-                结果 = await 结果
-            await self._回复(消息, 类型="response", data=结果)
-        except Exception as 错误:
-            日志.exception("处理器异常：%s", action)
-            await self._回复(
-                消息,
-                类型="error",
-                code=错误码["内部异常"],
-                message=str(错误),
+            result = handler(message.get("params") or {}, message)
+            if asyncio.iscoroutine(result) or isinstance(result, Awaitable):
+                result = await result
+            await self._reply(message, msg_type="response", data=result)
+        except Exception as err:
+            log.exception("handler failed: %s", action)
+            await self._reply(
+                message,
+                msg_type="error",
+                code=ERROR_CODES["internal"],
+                message=str(err),
             )
 
-    async def _回复(
+    async def _reply(
         self,
-        原始: Dict[str, Any],
+        original: Dict[str, Any],
         *,
-        类型: str,
+        msg_type: str,
         echo: str | None = None,
         data: Any = None,
         code: int | None = None,
@@ -354,45 +382,49 @@ class NiganeClient:
     ) -> None:
         if self._ws is None:
             return
-        回复 = 建信封(
-            类型,
-            self.名称,
-            to=原始.get("from"),
-            echo=echo if echo is not None else 原始.get("id"),
+        reply = make_envelope(
+            msg_type,
+            self.name,
+            to=original.get("from"),
+            echo=echo if echo is not None else original.get("id"),
             data=data,
             code=code,
             message=message,
         )
         try:
-            await self._ws.send(json.dumps(回复, ensure_ascii=False))
+            await self._ws.send(json.dumps(reply, ensure_ascii=False))
         except Exception:
-            日志.warning("回复发送失败，连接可能已断开")
+            log.warning("failed to send reply, connection may be gone")
 
 
-def 建能力(
-    名称: str,
-    模块: str,
+def capability(
+    name: str,
+    module: str,
     *,
-    标题: str | None = None,
-    说明: str | None = None,
-    中文指令: Optional[list[str]] = None,
-    参数: Optional[Dict[str, Any]] = None,
-    暴露指令: bool = True,
-    暴露GUI: bool = True,
+    title: str | None = None,
+    description: str | None = None,
+    commands: Optional[list[str]] = None,
+    params: Optional[Dict[str, Any]] = None,
+    expose_command: bool = True,
+    expose_gui: bool = True,
 ) -> Dict[str, Any]:
-    """构造一条能力声明（方便写 能力声明 列表）。"""
-    声明: Dict[str, Any] = {
-        "名称": 名称,
-        "模块": 模块,
-        "动作": 名称,
-        "暴露": {"指令": 暴露指令, "GUI": 暴露GUI},
+    """Build one capability declaration (protocol field ``capabilityDefs`` 条目).
+
+    ``commands`` are Chinese trigger words shown in the command panel and used
+    by the AI router, e.g. ``commands=["echo", "回声"]``.
+    """
+    decl: Dict[str, Any] = {
+        "名称": name,
+        "模块": module,
+        "动作": name,
+        "暴露": {"指令": expose_command, "GUI": expose_gui},
     }
-    if 标题:
-        声明["标题"] = 标题
-    if 说明:
-        声明["说明"] = 说明
-    if 中文指令:
-        声明["中文指令"] = 中文指令
-    if 参数:
-        声明["参数"] = 参数
-    return 声明
+    if title:
+        decl["标题"] = title
+    if description:
+        decl["说明"] = description
+    if commands:
+        decl["中文指令"] = commands
+    if params:
+        decl["参数"] = params
+    return decl

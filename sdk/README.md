@@ -17,6 +17,10 @@
 | `../docs/接入协议.md` | **协议规范**（任何语言据此自行实现） |
 | `../examples/external-module/run.mjs` | Node.js 裸协议示例（不依赖任何库） |
 
+> SDK 的**公开 API 全部为英文**（`NiganeClient`、`register`、`on_event`、
+> `request`、`broadcast`、`capability`），便于在任何项目里使用；
+> 协议层的中文字段名（`托管`、`中文指令`…）由 SDK 内部处理，业务代码无需关心。
+
 ---
 
 ## 一、快速上手（Python，30 秒）
@@ -29,15 +33,15 @@ pip install websockets
 cd sdk/python
 python example.py
 
-# 3. 在平台对话里输入：打招呼
+# 3. 在平台对话里输入：pygreet
 ```
 
 看到类似输出即成功：
 
 ```
-[INFO] 握手成功，平台当前模块：Python示例模块、webui、mkg、...
-[INFO] 已接入 ws://127.0.0.1:24601
-[INFO] 被平台调用：打招呼（名字=世界，来自 kugua-main）
+[INFO] handshake ok, platform modules: PythonExampleModule、webui、mkg、...
+[INFO] connected to ws://127.0.0.1:24601
+[INFO] called: greet (name=world, from=kugua-main)
 ```
 
 ---
@@ -46,19 +50,19 @@ python example.py
 
 ```python
 import asyncio
-from nigane import NiganeClient, 建能力
+from nigane import NiganeClient, capability
 
-客户端 = NiganeClient(
-    名称="我的工具",
-    能力声明=[
-        建能力("我的工具.回声", "我的工具", 中文指令=["回声"]),
+client = NiganeClient(
+    name="my-tool",
+    capabilities=[
+        capability("my-tool.echo", "my-tool", commands=["echo", "回声"]),
     ],
 )
 
-# 声明「我的工具.回声」被调用时做什么
-客户端.register("我的工具.回声", lambda p, m: {"文本": p.get("文本", "")})
+# 声明「my-tool.echo」被调用时做什么
+client.register("my-tool.echo", lambda p, m: {"text": p.get("text", "")})
 
-asyncio.run(客户端.运行())
+asyncio.run(client.run())
 ```
 
 就这样。平台侧现在已能：
@@ -73,11 +77,11 @@ asyncio.run(客户端.运行())
 ### 3.1 被平台调用（平台 → 你）
 
 ```python
-def 处理(params, 消息):
-    # params 是调用方传的参数；消息是完整信封（含 from、id 等）
-    return {"结果": params.get("x", 0) * 2}
+def handler(params, message):
+    # params 是调用方传的参数；message 是完整信封（含 from、id 等）
+    return {"result": params.get("x", 0) * 2}
 
-客户端.register("我的工具.翻倍", 处理)
+client.register("my-tool.double", handler)
 ```
 
 - 返回值 → 自动封装成 `response` 发回
@@ -87,7 +91,7 @@ def 处理(params, 消息):
 ### 3.2 主动调用平台（你 → 平台）
 
 ```python
-结果 = await 客户端.request("kugua-main", "capability.list", {})
+result = await client.request("kugua-main", "capability.list", {})
 ```
 
 `kugua-main` 是平台内置目标的固定名称。常用内置动作：
@@ -106,7 +110,7 @@ def 处理(params, 消息):
 ### 3.3 广播事件（不关心谁收）
 
 ```python
-await 客户端.broadcast("我的工具.心跳", {"n": 1})
+await client.broadcast("my-tool.heartbeat", {"n": 1})
 ```
 
 平台和其它模块都能收到（发送者自己除外）。
@@ -114,8 +118,8 @@ await 客户端.broadcast("我的工具.心跳", {"n": 1})
 ### 3.4 订阅平台事件
 
 ```python
-客户端.on_event("system.shutdown", lambda p, m: 客户端.stop())
-客户端.on_event("capability.changed", lambda p, m: print(p))
+client.on_event("system.shutdown", lambda p, m: client.stop())
+client.on_event("capability.changed", lambda p, m: print(p))
 ```
 
 常用事件：
@@ -125,32 +129,85 @@ await 客户端.broadcast("我的工具.心跳", {"n": 1})
 | `system.shutdown` | **平台即将退出**（重要，见第五节） |
 | `capability.changed` | 能力注册表变化 |
 | `registry.changed` | 模块上下线 |
+| `registry.conflict` | 你的托管配置与平台已有配置冲突（见 4.1） |
 | `plugins.changed` | 插件目录变化 |
 
 ---
 
 ## 四、能力声明：让平台「认识」你
 
-`能力声明` 决定你的模块如何被平台暴露：
+`capabilities` 决定你的模块如何被平台暴露：
 
 ```python
-建能力(
-    "我的工具.翻译",          # 名称：全局唯一，建议 模块.动作
-    模块="我的工具",
-    标题="翻译",              # 人类可读
-    说明="中英互译",
-    中文指令=["翻译", "译"],   # ← 出现在指令面板 / 可被 AI 命中
-    参数={                     # JSON Schema
+capability(
+    "my-tool.translate",       # 名称：全局唯一，建议 模块.动作
+    module="my-tool",
+    title="翻译",               # 人类可读
+    description="中英互译",
+    commands=["翻译", "译"],    # ← 出现在指令面板 / 可被 AI 命中
+    params={                    # JSON Schema
         "type": "object",
-        "properties": {"文本": {"type": "string"}},
-        "required": ["文本"],
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
     },
-    暴露指令=True,            # 是否进指令面板
-    暴露GUI=True,             # 是否进 GUI 能力列表
+    expose_command=True,        # 是否进指令面板
+    expose_gui=True,            # 是否进 GUI 能力列表
 )
 ```
 
-**关键**：填了 `中文指令` 的能力，用户就能在对话里直接说「翻译 你好」触发你。
+**关键**：填了 `commands` 的能力，用户就能在对话里直接说「翻译 你好」触发你。
+
+### 4.1 托管启动：要不要随平台一起启动
+
+默认你只是「临时接入」：平台启动时不会拉起你，需要你手动运行。
+
+如果你希望**下次跟随工作室一起启动**，在构造时声明：
+
+```python
+import sys, os
+
+client = NiganeClient(
+    name="my-tool",
+    managed=True,                                        # 申请托管
+    managed_entry=sys.executable,                        # 物理路径：解释器
+    managed_args=[os.path.abspath(__file__), "--hosted"],# 启动参数
+    # managed_cwd=r"D:\my-tool",                         # 可选：工作目录
+)
+```
+
+平台会把它记到 `kugua.config.json` 的 `modules[]`，下次启动时按此拉起。
+
+**首次 vs 之后（重要）**
+
+| 场景 | 行为 |
+|---|---|
+| 平台里**没有**同名模块 | 用你上报的信息**新建**配置项 |
+| 平台里**已有**同名模块 | **保留已有配置不动**，你的上报值不生效 |
+
+也就是说：**用户在工作室内「设置 → 模块管理」里改过的值，永远不会被你的程序覆盖**。
+发生差异时双方都会留痕 —— 平台控制台打印差异明细，你这边收到
+`registry.conflict` 广播：
+
+```python
+client.on_event("registry.conflict", lambda p, m: print("配置冲突：", p))
+```
+
+模块的唯一标识是**模块名**（不是文件路径），所以换目录、改启动方式都不会
+被当成新模块；反过来，如果两个模块名指向同一份程序，平台会记警告并广播冲突。
+
+管理界面的可编辑项：**是否随平台启动**、**物理路径**、**启动参数**、说明。
+修改后需重启对应模块生效。
+
+托管启动时平台会注入环境变量供你取连接信息：
+
+| 变量 | 说明 |
+|---|---|
+| `KUGUA_URL` | 主控 WebSocket 地址 |
+| `KUGUA_PORT` | 主控端口 |
+| `KUGUA_TOKEN` | 令牌 |
+| `KUGUA_HOSTED` | 固定 `1`，表示「由平台拉起」 |
+
+（Python SDK 默认就从这个端口/令牌读取，托管启动无需额外配置。）
 
 ---
 
@@ -166,23 +223,23 @@ await 客户端.broadcast("我的工具.心跳", {"n": 1})
 所以你应当订阅它：
 
 ```python
-客户端.on_event("system.shutdown", lambda p, m: 客户端.stop())
+client.on_event("system.shutdown", lambda p, m: client.stop())
 ```
 
 三种处理方式，任选：
 
 ```python
 # A. 直接退出
-客户端.on_event("system.shutdown", lambda p, m: 客户端.stop())
+client.on_event("system.shutdown", lambda p, m: client.stop())
 
 # B. 继续运行（下次平台起来自动重连）
-客户端.on_event("system.shutdown", lambda p, m: print("平台重启中…"))
+client.on_event("system.shutdown", lambda p, m: print("平台重启中…"))
 
 # C. 收尾后退出
-def 收尾(p, m):
-    保存未完成的数据()
-    客户端.stop()
-客户端.on_event("system.shutdown", 收尾)
+def cleanup(p, m):
+    save_pending_work()
+    client.stop()
+client.on_event("system.shutdown", cleanup)
 ```
 
 ### 断线与重连
@@ -190,10 +247,10 @@ def 收尾(p, m):
 - 平台正常退出 → 你收到 `system.shutdown` → 按上面处理
 - 平台被**强杀**（任务管理器结束 / `kill -9` / 崩溃）→ **收不到任何通知**
   （这是操作系统限制，任何程序都无法拦截）
-- SDK 的应对：断线后指数退避重连，**连续失败 `重连上限`（默认 5）次后自动结束**，
+- SDK 的应对：断线后指数退避重连，**连续失败 `max_retries`（默认 5）次后自动结束**，
   相当于替你判定「平台已经不在了」
 
-想改这个行为：`NiganeClient(..., 重连上限=20)` 或设为很大的值让它一直重试。
+想改这个行为：`NiganeClient(..., max_retries=20)` 或设为很大的值让它一直重试。
 
 ### 与单例无关
 
@@ -205,38 +262,34 @@ def 收尾(p, m):
 
 不需要 Python SDK。任何语言只要能：
 
-1. 开一个 WebSocket 连到 `ws://127.0.0.1:24601`
-2. 收发 JSON 文本帧
-3. 发送 `hello` 握手，处理 `hello_ack`
-4. 维护「请求 id → 回调」映射（靠 `echo` 字段配对）
-5. 维护「action → 处理器」映射
-6. 订阅 `system.shutdown`
+1. 建立 **WebSocket** 连接（`ws://127.0.0.1:24601`）
+2. 收发 **JSON**
+3. 发 `hello` 握手、回 `request`
 
-就完成了。完整信封格式、字段语义、错误码见
-**[`docs/接入协议.md`](../docs/接入协议.md)**。
-
-可对照 Node 裸实现（**不依赖任何库**，直接证明协议可被复刻）：
-[`examples/external-module/run.mjs`](../examples/external-module/run.mjs)
+就能接入。完整字段、错误码、握手时序见 [`../docs/接入协议.md`](../docs/接入协议.md)；
+Node.js 的最小实现见 [`../examples/external-module/run.mjs`](../examples/external-module/run.mjs)。
 
 ---
 
 ## 七、常见问题
 
-**Q：连不上，一直重连？**
-- 确认平台已启动（主控日志有「苦音服务端已启动：ws://...」）
-- 端口要对：默认 `24601`，若 `kugua.config.json` 里改过，用 `KUGUA_PORT` 指定
-- 主控配置了 `token` 时必须传 `KUGUA_TOKEN`
+**Q：平台没启动，我的程序一直重连怎么办？**
+正常。SDK 会在连续失败 `max_retries` 次后退出。想让它在平台启动后自动回来，
+把 `max_retries` 调大，或自己写外层循环。
 
-**Q：握手失败 / 连接被立刻关闭？**
-- 模块名重复会被「顶号」——同名旧连接被关闭，这是正常设计
-- token 不匹配 → `error(1001)` 并断开
+**Q：端口不是默认的 24601？**
+设环境变量 `KUGUA_PORT` / `KUGUA_TOKEN`，或直接传 `port=` / `token=`。
 
-**Q：能力面板里看不到我的指令？**
-- 确认 `能力声明` 里写了 `中文指令`，且 `暴露指令=True`
-- 确认握手成功（日志里有「握手成功」）
+**Q：控制台中文乱码？**
+Windows 控制台编码问题，设 `PYTHONIOENCODING=utf-8` 即可。
 
-**Q：我的进程会不会被平台杀掉？**
-- 不会。平台对你**不发任何信号**，只广播 `system.shutdown`
+**Q：我的能力没出现在指令面板？**
+检查 `commands` 是否填了；`expose_command` 是否为 `True`；
+再确认平台日志里有「模块上线：<你的模块名>」。
 
-**Q：平台重启后要手动重连吗？**
-- 不用，SDK 会自动重连（指数退避），重连后自动重新注册
+**Q：我不想被平台托管，只想临时注册？**
+不传 `managed`（默认 `False`）即可，平台不会写入任何配置。
+
+**Q：我在管理界面改了配置，为什么程序启动后又被改回去了？**
+不会发生 —— 已有配置永远不会被外部上报覆盖。如果看到的仍是旧值，
+确认改的是同名模块，且保存后平台日志有「配置已更新」。

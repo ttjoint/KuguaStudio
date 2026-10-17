@@ -100,6 +100,8 @@ export interface 模块描述 {
   description?: string;
   /** 附加参数，传递给子进程 */
   args?: string[];
+  /** 工作目录（可选，缺省为主控 cwd）；由外部模块自报托管时使用 */
+  cwd?: string;
 }
 
 /** 模块运行时详细信息（注册配置 + 状态） */
@@ -124,6 +126,26 @@ export interface 模块信息 {
   capabilities?: string[];
   /** 能力声明（可选）：主控据此汇总为全局能力注册表 */
   capabilityDefs?: 能力声明[];
+  /**
+   * 托管申请（可选）：外部模块自报「下次跟随平台一起启动」。
+   * 仅作为**首次注册**时的初始值；一旦系统里已有同名配置项，
+   * 以用户编辑过的配置为准，不会被上报值覆盖。
+   */
+  托管?: 托管申请;
+}
+
+/** 外部模块自报的托管启动信息 */
+export interface 托管申请 {
+  /** 是否希望被平台托管（随平台启动而启动） */
+  enabled: boolean;
+  /** 物理路径：可执行文件（python、node、.exe 等）或脚本路径 */
+  entry?: string;
+  /** 附加参数，直接传给该进程 */
+  args?: string[];
+  /** 工作目录（可选，缺省为主控 cwd） */
+  cwd?: string;
+  /** 说明文字（可选，仅首次注册时用于初始化描述） */
+  description?: string;
 }
 
 /**
@@ -393,6 +415,7 @@ export class NiganeServer extends EventEmitter {
         version: 参数.version,
         capabilities: 参数.capabilities,
         capabilityDefs: 参数.capabilityDefs,
+        托管: 参数.托管,
       },
     });
     this.连接名.set(socket, 名);
@@ -412,6 +435,7 @@ export class NiganeServer extends EventEmitter {
       version: 参数.version,
       capabilities: 参数.capabilities,
       capabilityDefs: 参数.capabilityDefs,
+      托管: 参数.托管,
     } satisfies 模块信息);
   }
 
@@ -543,6 +567,11 @@ export interface 客户端选项 {
   capabilities?: string[];
   /** 能力声明：握手时上报给主控，用于汇总为全局能力注册表 */
   capabilityDefs?: 能力声明[];
+  /**
+   * 托管申请：声明「下次跟随平台一起启动」。
+   * 仅作首次注册时的初始值；已有同名配置时以用户配置为准。
+   */
+  托管?: 托管申请;
 }
 
 type 请求处理器 = (params: unknown, 消息: 信封) => unknown | Promise<unknown>;
@@ -615,6 +644,7 @@ export class NiganeClient extends EventEmitter {
                 version: this.选项.version,
                 capabilities: this.计算能力名(),
                 capabilityDefs: this.选项.capabilityDefs ?? [],
+                托管: this.选项.托管,
                 token: this.选项.token ?? "",
               },
             }),

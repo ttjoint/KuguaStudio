@@ -2,6 +2,7 @@ import { 同步能力指令库 } from "./02-chat-core";
 import { 添加消息 } from "./03-preview";
 import { 刷新本地插件, 刷新模块列表 } from "./06-shell";
 import { Explorer } from "./07-explorer";
+import { 刷新模块配置, 绑定模块管理事件 } from "./14-plugin-ui";
 import { 初始化指令面板, 加载指令面板数据 } from "./16-cmd-panel";
 
 // ===== 初始化 =====
@@ -28,6 +29,10 @@ window.kugua.onBus((action) => {
 
 // 初始化聊天页左侧「指令面板」
 初始化指令面板();
+
+// 初始化设置页「模块管理」
+绑定模块管理事件();
+void 刷新模块配置();
 
 // 知识库浏览器的初始化统一在这里编排。
 // 放在 09 而不是 08-logs，是为了断开 08-logs ↔ 07-explorer 的循环依赖：

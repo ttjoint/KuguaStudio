@@ -114,3 +114,165 @@ document.getElementById("settings-shutdown")?.addEventListener("click", () => {
   void fetch("/api/shutdown", { method: "POST" }).catch(() => undefined);
 });
 
+
+// ===== 模块管理：查看 / 编辑托管配置 =====
+
+interface 模块配置条目 {
+  name: string;
+  类型: string;
+  启用: boolean;
+  路径: string;
+  参数: string[];
+  说明: string;
+  在线: boolean;
+  子进程: number | null;
+}
+
+/** 转义 HTML（本文件局部使用，避免依赖其它 part） */
+function 转义(文本: unknown): string {
+  return String(文本 ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** 渲染模块管理列表 */
+export async function 刷新模块配置(容器: HTMLElement | null = document.getElementById("settings-module-list")): Promise<void> {
+  if (!容器) return;
+  let 列表: 模块配置条目[] = [];
+  try {
+    列表 = (await window.kugua.request("nigane", "nigane.registry.config.list", {})) as 模块配置条目[];
+  } catch (err) {
+    容器.innerHTML = `<div class="mod-empty">读取失败：${转义(err)}</div>`;
+    return;
+  }
+  if (列表.length === 0) {
+    容器.innerHTML = `<div class="mod-empty">暂无已注册模块</div>`;
+    return;
+  }
+  容器.innerHTML = 列表
+    .map((m, i) => {
+      const 状态 = m.在线
+        ? `<span class="mod-badge on">在线${m.子进程 ? ` · pid ${m.子进程}` : ""}</span>`
+        : `<span class="mod-badge off">离线</span>`;
+      const 托管 = m.启用
+        ? `<span class="mod-badge managed">随平台启动</span>`
+        : `<span class="mod-badge temp">仅手动</span>`;
+      return `
+      <div class="mod-item" data-index="${i}">
+        <div class="mod-row mod-row-head">
+          <span class="mod-name">${转义(m.name)}</span>
+          <span class="mod-tags">${状态}${托管}<span class="mod-badge type">${转义(m.类型)}</span></span>
+        </div>
+        <div class="mod-row">
+          <label class="mod-label">托管启动</label>
+          <input type="checkbox" class="mod-input-enable" ${m.启用 ? "checked" : ""} ${m.类型 === "library" ? "disabled" : ""}>
+          <span class="mod-hint">勾选后下次启动平台时一并拉起</span>
+        </div>
+        <div class="mod-row">
+          <label class="mod-label">路径</label>
+          <input type="text" class="mod-input-path" value="${转义(m.路径)}" placeholder="可执行文件或脚本的物理路径">
+        </div>
+        <div class="mod-row">
+          <label class="mod-label">参数</label>
+          <input type="text" class="mod-input-args" value="${转义(m.参数.join(" "))}" placeholder="空格分隔，例如 script.py --hosted">
+        </div>
+        <div class="mod-row">
+          <label class="mod-label">说明</label>
+          <input type="text" class="mod-input-desc" value="${转义(m.说明)}">
+        </div>
+        <div class="mod-row mod-row-actions">
+          <button class="tb-btn small mod-save">保存</button>
+          <button class="tb-btn small mod-start" ${m.类型 === "library" ? "disabled" : ""}>启动</button>
+          <button class="tb-btn small mod-stop" ${m.类型 === "library" || !m.子进程 ? "disabled" : ""}>停止</button>
+          <span class="mod-msg"></span>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+/** 绑定模块管理交互（只绑一次） */
+export function 绑定模块管理事件(): void {
+  const 容器 = document.getElementById("settings-module-list");
+  if (!容器) return;
+
+  document.getElementById("settings-mod-refresh")?.addEventListener("click", () => {
+    void 刷新模块配置();
+  });
+
+  容器.addEventListener("click", (ev) => {
+    const 目标 = ev.target as HTMLElement;
+    const 项 = 目标.closest<HTMLElement>(".mod-item");
+    if (!项) return;
+    const 名 = 项.querySelector<HTMLElement>(".mod-name")?.textContent ?? "";
+    const 提示位 = 项.querySelector<HTMLElement>(".mod-msg");
+
+    const 提示 = (文本: string, 错 = false): void => {
+      if (!提示位) return;
+      提示位.textContent = 文本;
+      提示位.classList.toggle("err", 错);
+      setTimeout(() => {
+        提示位.textContent = "";
+        提示位.classList.remove("err");
+      }, 4000);
+    };
+
+    if (目标.classList.contains("mod-save")) {
+      const 启用 = 项.querySelector<HTMLInputElement>(".mod-input-enable")?.checked ?? false;
+      const 路径 = 项.querySelector<HTMLInputElement>(".mod-input-path")?.value.trim() ?? "";
+      const 参数字符串 = 项.querySelector<HTMLInputElement>(".mod-input-args")?.value.trim() ?? "";
+      const 说明 = 项.querySelector<HTMLInputElement>(".mod-input-desc")?.value ?? "";
+      const 参数 = 参数字符串 ? 参数字符串.split(/\s+/).filter(Boolean) : [];
+      目标.setAttribute("disabled", "true");
+      void (async () => {
+        try {
+          const 结果 = (await window.kugua.request("nigane", "nigane.registry.config.set", {
+            name: 名,
+            启用,
+            路径,
+            参数,
+            说明,
+          })) as { 更新: boolean; 变更?: string[] };
+          提示(结果.更新 ? `已保存：${(结果.变更 ?? []).join("；")}` : "无变更");
+          await 刷新模块配置();
+        } catch (err) {
+          提示(`保存失败：${String(err)}`, true);
+        } finally {
+          目标.removeAttribute("disabled");
+        }
+      })();
+      return;
+    }
+
+    if (目标.classList.contains("mod-start")) {
+      目标.setAttribute("disabled", "true");
+      void (async () => {
+        try {
+          await window.kugua.request("nigane", "nigane.registry.start", { name: 名 });
+          提示("已请求启动");
+          setTimeout(() => void 刷新模块配置(), 1200);
+        } catch (err) {
+          提示(`启动失败：${String(err)}`, true);
+          目标.removeAttribute("disabled");
+        }
+      })();
+      return;
+    }
+
+    if (目标.classList.contains("mod-stop")) {
+      目标.setAttribute("disabled", "true");
+      void (async () => {
+        try {
+          await window.kugua.request("nigane", "nigane.registry.stop", { name: 名 });
+          提示("已请求停止");
+          setTimeout(() => void 刷新模块配置(), 800);
+        } catch (err) {
+          提示(`停止失败：${String(err)}`, true);
+          目标.removeAttribute("disabled");
+        }
+      })();
+    }
+  });
+}

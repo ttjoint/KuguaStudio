@@ -9,7 +9,7 @@
  * 配置：读取 KUGUA_CONFIG 指定的文件，缺省为当前目录下 kugua.config.json（可选）
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as 创建探测服务器 } from "node:net";
@@ -210,9 +210,16 @@ async function 启动(): Promise<void> {
     if (记录) 记录.registered = true;
     汇总能力(信息);
     服务端?.broadcast("capability.changed", { 模块: 信息.name, 数量: 能力表.按模块(信息.name).length });
+    // 能力可能只声明在 capabilityDefs 里（不填 capabilities 字段），故两处合并展示
+    const 能力名集 = new Set<string>([
+      ...(信息.capabilities ?? []),
+      ...(信息.capabilityDefs ?? []).map((c) => c.名称),
+    ]);
     console.log(
-      `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，能力：${(信息.capabilities ?? []).join("、") || "无"}）`,
+      `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，能力：${[...能力名集].join("、") || "无"}）`,
     );
+    // 外部模块自报托管意愿 → 首次注册写入配置；已有配置则不覆盖
+    if (信息.托管) 处理托管申请(信息);
   });
   服务端.on("unregistered", (名: string) => {
     const 记录 = 子进程表.get(名);
@@ -440,6 +447,74 @@ function 注册内置动作(服务端: NiganeServer): void {
     const p = (params ?? {}) as { autoStart新增?: boolean };
     return 重新检测模块(p.autoStart新增 !== false);
   });
+
+  // 模块配置管理：列出（含托管状态、路径、参数、运行时状态）
+  服务端.handle("nigane.registry.config.list", () => {
+    const 配置表 = 加载配置().modules ?? [];
+    const 详情表 = 构造详情(服务端!);
+    const 详情索引 = new Map(详情表.map((d) => [d.name, d]));
+    return 配置表.map((m) => {
+      const d = 详情索引.get(m.name);
+      return {
+        name: m.name,
+        类型: m.type,
+        启用: m.autoStart ?? false,
+        路径: m.entry ?? m.file ?? "",
+        参数: m.args ?? [],
+        说明: m.description ?? "",
+        在线: d?.online ?? false,
+        子进程: d?.pid ?? null,
+      };
+    });
+  });
+
+  // 模块配置管理：更新单项（启用状态 / 路径 / 参数）
+  服务端.handle("nigane.registry.config.set", (params, 发送者) => {
+    const p = (params ?? {}) as {
+      name?: string;
+      启用?: boolean;
+      路径?: string;
+      参数?: string[];
+      说明?: string;
+    };
+    if (!p.name) throw new Error("缺少 name");
+    const 名 = p.name;
+    const 当前配置 = 加载配置();
+    const 表 = 当前配置.modules ?? [];
+    const 项 = 表.find((m) => m.name === 名);
+    if (!项) throw new Error(`模块不存在：${名}`);
+
+    const 变更: string[] = [];
+    if (typeof p.启用 === "boolean" && (项.autoStart ?? false) !== p.启用) {
+      变更.push(`启用 ${项.autoStart ?? false} → ${p.启用}`);
+      项.autoStart = p.启用;
+    }
+    if (typeof p.路径 === "string" && p.路径 !== (项.entry ?? 项.file ?? "")) {
+      变更.push(`路径 ${项.entry ?? 项.file ?? ""} → ${p.路径}`);
+      if (项.type === "library") 项.file = p.路径;
+      else 项.entry = p.路径;
+    }
+    if (Array.isArray(p.参数)) {
+      const 旧 = JSON.stringify(项.args ?? []);
+      const 新 = JSON.stringify(p.参数);
+      if (旧 !== 新) {
+        变更.push(`参数 ${旧} → ${新}`);
+        项.args = p.参数.length > 0 ? p.参数 : undefined;
+      }
+    }
+    if (typeof p.说明 === "string" && p.说明 !== (项.description ?? "")) {
+      变更.push("说明变更");
+      项.description = p.说明;
+    }
+    if (变更.length === 0) return { 更新: false, 原因: "无变更" };
+
+    if (!保存配置({ ...当前配置, modules: 表 })) throw new Error("保存配置失败");
+    服务端?.setDescription(项);
+    const 摘要 = `模块「${名}」配置已更新：${变更.join("；")}`;
+    console.log(`[主控] ${摘要}（操作者：${发送者}）`);
+    服务端?.broadcast("registry.changed", { 变更: "配置更新", 模块: 名 });
+    return { 更新: true, 变更, 需重启模块生效: true };
+  });
 }
 
 /**
@@ -547,6 +622,28 @@ function 构造详情(服务端: NiganeServer): 模块详情[] {
 }
 
 /** 启动一个 process 类型模块，返回子进程 */
+/** 根据入口路径推断启动命令（可执行文件直接跑，脚本靠对应解释器） */
+function 推断启动命令(入口: string): { 命令: string; 前置参数: string[]; 直传协议: boolean } {
+  const 扩展 = 入口.toLowerCase().slice(入口.lastIndexOf("."));
+  switch (扩展) {
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+      // Node 模块：沿用约定，把 ws url / token 作为位置参数传入
+      return { 命令: process.execPath, 前置参数: [], 直传协议: true };
+    case ".py":
+    case ".pyw":
+      // Python：优先环境变量 KUGUA_PYTHON，否则用平台自带的 python
+      return { 命令: process.env.KUGUA_PYTHON || "python", 前置参数: [], 直传协议: false };
+    case ".bat":
+    case ".cmd":
+      return { 命令: process.env.ComSpec || "cmd.exe", 前置参数: ["/c"], 直传协议: false };
+    default:
+      // .exe / 无扩展字或其他：当作可直接执行的程序（外部程序自报托管的主要场景）
+      return { 命令: 入口, 前置参数: [], 直传协议: false };
+  }
+}
+
 function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
   return new Promise((resolve, reject) => {
     if (!描述.entry) {
@@ -559,15 +656,26 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
       return;
     }
     const 主控URL = `ws://${配置.host}:${配置.port}`;
-    const args: string[] = [主控URL, 配置.token, ...(描述.args ?? [])];
-    const proc = spawn(process.execPath, [入口, ...args], {
+    // 仅 Node 模块追加位置参数（旧约定）；其他语言靠 KUGUA_* 环境变量取连接信息
+    const 启动 = 推断启动命令(入口);
+    const 追加 = 描述.args ?? [];
+    const 位置参数 = 启动.直传协议 ? [主控URL, 配置.token, ...追加] : 追加;
+    // Node / Python 这类解释器需要把入口作为第一个参数；可执行文件本身不需要
+    const 脚本参数 = 启动.命令 === 入口 ? 位置参数 : [入口, ...位置参数];
+    const 工作目录 = 描述.cwd ? pathResolve(process.cwd(), 描述.cwd) : process.cwd();
+    const proc = spawn(启动.命令, [...启动.前置参数, ...脚本参数], {
       stdio: ["ignore", "pipe", "pipe"] as const,
-      cwd: process.cwd(),
+      cwd: 工作目录,
       env: {
         ...process.env,
         NODE_ENV: process.env.NODE_ENV ?? "production",
         NIGANE_URL: 主控URL,
         NIGANE_TOKEN: 配置.token,
+        // 通用接入约定：任何语言的模块都能靠这三个变量连上平台
+        KUGUA_URL: 主控URL,
+        KUGUA_PORT: String(配置.port),
+        KUGUA_TOKEN: 配置.token,
+        KUGUA_HOSTED: "1",
       },
     }) as ChildProcess;
     const 记录: 子进程记录 = { proc, name: 描述.name, registered: false };
@@ -750,6 +858,117 @@ function 安装日志捕获(实例: 日志器): void {
  *   1) 由 capabilities 名称合成基础声明（GUI 可见、可被统一调用）；
  *   2) 用显式 capabilityDefs 覆盖/补充（可带中文指令、参数 Schema、权限等）。
  */
+/**
+ * 处理外部模块的托管申请（握手时上报）。
+ *
+ * 冲突键采用**模块名**（协议层已保证全局唯一，顶号语义也基于它）。
+ * 物理路径不作为主键：它会随目录迁移、相对/绝对写法改变，
+ * 用它做主键会把同一模块当成新模块。但路径仍参与校验：
+ * 若发现不同模块名指向同一路径，记警告。
+ *
+ * 合并策略（关键）：
+ *   - 模块名不存在   → 用上报信息新建配置项并写盘（日志：“新建托管注册”）。
+ *   - 模块名已存在   → **保留用户配置不动**，仅做差异比对（两边都记日志）。
+ * 这样用户在管理界面改过的值不会因为模块重启而被覆盖。
+ */
+function 处理托管申请(信息: 模块信息): void {
+  const 申请 = 信息.托管;
+  if (!申请) return;
+
+  const 名 = 信息.name;
+  const 当前配置 = 加载配置();
+  const 表 = 当前配置.modules ?? [];
+  const 已有 = 表.find((m) => m.name === 名);
+
+  // 上报的规范化形态（用于比对/写入）
+  const 上报入口 = 申请.entry ? pathResolve(process.cwd(), 申请.entry) : undefined;
+  const 上报参数 = 申请.args ?? [];
+  const 上报描述: 模块描述 = {
+    name: 名,
+    type: "process",
+    entry: 上报入口,
+    args: 上报参数.length > 0 ? 上报参数 : undefined,
+    autoStart: 申请.enabled,
+    description: 申请.description ?? `外部模块 ${名}（自报托管）`,
+  };
+
+  // —— 同路径不同名的可疑情况 ——
+  if (上报入口) {
+    const 同名路径项 = 表.find(
+      (m) => m.name !== 名 && m.entry && pathResolve(process.cwd(), m.entry) === 上报入口,
+    );
+    if (同名路径项) {
+      console.warn(
+        `[主控] 托管注册警告：模块「${名}」与已有模块「${同名路径项.name}」使用同一路径：${上报入口}。` +
+          `已保留两者各自的配置，请确认是否为同一程序。`,
+      );
+      服务端?.broadcast("registry.conflict", {
+        模块: 名,
+        冲突模块: 同名路径项.name,
+        原因: "同一物理路径",
+        路径: 上报入口,
+      });
+    }
+  }
+
+  // —— 已存在：不覆盖，只比对并记日志 ——
+  if (已有) {
+    const 差异: string[] = [];
+    if ((已有.autoStart ?? false) !== (上报描述.autoStart ?? false)) {
+      差异.push(`autoStart：本地 ${已有.autoStart ?? false} ← 上报 ${上报描述.autoStart ?? false}（保留本地）`);
+    }
+    if (上报入口 && 已有.entry && pathResolve(process.cwd(), 已有.entry) !== 上报入口) {
+      差异.push(`entry：本地 ${已有.entry} ← 上报 ${上报入口}（保留本地）`);
+    }
+    if (差异.length > 0) {
+      console.log(
+        `[主控] 托管注册：模块「${名}」已有配置，本次不覆盖。差异：\n  - ${差异.join("\n  - ")}`,
+      );
+      服务端?.broadcast("registry.conflict", {
+        模块: 名,
+        原因: "已有配置，保留本地",
+        差异,
+      });
+    } else {
+      console.log(`[主控] 托管注册：模块「${名}」已有配置且与上报一致，无需变更。`);
+    }
+    return;
+  }
+
+  // —— 不存在：首次注册，按上报信息新建 ——
+  if (!上报入口) {
+    console.warn(
+      `[主控] 托管注册：模块「${名}」申请托管但未提供 entry（物理路径），已忽略。` +
+        `请在管理界面手动配置后再启用。`,
+    );
+    return;
+  }
+
+  表.push(上报描述);
+  if (保存配置({ ...当前配置, modules: 表 })) {
+    服务端?.setDescription(上报描述);
+    console.log(
+      `[主控] 托管注册：新建模块「${名}」，入口 ${上报入口}，` +
+        `随平台启动 ${上报描述.autoStart ? "是" : "否"}。`,
+    );
+    服务端?.broadcast("registry.changed", { 变更: "托管注册", 模块: 名 });
+  }
+}
+
+/** 写回配置文件（原子写）；成功返回 true */
+function 保存配置(配置对象: 主控配置): boolean {
+  const 路径 = 配置路径();
+  try {
+    const 临时 = `${路径}.tmp`;
+    writeFileSync(临时, JSON.stringify(配置对象, null, 2) + "\n", "utf-8");
+    renameSync(临时, 路径);
+    return true;
+  } catch (err) {
+    console.error(`[主控] 保存配置失败（${路径}）：${String(err)}`);
+    return false;
+  }
+}
+
 function 汇总能力(信息: 模块信息): void {
   能力表.移除模块(信息.name);
   const 显式 = new Map<string, 能力声明>();
