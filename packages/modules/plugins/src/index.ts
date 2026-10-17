@@ -52,7 +52,12 @@ export interface 插件运行时配置 {
 export function 启动插件运行时(
   客户端: NiganeClient,
   配置: 插件运行时配置,
-): { 加载器: 插件加载器; 关闭: () => Promise<void> } {
+): {
+  加载器: 插件加载器;
+  /** 把插件清单里的配置声明上报给主控（供配置页使用） */
+  注册声明: () => Promise<void>;
+  关闭: () => Promise<void>;
+} {
   const 插件目录 = 配置.插件目录;
   const 市场索引 = 配置.市场索引;
   const 日志 = 创建日志器("[插件运行时]");
@@ -77,14 +82,57 @@ export function 启动插件运行时(
   };
 
   // —— 插件宿主工厂：每个插件实例注入独立 Context（日志带插件名前缀）——
+  // 注意这里是每个插件一套宿主：日志前缀、配置读取都要按插件区分，
+  // 共用一个宿主会导致 A 插件读到 B 插件的配置。
   const 宿主工厂 = (插件名: string): 插件宿主 => ({
     日志: 创建日志器(`[插件:${插件名}]`),
     请求: (目标, 动作, 参数, 超时毫秒) => 客户端.request(目标, 动作, 参数, 超时毫秒 ?? 10000),
     广播: (动作, 参数) => 客户端.sendEvent(动作, 参数),
     订阅: 订阅总线,
+    配置: async () => {
+      try {
+        const 值 = (await 客户端.request(
+          "nigane",
+          "nigane.moduleConfig.getModule",
+          { name: 插件名 },
+          5000,
+        )) as Record<string, unknown> | null | undefined;
+        return 值 && typeof 值 === "object" ? 值 : {};
+      } catch {
+        // 主控还没连上 / 该插件没声明配置：返回空对象，插件自行用默认值兜底。
+        // 不抛异常——读配置失败不该让插件崩掉。
+        return {};
+      }
+    },
   });
 
   const 加载器 = new 插件加载器({ 插件目录, 宿主工厂, 日志, 导入: 配置.导入 });
+
+  /**
+   * 把插件清单里声明的配置转给主控，让它出现在配置页里。
+   *
+   * 用 `nigane.moduleConfig.declare` 上报时把名字设成插件名——平台侧的
+   * 声明表按名字索引，模块与插件共用一张表，因此表单、凭据隔离、
+   * 热更新这些能力插件直接就复用了，不需要另做一套。
+   *
+   * 失败不影响插件本身：注册声明只是为了「能配」，不配也能跑。
+   */
+  const 注册插件声明 = async (): Promise<void> => {
+    for (const 记录 of 加载器.列表()) {
+      const 声明 = 记录.元数据.配置声明;
+      if (!声明) continue;
+      try {
+        await 客户端.request(
+          "nigane",
+          "nigane.moduleConfig.declare",
+          { 声明, name: 记录.name },
+          5000,
+        );
+      } catch (err) {
+        日志.警告(`注册插件配置声明失败（${记录.name}）：${String(err)}`);
+      }
+    }
+  };
 
   // —— Napcat 桥接机器人信息（转发署名用，5 分钟缓存）——
   let 机器人缓存: { user_id: 标识; nickname: string } | null = null;
@@ -218,6 +266,7 @@ export function 启动插件运行时(
         }
       }
     }
+    await 注册插件声明();
     return { count: 加载器.列表().length };
   });
 
@@ -328,6 +377,7 @@ export function 启动插件运行时(
         日志.错误(`动态加载插件 ${记录.name} 失败：${String(err)}`);
       }
     }
+    if (已加载.length > 0) await 注册插件声明();
     // 目录已消失的插件：卸载
     for (const 记录 of 加载器.列表()) {
       if (磁盘名集.has(记录.name)) continue;
@@ -362,6 +412,7 @@ export function 启动插件运行时(
 
   return {
     加载器,
+    注册声明: 注册插件声明,
     关闭: async () => {
       日志.信息("正在关闭插件运行时……");
       if (防抖定时) clearTimeout(防抖定时);
@@ -381,7 +432,7 @@ let 插件目录: string | null = null;
 let 市场索引: string | null = null;
 let gitTimeoutMs: number | undefined;
 let npmTimeoutMs: number | undefined;
-let 运行时实例: { 加载器: 插件加载器; 关闭: () => Promise<void> } | null = null;
+let 运行时实例: ReturnType<typeof 启动插件运行时> | null = null;
 
 void 启动模块({
   name: "plugins",
@@ -419,5 +470,8 @@ void 启动模块({
     日志.信息(`插件目录：${resolve(插件目录!)}，市场：${市场索引 || "未配置"}`);
     await 运行时实例?.加载器.加载全部();
     日志.信息(`已接入主控，在线插件 ${运行时实例?.加载器.列表().filter((r) => r.状态 === "enabled").length ?? 0} 个`);
+    // 插件清单里声明的配置，上报给主控后就能在配置页里编辑。
+    // 时机必须在「加载全部」之后——声明是从已加载的插件元数据里读的。
+    await 运行时实例?.注册声明();
   },
 });

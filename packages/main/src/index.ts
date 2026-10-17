@@ -367,6 +367,38 @@ function 注册内置动作(服务端: NiganeServer): void {
   服务端.handle("nigane.moduleConfig.declarations", () => 全部声明());
 
   /**
+   * 为**其他名字**注册配置声明。
+   *
+   * 模块自己用 `moduleConfig.report` 就够了（名字就是发送者）。
+   * 但插件不是独立进程：它们的声明要由 plugins 模块代报，
+   * 而发送者是 `plugins`、声明却属于各个插件——名字对不上。
+   * 这个接口专门解决代报场景，只允许用于**已注册模块代其管理的子项**
+   * （本机进程同一信任域，不做更细的鉴权）。
+   */
+  服务端.handle("nigane.moduleConfig.declare", (params) => {
+    const p = (params ?? {}) as { name?: string; 声明?: 配置声明 };
+    if (!p.name) throw new Error("缺少 name");
+    if (!p.声明) throw new Error("缺少 声明");
+    记录声明(p.name, p.声明);
+    return { 名称: p.name, 字段数: p.声明.字段.length };
+  });
+
+  /**
+   * 读取某模块/插件的**原始配置值**（已合并 local 覆盖层，凭据为明文）。
+   *
+   * 与 `moduleConfig.get` 的区别：那个是给 UI 用的表单模型（带标题、
+   * 类型、脱敏占位），这个是给**代码**用的——模块/插件自己要读配置，
+   * 需要的是真实值而不是「已设置」这种展示态。
+   *
+   * 仅供本机进程内使用（同一信任域），不对外暴露。
+   */
+  服务端.handle("nigane.moduleConfig.getModule", (params) => {
+    const p = (params ?? {}) as { name?: string };
+    if (!p.name) throw new Error("缺少 name");
+    return 读取模块配置(p.name);
+  });
+
+  /**
    * 获取某模块的配置表单模型。
    *
    * 值已合并 local 覆盖层；凭据字段不回传明文，只标 `已设置`。

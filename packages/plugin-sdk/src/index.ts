@@ -9,6 +9,7 @@
  */
 
 import type { NiganeClient } from "@kugua/nigane";
+import type { 配置声明 } from "@kugua/nigane";
 import type { 标识, 消息段 } from "@kugua/onebot11";
 
 export type { 标识, 消息段 } from "@kugua/onebot11";
@@ -20,6 +21,18 @@ export interface 插件元数据 {
   description?: string;
   author?: string;
   homepage?: string;
+  /**
+   * 配置声明（可选）。
+   *
+   * 写了之后平台会自动生成配置页（和模块用同一套表单），
+   * 插件在 on_load 里用 `ctx.配置()` 读当前值。凭据类字段（`凭据: true`）
+   * 同样会隔离到本地配置文件，不进版本库。
+   *
+   * 放在清单里而不是代码里，是为了让平台在**加载插件之前**就知道
+   * 它需要哪些配置——有些插件缺配置就没法正常工作，能提前在列表里
+   * 标出「可配置」，用户不用先跑一遍才发现。
+   */
+  配置声明?: 配置声明;
 }
 
 /** 命令处理返回值：返回字符串/消息段即回复当前会话；null/void 表示已自行处理 */
@@ -79,6 +92,14 @@ export interface 插件宿主 {
   广播: (动作: string, 参数?: unknown) => void;
   /** 订阅总线事件（action 前缀匹配），返回可取消句柄 */
   订阅: (动作: string, 处理: (参数: unknown) => void | Promise<void>) => 订阅句柄;
+  /**
+   * 读取本插件的配置（已合并本地凭据层）。
+   *
+   * 用法与模块一致：拿到的是**本插件的配置节本身**，不是整个配置文件。
+   * 配置项在平台侧改动后立即生效，插件下一次调用就能读到新值——
+   * 不需要重启，也不需要自己缓存。
+   */
+  配置: () => Promise<Record<string, unknown>>;
 }
 
 /** 简易日志器（缺省落到控制台） */
@@ -98,12 +119,33 @@ export function 创建日志器(前缀 = "[插件]"): 插件宿主["日志"] {
 export function 创建宿主(
   客户端: NiganeClient,
   日志: 插件宿主["日志"] = 创建日志器(),
+  插件名?: string,
 ): 插件宿主 {
   const 事件表 = new Map<string, Set<(参数: unknown) => void | Promise<void>>>();
+  /** 配置缓存：只在成功时写入，失败时下次重试而不是永久返回空对象 */
+  let 配置缓存: Record<string, unknown> | null = null;
   return {
     日志,
     请求: (目标, 动作, 参数, 超时毫秒) => 客户端.request(目标, 动作, 参数, 超时毫秒 ?? 10000),
     广播: (动作, 参数) => 客户端.sendEvent(动作, 参数),
+    配置: async () => {
+      if (!插件名) return {};
+      // 每次调用都回源，保证平台侧改完立刻可见；主控侧本身是内存读取，开销很小。
+      // 失败时回退到上次成功的结果（有缓存）或空对象，避免插件因为一次总线抖动就崩掉。
+      try {
+        const 值 = (await 客户端.request(
+          "nigane",
+          "nigane.moduleConfig.getModule",
+          { name: 插件名 },
+          5000,
+        )) as Record<string, unknown> | null | undefined;
+        配置缓存 = 值 && typeof 值 === "object" ? 值 : {};
+        return 配置缓存;
+      } catch (err) {
+        日志.警告(`读取插件配置失败（${插件名}）：${String(err)}`);
+        return 配置缓存 ?? {};
+      }
+    },
     订阅: (动作, 处理) => {
       let 集合 = 事件表.get(动作);
       if (!集合) {
@@ -139,12 +181,14 @@ export class Context implements 插件宿主 {
   readonly 请求: 插件宿主["请求"];
   readonly 广播: 插件宿主["广播"];
   readonly 订阅: 插件宿主["订阅"];
+  readonly 配置: 插件宿主["配置"];
 
   constructor(宿主: 插件宿主) {
     this.日志 = 宿主.日志;
     this.请求 = 宿主.请求;
     this.广播 = 宿主.广播;
     this.订阅 = 宿主.订阅;
+    this.配置 = 宿主.配置;
   }
 }
 
