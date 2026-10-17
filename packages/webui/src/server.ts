@@ -31,7 +31,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { NiganeClient } from "@kugua/nigane";
 import { MCP服务器 } from "@kugua/mcp";
 import type { 能力声明 } from "@kugua/capability";
-import { 获取单实例锁, 读取单实例锁, 数据根 } from "@kugua/paths";
+import { 获取单实例锁, 读取单实例锁, 抢占全局单例锁, 全局单例锁路径, 数据根 } from "@kugua/paths";
 
 const execFileAsync = promisify(execFile);
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -78,8 +78,8 @@ const 自动打开 = process.argv.includes("--no-open") ? false : 配置.webui?.
 let 主控进程: ChildProcess | null = null;
 let 苦音客户端: NiganeClient | null = null;
 let 已就绪 = false;
-/** 平台实例锁（单实例守卫） */
-const 实例锁路径 = resolve(数据根(), "webui.lock");
+/** 平台实例锁（全系统单例，与 cwd / 配置 / KUGUA_DATA_DIR 无关） */
+const 实例锁路径 = 全局单例锁路径();
 /** 释放当前实例锁（由 主流程 注入） */
 let 释放实例锁: () => void = () => undefined;
 
@@ -157,7 +157,12 @@ function 启动主控(): Promise<void> {
       res();
       return;
     }
-    const proc = spawn("node", [主控脚本], { stdio: "pipe", cwd: process.cwd() });
+    // KUGUA_LOCK_HELD=1：告诉子主控「锁已由本 WebUI 持有」，同一实例不重复抢锁
+    const proc = spawn("node", [主控脚本], {
+      stdio: "pipe",
+      cwd: process.cwd(),
+      env: { ...process.env, KUGUA_LOCK_HELD: "1" },
+    });
     主控进程 = proc;
     proc.stdout?.on("data", (data: Buffer) => {
       const text = data.toString();
@@ -166,6 +171,16 @@ function 启动主控(): Promise<void> {
     });
     proc.stderr?.on("data", (data: Buffer) => console.error("[主控]", data.toString().trim()));
     proc.on("error", () => res());
+    // 主控启动失败（如端口被其他程序占用）→ 不要假装成功，直接退出并释放锁
+    proc.on("exit", (码) => {
+      主控进程 = null;
+      if (码 !== 0 && 码 !== null) {
+        console.error(`[主控] 启动失败（退出码 ${码}），WebUI 一并退出。`);
+        释放实例锁();
+        process.exit(码);
+      }
+      res();
+    });
     setTimeout(res, 3000);
   });
 }
@@ -565,7 +580,7 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
 // ===== 启动 =====
 
 async function 主流程(): Promise<void> {
-  // —— 单实例守卫：已有平台实例则直接退出，不重复启动，也绝不杀已有实例 ——
+  // —— 单实例守卫（只看全局锁，与端口无关）：已有实例则直接退出，绝不杀已有实例 ——
   const 守卫 = 单实例守卫();
   if (守卫.已有) {
     console.log(
@@ -574,19 +589,31 @@ async function 主流程(): Promise<void> {
     );
     process.exit(0);
   }
-  // 额外保险：主控端口已被占用（且不是本实例）也视为已有实例
+  // —— 端口冲突检查（与单例无关，只报“端口被占”，绝不当作已有实例）——
   if (await 主控端口被占用(主控port)) {
-    console.log(`[WebUI] 检测到主控端口 ${主控host}:${主控port} 已被占用，视为已有实例在运行，本实例退出。`);
-    process.exit(0);
+    console.error(
+      `[WebUI] 启动失败：主控端口 ${主控host}:${主控port} 已被其他程序占用。\n` +
+        `        请在 kugua.config.json 中修改 port 后重试。`,
+    );
+    process.exit(1);
   }
-  // 获取实例锁（含退出时释放）
-  const 锁 = 获取单实例锁(实例锁路径, "webui", {
+  if (await 主控端口被占用(WebUI端口)) {
+    console.error(
+      `[WebUI] 启动失败：WebUI 端口 127.0.0.1:${WebUI端口} 已被其他程序占用。\n` +
+        `        请在 kugua.config.json 中修改 webui.port 后重试。`,
+    );
+    process.exit(1);
+  }
+  // 获取实例锁（含退出时释放）——用原子抢占，避免两个实例同时启动的竞态
+  const 锁 = 抢占全局单例锁(实例锁路径, "studio", {
+    入口: "webui",
+    pid: process.pid,
     端口: WebUI端口,
     主控端口: 主控port,
     地址: `http://127.0.0.1:${WebUI端口}`,
   });
   if (!锁.获得) {
-    console.log(`[WebUI] 已有实例在运行（pid=${锁.已有?.pid}），本实例退出。`);
+    console.log(`[WebUI] 已有工作室实例在运行（pid=${锁.已有?.pid}），本实例退出。`);
     process.exit(0);
   }
   const 释放锁 = (): void => 锁.释放();

@@ -71,6 +71,8 @@ const 服务 = spawn(process.execPath, [服务脚本, "--no-open"], {
     KUGUA_CONFIG: 配置路径,
     KUGUA_WEBUI_PORT: String(端口),
     KUGUA_DATA_DIR: join(数据目录, "data"),
+    // 隔离实例使用独立的全局单例锁，避免与用户正在运行的 Studio 抢锁
+    KUGUA_GLOBAL_LOCK: join(数据目录, "studio.lock"),
     KUGUA_AUDIT_DB: join(数据目录, "data", "audit.db"),
   },
   stdio: ["ignore", "pipe", "pipe"],

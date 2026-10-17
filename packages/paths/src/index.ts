@@ -19,6 +19,28 @@ export function 数据根(): string {
   return process.env.KUGUA_DATA_DIR ?? resolve(process.cwd(), "data");
 }
 
+/**
+ * 全系统单例锁路径（与 cwd / 配置 / KUGUA_DATA_DIR 全部无关）。
+ *
+ * 目的：无论用什么端口、什么配置、什么数据目录、从哪个目录启动，
+ * 整个操作系统只允许一个 Studio 实例。
+ *
+ * 位置：
+ *  - Windows：`%LOCALAPPDATA%\KuguaStudio\studio.lock`
+ *  - 其它：`$XDG_RUNTIME_DIR/kugua-studio/studio.lock` 或 `~/.kugua-studio/studio.lock`
+ */
+export function 全局单例锁路径(): string {
+  const 显式 = process.env.KUGUA_GLOBAL_LOCK;
+  if (显式) return resolve(显式);
+  if (process.platform === "win32") {
+    const 基 = process.env.LOCALAPPDATA ?? process.env.APPDATA ?? resolve(process.env.USERPROFILE ?? ".", "AppData", "Local");
+    return resolve(基, "KuguaStudio", "studio.lock");
+  }
+  const 运行目录 = process.env.XDG_RUNTIME_DIR;
+  if (运行目录) return resolve(运行目录, "kugua-studio", "studio.lock");
+  return resolve(process.env.HOME ?? ".", ".kugua-studio", "studio.lock");
+}
+
 /** 拼出运行时数据路径，如 运行数据("jobs", "jobs.db") */
 export function 运行数据(...路径: string[]): string {
   return resolve(数据根(), ...路径);
@@ -130,4 +152,78 @@ export function 读取单实例锁(锁路径: string): 锁信息 | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 全局单例抢占（原子）。
+ *
+ * 与 `获取单实例锁` 的区别：本函数用 `wx` 独占创建做**原子抢占**，
+ * 因此两个进程同时启动时也只会有一个抢到（先读再写会有竞态）。
+ *
+ * 行为：
+ *  - 锁文件不存在 → 创建并持有，`获得: true`
+ *  - 锁文件存在且 pid 存活 → `获得: false`，返回已有实例信息
+ *  - 锁文件存在但 pid 已死（陈旧锁）→ 删除后重新抢占
+ *
+ * 全程不发送任何信号，绝不误杀其它进程。
+ */
+export function 抢占全局单例锁(
+  锁路径: string = 全局单例锁路径(),
+  标识 = "studio",
+  附加?: Record<string, unknown>,
+): { 获得: boolean; 已有?: 锁信息; 锁路径: string; 释放: () => void } {
+  const 无操作 = () => undefined;
+  const 读取现有 = (): 锁信息 | null => {
+    try {
+      if (!existsSync(锁路径)) return null;
+      return JSON.parse(readFileSync(锁路径, "utf-8")) as 锁信息;
+    } catch {
+      return null;
+    }
+  };
+
+  const 尝试独占创建 = (): boolean => {
+    try {
+      mkdirSync(dirname(锁路径), { recursive: true });
+      const 信息: 锁信息 = { pid: process.pid, 启动时间: Date.now(), 标识, 附加 };
+      writeFileSync(锁路径, JSON.stringify(信息, null, 2), { encoding: "utf-8", flag: "wx" });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+      // 写入失败（如权限不足）降级为「不阻塞启动」，避免无法使用
+      return true;
+    }
+  };
+
+  for (let 轮 = 0; 轮 < 3; 轮++) {
+    if (尝试独占创建()) {
+      return {
+        获得: true,
+        锁路径,
+        释放: () => {
+          try {
+            const 当前 = 读取现有();
+            // 只删自己的锁，绝不碰新实例的锁
+            if (当前 && 当前.pid === process.pid) unlinkSync(锁路径);
+          } catch {
+            /* 忽略 */
+          }
+        },
+      };
+    }
+
+    const 已有 = 读取现有();
+    // 锁文件损坏或进程已死 → 视为陈旧锁，清掉后重试抢占
+    if (!已有 || !进程存活(已有.pid) || 已有.pid === process.pid) {
+      try {
+        unlinkSync(锁路径);
+      } catch {
+        /* 已被其它进程清掉，下轮重试 */
+      }
+      continue;
+    }
+    return { 获得: false, 已有, 锁路径, 释放: 无操作 };
+  }
+
+  return { 获得: false, 已有: 读取现有() ?? undefined, 锁路径, 释放: 无操作 };
 }

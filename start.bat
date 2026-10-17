@@ -5,8 +5,14 @@ cd /d %~dp0
 
 REM KuguaStudio / WebUI launcher
 REM Note: no port-based taskkill (the old version would kill a running instance).
-REM       Single-instance protection is handled by WebUI itself (data/webui.lock):
-REM       a second instance exits automatically when a live instance is detected.
+REM       Single-instance protection is enforced by an OS-level lock file shared by
+REM       every launch path (WebUI and main daemon):
+REM         Windows: %LOCALAPPDATA%\KuguaStudio\studio.lock
+REM         other:   ~/.kugua-studio/studio.lock (or $XDG_RUNTIME_DIR/kugua-studio)
+REM       The lock path does NOT depend on cwd, config or KUGUA_DATA_DIR, so changing
+REM       the port / config / data dir cannot bypass it. A second instance exits
+REM       automatically. Port conflicts are reported as "port already in use by
+REM       another program" and never mistaken for an existing Studio instance.
 
 REM -- Check Node.js --
 where node >nul 2>nul

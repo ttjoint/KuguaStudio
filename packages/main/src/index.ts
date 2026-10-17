@@ -22,6 +22,7 @@ import {
 import { 能力注册表, type 能力声明, type 能力入口 } from "@kugua/capability";
 import { 审计日志, type 审计过滤 } from "@kugua/audit";
 import { 日志器, type 日志级别 } from "@kugua/logger";
+import { 抢占全局单例锁, 读取单实例锁, 全局单例锁路径 } from "@kugua/paths";
 
 interface 主控配置 {
   host: string;
@@ -68,7 +69,12 @@ function 配置指纹(): string {
   }
 }
 
-/** 探测指定端口是否已被占用（用于单实例守卫，避免重复启动主控） */
+/**
+ * 探测指定端口是否已被占用。
+ *
+ * 注意：端口占用**不等于**已有工作室实例——可能是其他程序占了这个端口。
+ * 单例判定一律以全局锁为准；本函数只用于启动前报“端口冲突”。
+ */
 function 端口被占用(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const 探测器 = 创建探测服务器();
@@ -100,14 +106,63 @@ let 日志器实例: 日志器 | null = null;
 /** 运行时共享（由 启动() 初始化后可用） */
 let 配置: 主控配置 = { host: "127.0.0.1", port: 24601, token: "", modules: [] };
 let 服务端: NiganeServer | null = null;
+/** 全局单例锁的释放函数（退出时调用） */
+let 释放全局锁: () => void = () => undefined;
+
+/**
+ * 全系统单例守卫（第一道，且是强制的）。
+ *
+ * 锁文件位置与 cwd / 配置 / KUGUA_DATA_DIR 全部无关，
+ * 因此改端口、改配置、改数据目录、换目录启动都无法绕过。
+ */
+function 全局单例守卫(): void {
+  // 由 WebUI 拉起的子主控：锁应由父进程持有，同一个 Studio 实例无需重复抢锁。
+  // 为防止环境变量被滥用绕过单例，还要验证锁确实存在且不属于自己。
+  if (process.env.KUGUA_LOCK_HELD === "1") {
+    const 现有 = 读取单实例锁(全局单例锁路径());
+    if (现有 && 现有.pid !== process.pid) {
+      释放全局锁 = () => undefined;
+      return;
+    }
+    console.error("[主控] KUGUA_LOCK_HELD 声明了锁但未找到有效的实例锁，按独立实例处理。");
+  }
+  const 锁 = 抢占全局单例锁(全局单例锁路径(), "studio", {
+    pid: process.pid,
+    入口: "main",
+  });
+  if (!锁.获得) {
+    console.error(
+      `[主控] 已有工作室实例在运行（pid=${锁.已有?.pid ?? "?"}），本实例退出。\n` +
+        `[主控] 单例锁：${锁.锁路径}`,
+    );
+    process.exit(0);
+  }
+  释放全局锁 = 锁.释放;
+}
+
+/** 当前是否有其它工作室实例在运行（不抢锁，仅供探测） */
+export function 已有实例运行(锁路径: string = 全局单例锁路径()): {
+  pid: number;
+  附加?: Record<string, unknown>;
+} | null {
+  const 信息 = 读取单实例锁(锁路径);
+  return 信息 ? { pid: 信息.pid, 附加: 信息.附加 } : null;
+}
 
 async function 启动(): Promise<void> {
+  // —— 第一道守卫：全局单例锁（与端口/配置无关）——
+  全局单例守卫();
+
   配置 = 加载配置();
 
-  // —— 单实例守卫：端口已被占用说明已有主控在运行，直接退出，避免重复启动模块 ——
+  // —— 第二道：端口冲突检查（与单例无关，只报“端口被占”，绝不当作已有实例）——
   if (await 端口被占用(配置.host, 配置.port)) {
-    console.log(`[主控] 检测到 ${配置.host}:${配置.port} 已有主控在运行，本实例退出（不重复启动）。`);
-    process.exit(0);
+    console.error(
+      `[主控] 启动失败：端口 ${配置.host}:${配置.port} 已被其他程序占用。\n` +
+        `[主控] 请在 kugua.config.json 中修改 port（或设置环境变量 KUGUA_PORT）后重试。`,
+    );
+    释放全局锁();
+    process.exit(1);
   }
 
   服务端 = new NiganeServer(配置);
@@ -186,7 +241,10 @@ async function 启动(): Promise<void> {
   const 关闭 = async (): Promise<void> => {
     clearInterval(检测定时器);
     console.log("[主控] 正在关闭……");
-    if (!服务端) return;
+    if (!服务端) {
+      释放全局锁();
+      process.exit(0);
+    }
     // 1) 广播 system.shutdown，同时等待 server.stop 内置的 200ms
     await 服务端.stop(500);
     // 2) 逐个关闭进程型子进程
@@ -215,10 +273,13 @@ async function 启动(): Promise<void> {
     }
     审计?.close();
     await 日志器实例?.关闭();
+    释放全局锁();
     process.exit(0);
   };
   process.on("SIGINT", () => void 关闭());
   process.on("SIGTERM", () => void 关闭());
+  // 异常/意外退出也释放全局锁，避免遗留陈旧锁阻止下次启动
+  process.on("exit", () => 释放全局锁());
 }
 
 function 注册内置动作(服务端: NiganeServer): void {

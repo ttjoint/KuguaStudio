@@ -15,6 +15,7 @@
     "@kugua/audit": "*",
     "@kugua/logger": "*",
     "@kugua/nigane": "*",
+    "@kugua/paths": "*",
     "ws": "^8.18.0"
   }
 }
