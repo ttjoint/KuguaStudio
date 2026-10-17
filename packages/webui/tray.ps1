@@ -3,7 +3,8 @@
   [int]$ServerPid = 0,
   [string]$Root = "",
   [string]$IconPath = "",
-  [string]$LogPath = ""
+  [string]$LogPath = "",
+  [string]$DesktopExe = ""
 )
 
 function 写日志([string]$消息) {
@@ -33,8 +34,26 @@ try {
   if ($icon) { $notify.Icon = $icon } else { $notify.Icon = [System.Drawing.SystemIcons]::Application }
   $notify.Visible = $true
 
-  $打开 = New-Object System.Windows.Forms.MenuItem("打开")
-  $打开.add_Click({ try { Start-Process $Url } catch { 写日志 "打开失败：$_" } })
+  # 两个入口分别对应两种显示层，名字必须一眼能分清用的是什么：
+  #   网页端 = 用默认浏览器打开（依赖用户装的 Chrome/Edge）
+  #   桌面端 = Tauri 壳（独立窗口，用系统 WebView2，不受浏览器影响）
+  $打开网页 = New-Object System.Windows.Forms.MenuItem("打开网页端（浏览器）")
+  $打开网页.add_Click({ try { Start-Process $Url } catch { 写日志 "打开网页失败：$_" } })
+
+  $打开桌面 = New-Object System.Windows.Forms.MenuItem("打开桌面端")
+  $打开桌面.add_Click({
+    try {
+      if ($DesktopExe -and (Test-Path $DesktopExe)) {
+        Start-Process $DesktopExe
+      } else {
+        [System.Windows.Forms.MessageBox]::Show(
+          "未找到桌面端程序。`n`n请先构建：node packages\desktop\scriptsuild.mjs`n`n路径：$DesktopExe",
+          "苦瓜工作室") | Out-Null
+      }
+    } catch { 写日志 "打开桌面端失败：$_" }
+  })
+  # 没构建桌面端时置灰，避免用户点了没反应还不知道为什么
+  if (-not ($DesktopExe -and (Test-Path $DesktopExe))) { $打开桌面.Enabled = $false }
 
   $任务名 = "KuguaStudio"
   function 任务存在() {
@@ -74,16 +93,25 @@ try {
   })
 
   $menu = New-Object System.Windows.Forms.ContextMenu
-  [void]$menu.MenuItems.Add($打开)
+  [void]$menu.MenuItems.Add($打开桌面)
+  [void]$menu.MenuItems.Add($打开网页)
   [void]$menu.MenuItems.Add($开机)
   [void]$menu.MenuItems.Add("-")
   [void]$menu.MenuItems.Add($退出)
   $notify.ContextMenu = $menu
 
+  # 左键单击：有桌面端就用桌面端（体验更好），否则退回浏览器
   $notify.add_MouseClick({
     param($sender, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
-      try { Start-Process $Url } catch { }
+      try {
+        if ($DesktopExe -and (Test-Path $DesktopExe)) {
+          # 桌面端自带单例：已在运行会唤到前台，不会开第二个窗口
+          Start-Process $DesktopExe
+        } else {
+          Start-Process $Url
+        }
+      } catch { 写日志 "左键打开失败：$_" }
     }
   })
 

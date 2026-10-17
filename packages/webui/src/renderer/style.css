@@ -94,6 +94,25 @@ body {
 }
 .tb-btn:hover { color: var(--accent); border-color: var(--border); background: var(--bg-hover); }
 .tb-btn.small { padding: 0.2rem 0.5rem; font-size: 0.72rem; }
+
+/* 设置页两个高危动作的视觉分级。
+ *
+ * 重启：黄框高亮——它会影响服务但会自动恢复，属于"常用但需注意"。
+ * 退出平台：实心红——这是整个平台唯一真正结束后台的入口，必须一眼可辨，
+ *           绝不能和旁边的重启长得一样（误点代价是丢掉全部未保存状态）。 */
+.tb-btn.btn-restart {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  font-weight: 600;
+}
+.tb-btn.btn-restart:hover { background: var(--yellow); color: #1b1b1b; }
+.tb-btn.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+.tb-btn.btn-danger:hover { filter: brightness(1.15); }
 .tb-btn.active { color: var(--yellow); border-color: var(--border); }
 /* 顶栏视图切换标签（知识库 / 插件 / 设置） */
 .nav-tab { font-size: 0.8rem; padding: 0.3rem 0.9rem; }

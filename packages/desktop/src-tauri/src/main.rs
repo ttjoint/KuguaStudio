@@ -18,9 +18,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{RunEvent, WebviewUrl, WebviewWindowBuilder};
 
-/// 侧车子进程句柄。用 Mutex 包住以便在退出钩子里取回并杀掉。
+/// 侧车子进程句柄。
+///
+/// 只持有、不主动杀掉：关 GUI 不等退后端（后端有自己的生命周期与退出入口）。
+/// 持有 `Child` 的意义是不让句柄被提前 drop，同时壳进程若异常死亡，
+/// Job Object（见 `绑定作业对象`）会由系统连带收走这棵进程树。
+#[allow(dead_code)]
 struct 侧车状态(Mutex<Option<Child>>);
 
 /// 默认 WebUI 端口。与 kugua.config.json 的 webui.port 保持一致。
@@ -156,6 +161,12 @@ fn 绑定作业对象(_子进程: &Child) {}
 /// 结束侧车进程树。
 ///
 /// 直接 kill 父进程可能留下 node 子进程（模块进程），因此 Windows 上用 taskkill /T 连树一起收。
+///
+/// **当前没有调用点**：关 GUI 不再收后端（后端只能从设置页红色「退出」或
+/// 托盘右键菜单退出）。壳进程异常死亡时由 Job Object（见 `绑定作业对象`）
+/// 由系统兜底收走子进程树，不依赖这个函数。
+/// 保留它是为了将来若需要"关壳同时退平台"的入口时有现成实现。
+#[allow(dead_code)]
 fn 关闭侧车(子进程: &mut Child) {
     let pid = 子进程.id();
     #[cfg(windows)]
@@ -173,24 +184,83 @@ fn 关闭侧车(子进程: &mut Child) {
     let _ = 子进程.wait();
 }
 
-/// 关闭主窗口并结束应用。
+
+/// 后端存活监视器。
 ///
-/// 这是前端关窗按钮的正式入口：不依赖 `core:window:allow-close` 之类的
-/// window capability（远程 URL 下容易因 url 匹配不上而被静默拒绝），
-/// 而是走本应用自己的 invoke 命令，行为完全可控。
-#[tauri::command]
-fn quit_app(应用: tauri::AppHandle) {
-    if let Some(状态) = 应用.try_state::<侧车状态>() {
-        if let Ok(mut 锁) = 状态.0.lock() {
-            if let Some(mut 子) = 锁.take() {
-                关闭侧车(&mut 子);
+/// **语义**：后端（WebUI 服务端）一旦真正退出，桌面壳也要跟着退出——
+/// 留一个只剩报错页的空窗口没有意义。但**不能**一探不到端口就退：
+/// 平台「重启」会先杀旧进程再起新进程，中间有几百毫秒到几秒的空窗。
+///
+/// 所以用「连续失败计数」而不是「一次失败即退」：
+///   - 每 1 秒探一次端口
+///   - 连续失败达到阈值（默认 10 次 ≈ 10 秒）才判定后端已退出
+///
+/// 这个阈值要大于重启的最坏耗时（关主控 + 关模块 + 重新拉起，实测数秒），
+/// 又要短到用户不会盯着一个死窗口发呆。
+fn 启动后端监视(端口: u16) {
+    std::thread::spawn(move || {
+        // 启动阶段先等后端就绪（最多 60 秒），避免刚开窗还没起来就误判
+        let 启动期限 = Instant::now() + Duration::from_secs(60);
+        let mut 曾经就绪 = false;
+        while Instant::now() < 启动期限 {
+            if 端口就绪(端口) {
+                曾经就绪 = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        if !曾经就绪 {
+            // 一直没起来：交给启动诊断页处理，监视器不参与退出决策
+            return;
+        }
+
+        const 容错次数: u32 = 10;
+        let mut 连续失败: u32 = 0;
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            if 端口就绪(端口) {
+                连续失败 = 0;
+                continue;
+            }
+            连续失败 += 1;
+            if 连续失败 >= 容错次数 {
+                // 后端确实没了（被设置页「退出」或托盘「退出」结束，或崩溃）。
+                // 直接结束本进程：窗口会随之消失。用 process::exit 而非
+                // app_handle().exit() 的原因同关窗路径（避免关闭流程卡住）。
+                eprintln!("[桌面端] 后端已退出，关闭桌面窗口");
+                std::process::exit(0);
             }
         }
-    }
-    // 侧车已收干净，直接结束进程。
+    });
+}
+
+/// 只关闭 GUI 窗口，**不动后端**。
+///
+/// 这是前端关窗按钮（右上角 ✕）的正式入口。语义刻意定为「关掉这扇窗」，
+/// 而不是「关掉整个平台」：
+///
+/// - 后端可能根本不是本壳拉起的（用户先跑了 start.bat，再开桌面端复用），
+///   这种情况下壳**没有资格**去结束它。
+/// - 就算后端是本壳拉起的，用户关窗的意图通常也只是「先不看了」；
+///   把后端一起杀掉，托盘图标会消失、正在跑的长任务会中断，而且下次还得
+///   重新等模块加载。
+///
+/// 后端只能从两处退出：设置页的红色「退出」按钮，或托盘右键菜单的「退出」。
+#[tauri::command]
+fn quit_app(应用: tauri::AppHandle) {
+    let _ = 应用;
+    // **刻意不碰后端**。即使侧车是本壳拉起的，关窗也只在关这扇窗。
+    //
+    // 理由：后端有自己的生命周期与单例锁，用户对它的预期是「一直在，
+    // 直到我明确退出」。关个窗口就把正在跑的长任务、模块加载状态全丢掉，
+    // 是很容易让人意外的事。后端退出的入口只有两处：
+    // 设置页的红色「退出」按钮、托盘右键菜单的「退出」。
+    //
+    // 副作用是有可能留下一个没有窗口的 node 进程——但它是用户想要的
+    // 常驻后端，托盘图标会一直显示，随时可以再打开界面。
     //
     // 不用 应用.exit(0)：它要重入事件循环排队，在关闭流程中可能卡住，
-    // 把进程变成「窗口已消失、进程仍在」的僵尸。
+    // 把进程变成「窗口已消失、进程仍在」的僵尸。直接结束本进程即可。
     std::process::exit(0);
 }
 
@@ -367,25 +437,20 @@ fn main() {
             toggle_maximize,
             is_maximized
         ])
-        // 窗口关闭即收侧车。
+        // 窗口关闭：**只退 GUI，不收侧车**（与原实现相反）。
+        //
+        // 原实现"关窗即收侧车"，等于让右上角 ✕ 拥有了结束整个平台的权力。
+        // 但用户关窗的意图通常只是"先不看了"，后端一旦被杀，正在跑的长任务
+        // 会中断、托盘图标会消失、下次打开还要重新等模块加载。
+        // 现在后端只能从设置页红色「退出」或托盘右键菜单退出。
         //
         // 注意：这里**不要**调 app_handle().exit()——它会在关闭流程中重入事件循环，
         // 导致窗口卡在「已请求关闭但未销毁」的状态（WebView 已退，窗口句柄仍在）。
-        // 让 Tauri 自己走完关闭流程，退出时机交给 RunEvent::Exit。
-        .on_window_event(|窗口, 事件| {
+        .on_window_event(|_窗口, 事件| {
             if let tauri::WindowEvent::CloseRequested { .. } = 事件 {
-                if let Some(状态) = 窗口.try_state::<侧车状态>() {
-                    if let Ok(mut 锁) = 状态.0.lock() {
-                        if let Some(mut 子) = 锁.take() {
-                            关闭侧车(&mut 子);
-                        }
-                    }
-                }
-                // 单窗口应用：关窗即退出。
-                //
                 // 用 process::exit 而非 app_handle().exit()：后者要重入事件循环排队，
                 // 而此刻正处于关闭流程中，实测会把进程卡成「WebView 已退、窗口句柄仍在」
-                // 的僵尸。侧车已在上面同步收干净，这里直接结束进程是安全的。
+                // 的僵尸。侧车不在退出路径上，直接结束进程是安全的。
                 std::process::exit(0);
             }
         })
@@ -395,6 +460,11 @@ fn main() {
             if 就绪 {
                 WebviewWindowBuilder::new(应用句柄, "main", WebviewUrl::External(地址.parse()?))
                     .title("苦瓜工作室")
+                    // 去掉系统标题栏：页面顶栏已经自绘了一套（含拖拽区与
+                    // 最小化/最大化/关闭），再叠一层 Windows 原生标题栏就会出现
+                    // 两排一模一样的按钮，既重复又浪费垂直空间。
+                    // 自绘标题栏的拖拽依赖 CSS 的 `app-region: drag`，见 style.css。
+                    .decorations(false)
                     .inner_size(1440.0, 900.0)
                     .min_inner_size(900.0, 600.0)
                     .center()
@@ -416,11 +486,14 @@ fn main() {
                 );
                 WebviewWindowBuilder::new(应用句柄, "main", WebviewUrl::External(html.parse()?))
                     .title("苦瓜工作室 - 启动失败")
+                    .decorations(false)
                     .inner_size(900.0, 600.0)
                     .center()
                     .visible(true)
                     .build()?;
             }
+            // 后端退出时连带关掉桌面窗口（Web 网页端不处理，只显示断线提示）
+            启动后端监视(默认端口);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -433,13 +506,9 @@ fn main() {
             let _ = api;
         }
         if let RunEvent::Exit = 事件 {
-            if let Some(状态) = 应用句柄.try_state::<侧车状态>() {
-                if let Ok(mut 锁) = 状态.0.lock() {
-                    if let Some(mut 子) = 锁.take() {
-                        关闭侧车(&mut 子);
-                    }
-                }
-            }
+            // 同样不收侧车：见上面 CloseRequested 的说明。
+            // 后端由平台自己管理生命周期（设置页"退出"或托盘"退出"）。
+            let _ = 应用句柄;
         }
     });
 }

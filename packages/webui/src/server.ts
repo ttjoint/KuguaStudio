@@ -806,7 +806,23 @@ function 打开浏览器(url: string): void {
   }
 }
 
-/** Windows 系统托盘（PowerShell NotifyIcon）：打开 / 开机启动 / 退出 */
+/**
+ * 定位桌面端可执行文件（Tauri 壳）。
+ *
+ * 托盘右键菜单要能分别打开「网页端」和「桌面端」，所以后端得知道壳在哪。
+ * 找不到时返回空串，托盘那边会把「打开桌面端」置灰并提示如何构建，
+ * 而不是让用户点了没反应。
+ */
+function 桌面端路径(): string {
+  const 候选 = [
+    resolve(process.cwd(), "packages", "desktop", "src-tauri", "target", "release", "kugua-desktop.exe"),
+    resolve(process.cwd(), "packages", "desktop", "src-tauri", "target", "debug", "kugua-desktop.exe"),
+  ];
+  for (const 路径 of 候选) if (existsSync(路径)) return 路径;
+  return "";
+}
+
+/** Windows 系统托盘（PowerShell NotifyIcon）：打开（桌面端/网页端） / 开机启动 / 退出 */
 function 启动托盘(url: string): void {
   if (process.platform !== "win32") return;
   if (配置.webui?.tray === false) return;
@@ -838,6 +854,8 @@ function 启动托盘(url: string): void {
         图标,
         "-LogPath",
         日志,
+        "-DesktopExe",
+        桌面端路径(),
       ],
       { stdio: ["ignore", fd, fd], windowsHide: true },
     );

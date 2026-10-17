@@ -406,11 +406,16 @@
             <div class="oc-setting-row">
               <span class="oc-setting-label">重启平台</span>
               <span class="oc-section-tools">
-                <button id="settings-restart" class="tb-btn small" title="关闭并重新启动主控与全部模块">&#x21BB; 重启</button>
-                <button id="settings-shutdown" class="tb-btn small" title="关闭整个平台">&#x23FB; 退出</button>
+                <button id="settings-restart" class="tb-btn small btn-restart" title="关闭并重新启动主控与全部模块（后端会短暂中断，之后自动重连）">&#x21BB; 重启</button>
+                <button id="settings-shutdown" class="tb-btn small btn-danger" title="关闭整个平台（含全部模块）；这是唯一会真正结束后台的按钮">&#x23FB; 退出平台</button>
               </span>
             </div>
-            <div class="oc-about" style="opacity:0.7">重启会关闭主控与全部模块后重新拉起；平台同一时刻只允许运行一个实例，重复启动会被自动检测并拒绝。</div>
+            <div class="oc-about" style="opacity:0.7">
+              <strong>重启</strong>会关闭主控与全部模块后重新拉起。<strong>退出平台</strong>会真正结束后台进程（托盘图标一并消失），
+              之后需要重新运行 <code>start.bat</code>。<br>
+              注意：<strong>关闭窗口（✕）只是关掉这个界面，后台仍在运行</strong>——桌面端与网页端都只是后端的显示层。
+              平台同一时刻只允许运行一个实例，重复启动会被自动检测并拒绝。
+            </div>
           </div>
           <div class="oc-section">
             <div class="oc-section-title">
