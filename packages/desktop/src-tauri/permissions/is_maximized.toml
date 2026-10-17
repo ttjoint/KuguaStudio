@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "is-maximized"
+description = "允许前端查询主窗口是否最大化"
+commands.allow = ["is_maximized"]

@@ -8,10 +8,21 @@
  */
 import { 创建基础接口, type 苦瓜接口 } from "./bridge";
 
-/** 等待 DOM 就绪后隐藏 Electron 专有的窗口控制按钮 */
+/**
+ * 是否为 Tauri 桌面壳环境。
+ *
+ * Tauri 注入 `window.__TAURI__`（本应用开启了 withGlobalTauri）。
+ * 浏览器版与桌面版共用同一套渲染层，只有窗口控制等壳能力需要分支。
+ */
+function 是桌面壳(): boolean {
+  return typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== "undefined";
+}
+
+/** 等 DOM 就绪后处理窗口控制按钮：桌面壳显示，浏览器隐藏 */
 document.addEventListener("DOMContentLoaded", () => {
   const 控件 = document.querySelector<HTMLElement>(".window-controls");
-  if (控件) 控件.style.display = "none";
+  if (!控件) return;
+  控件.style.display = 是桌面壳() ? "" : "none";
 });
 
 const 日志回调: Array<(entry: unknown) => void> = [];
@@ -62,6 +73,82 @@ function 建立连接(): void {
 }
 建立连接();
 
+/**
+ * Tauri 全局 API 的最小类型（只声明用到的部分，避免引入 @tauri-apps/api 依赖）。
+ *
+ * 窗口控制走本应用自己的 invoke 命令（`minimize_window` / `toggle_maximize` / `is_maximized` / `quit_app`），
+ * 而不是 Tauri 内置的 window API：内置 API 受 capability 的 remote URL 匹配约束，
+ * 在 http://127.0.0.1:<port> 这种远程页面上容易被静默拒绝（表现为「调了没反应」）。
+ */
+interface Tauri全局API {
+  core: { invoke: <T = unknown>(命令: string, 参数?: Record<string, unknown>) => Promise<T> };
+  event?: { listen: (事件: string, 回调: () => void) => Promise<() => void> };
+  window?: { getCurrentWindow: () => { onResized: (回调: () => void) => Promise<() => void> } };
+}
+
+/** 浏览器版：窗口控制无意义，做成空实现（按钮本就隐藏） */
+function 浏览器窗口控制(): 苦瓜接口["window"] {
+  return {
+    minimize: () => Promise.resolve(),
+    toggleMaximize: () => Promise.resolve(false),
+    close: () => {
+      window.close();
+      return Promise.resolve();
+    },
+    isMaximized: () => Promise.resolve(false),
+    onMaximized: () => {
+      /* 浏览器无窗口最大化事件 */
+    },
+  };
+}
+
+/**
+ * 桌面壳版：转发到 Tauri 原生窗口。
+ *
+ * 关窗走 `close()` 而非直接 `window.close()`，由 Rust 侧的退出钩子统一收走侧车，
+ * 避免留下孤儿 node 进程。
+ */
+function 桌面窗口控制(): 苦瓜接口["window"] {
+  const 取全局 = (): Tauri全局API | null =>
+    (window as unknown as { __TAURI__?: Tauri全局API }).__TAURI__ ?? null;
+
+  const 调用 = async <T>(命令: string, 兜底: T): Promise<T> => {
+    const 全局 = 取全局();
+    if (!全局?.core?.invoke) return 兜底;
+    try {
+      return await 全局.core.invoke<T>(命令);
+    } catch {
+      return 兜底;
+    }
+  };
+
+  return {
+    minimize: async () => {
+      await 调用("minimize_window", null);
+    },
+    toggleMaximize: async () => 调用("toggle_maximize", false),
+    close: async () => {
+      // Rust 侧「关闭应用」会先收侧车再结束进程
+      await 调用("quit_app", null);
+      // 万一 invoke 不可用（比如在浏览器里），退回浏览器语义
+      if (!取全局()?.core?.invoke) window.close();
+    },
+    isMaximized: async () => 调用("is_maximized", false),
+    onMaximized: (回调) => {
+      // 窗口尺寸变化（含最大化/还原）时回报真实状态
+      const 全局 = 取全局();
+      void 全局?.window
+        ?.getCurrentWindow()
+        .onResized(() => {
+          void 调用("is_maximized", false).then(回调);
+        })
+        .catch(() => {
+          /* 忽略 */
+        });
+    },
+  };
+}
+
 const 接口: 苦瓜接口 = {
   ...创建基础接口(),
   onLog: (回调) => {
@@ -74,18 +161,7 @@ const 接口: 苦瓜接口 = {
     就绪回调.push(回调);
     if (已就绪) 回调();
   },
-  window: {
-    minimize: () => Promise.resolve(),
-    toggleMaximize: () => Promise.resolve(false),
-    close: () => {
-      window.close();
-      return Promise.resolve();
-    },
-    isMaximized: () => Promise.resolve(false),
-    onMaximized: () => {
-      /* 浏览器无窗口最大化事件 */
-    },
-  },
+  window: 是桌面壳() ? 桌面窗口控制() : 浏览器窗口控制(),
 };
 
 window.kugua = 接口;

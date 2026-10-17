@@ -8,119 +8,152 @@
       "type": "process",
       "entry": "packages/modules/ai/dist/index.js",
       "autoStart": true,
-      "description": "AI 接入（M6）：OpenAI 兼容 API 对话与图像生成"
+      "description": "AI 接入（M6）：OpenAI 兼容 API 对话与图像生成",
+      "version": "0.7.0",
+      "capabilityHash": "ai.chat||;ai.embed||;ai.image||;ai.memory.clear||清空AI,清空AI记忆;ai.models||;ai.openwebui.models||OpenWebUI模型,列出模型;ai.openwebui.status||OpenWebUI状态;ai.providers||AI提供方;ai.status||"
     },
     {
       "name": "av",
       "type": "process",
       "entry": "packages/modules/av/dist/index.js",
       "autoStart": true,
-      "description": "音视频：ffmpeg 转码/提取音频/抽帧/剪辑/拼接/视频转GIF/反转/增强（全平台统一 ffmpeg 入口）"
+      "description": "音视频：ffmpeg 转码/提取音频/抽帧/剪辑/拼接/视频转GIF/反转/增强（全平台统一 ffmpeg 入口）",
+      "version": "0.1.0",
+      "capabilityHash": "av.concat||拼接;av.enhance||增强;av.extractAudio||提取音频;av.frames||抽帧;av.probe||媒体信息;av.reverse||逆放;av.toAmr||转amr;av.toMp3||转mp3;av.toWav||转wav;av.transcode||转码;av.trim||剪辑;av.videoToGif||转GIF"
     },
     {
       "name": "avatar",
       "type": "process",
       "entry": "packages/modules/avatar/dist/index.js",
       "autoStart": true,
-      "description": "头像：直调 qlogo 查询 QQ 用户头像与群历史头像（无需登录态）"
+      "description": "头像：直调 qlogo 查询 QQ 用户头像与群历史头像（无需登录态）",
+      "version": "0.1.0",
+      "capabilityHash": "avatar.groupAvatar||群头像;avatar.userAvatar||头像"
     },
     {
       "name": "calendar",
       "type": "process",
       "entry": "packages/modules/calendar/dist/index.js",
       "autoStart": true,
-      "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算"
+      "description": "万年历模块：公历/农历/回历/四柱/节气/生肖/星座/月相/芸历换算",
+      "version": "0.2.0",
+      "capabilityHash": "calendar.query||公元,公历;calendar.today||今夕是何年,今天,今日,黄历"
     },
     {
       "name": "chatmode",
       "type": "process",
       "entry": "packages/modules/chatmode/dist/index.js",
       "autoStart": true,
-      "description": "模式闲聊：各「xx模式」语料随机拼合（复刻 ChatMode / 混沌模式）"
+      "description": "模式闲聊：各「xx模式」语料随机拼合（复刻 ChatMode / 混沌模式）",
+      "version": "0.1.0",
+      "capabilityHash": "chatmode.list||模式列表;chatmode.say||"
     },
     {
       "name": "dice",
       "type": "process",
       "entry": "packages/modules/dice/dist/index.js",
       "autoStart": true,
-      "description": "掷骰模块：随机掷骰子，支持个数与面数（r3d6）"
+      "description": "掷骰模块：随机掷骰子，支持个数与面数（r3d6）",
+      "version": "0.2.0",
+      "capabilityHash": "dice.roll||掷骰"
     },
     {
       "name": "divination",
       "type": "process",
       "entry": "packages/modules/divination/dist/index.js",
       "autoStart": true,
-      "description": "周易蓍草占卜 + 每日运势"
+      "description": "周易蓍草占卜 + 每日运势",
+      "version": "0.2.0",
+      "capabilityHash": "divination.zhouyi||占卜"
     },
     {
       "name": "dream",
       "type": "process",
       "entry": "packages/modules/dream/dist/index.js",
       "autoStart": true,
-      "description": "解梦模块：根据关键词解释梦境"
+      "description": "解梦模块：根据关键词解释梦境",
+      "version": "0.2.0",
+      "capabilityHash": "dream.interpret||梦到,梦见,解梦"
     },
     {
       "name": "echo",
       "type": "process",
       "entry": "packages/modules/echo/dist/index.js",
       "autoStart": true,
-      "description": "echo 示例模块（回声）"
+      "description": "echo 示例模块（回声）",
+      "version": "0.1.0",
+      "capabilityHash": "echo||"
     },
     {
       "name": "food",
       "type": "process",
       "entry": "packages/modules/food/dist/index.js",
       "autoStart": true,
-      "description": "今天吃什么推荐"
+      "description": "今天吃什么推荐",
+      "version": "0.2.0",
+      "capabilityHash": "food.recommend||吃什么"
     },
     {
       "name": "image",
       "type": "process",
       "entry": "packages/modules/image/dist/index.js",
       "autoStart": true,
-      "description": "图片处理（Python+Pillow 复刻 ModImages：编辑/网格/做旧/抠图/像素字/验证码/取色/幻影坦克/拼接/GIF/抖动/滚动/摸摸）"
+      "description": "图片处理（Python+Pillow 复刻 ModImages：编辑/网格/做旧/抠图/像素字/验证码/取色/幻影坦克/拼接/GIF/抖动/滚动/摸摸）",
+      "version": "0.1.0",
+      "capabilityHash": "image.captcha||;image.cisColor||;image.colorExtract||;image.colorSample||;image.combineH||;image.combineV||;image.cut||;image.flipH||;image.flipV||;image.gifRemoveFrame||;image.gifShuffle||;image.gifSpeed||;image.gifSprite||;image.gifUnzipGrid||;image.gifUnzip||;image.gifZip||;image.grayscale||;image.gridHole||;image.grid||;image.hytk||;image.mirror||;image.negate||;image.oldJpg||;image.pixelWords||;image.randomPixel||;image.removeBg||;image.resize||;image.roll||;image.rotate||;image.shake||;image.similar||;image.touchBall||;image.upscale||;image.webpToGif||"
     },
     {
       "name": "infotool",
       "type": "process",
       "entry": "packages/modules/infotool/dist/index.js",
       "autoStart": true,
-      "description": "信息工具模块：查IP属地（在线）、计算器、URL编/解码、字节/进制换算、体脂率"
+      "description": "信息工具模块：查IP属地（在线）、计算器、URL编/解码、字节/进制换算、体脂率",
+      "version": "0.2.0",
+      "capabilityHash": "infotool.biliShort||缩短;infotool.bodyFat||体脂;infotool.byteSize||字节;infotool.calc||计算;infotool.fromHex||十六进制转;infotool.ip||查IP;infotool.toHex||转十六进制;infotool.urlDecode||url解码;infotool.urlEncode||url编码"
     },
     {
       "name": "job",
       "type": "process",
       "entry": "packages/modules/job/dist/index.js",
       "autoStart": true,
-      "description": "作业运行时：脚本/爬虫等长任务，日志流/超时/取消/历史"
+      "description": "作业运行时：脚本/爬虫等长任务，日志流/超时/取消/历史",
+      "version": "0.1.0",
+      "capabilityHash": "job.cancel||取消作业;job.get||;job.list||作业,作业列表;job.logs||作业日志;job.remove||;job.start||;job.status||"
     },
     {
       "name": "mcp-client",
       "type": "process",
       "entry": "packages/modules/mcp-client/dist/index.js",
       "autoStart": true,
-      "description": "MCP 接入：外部 MCP server 与本地脚本模块导入为平台能力"
+      "description": "MCP 接入：外部 MCP server 与本地脚本模块导入为平台能力",
+      "version": "0.1.0",
+      "capabilityHash": "demo.echo|demo.echo|"
     },
     {
       "name": "mkg",
       "type": "process",
       "entry": "packages/modules/mkg/dist/index.js",
       "autoStart": true,
-      "description": "苦瓜知识图谱（本地索引/标签/搜索）"
+      "description": "苦瓜知识图谱（本地索引/标签/搜索）",
+      "version": "0.3.0",
+      "capabilityHash": "mkg.fts.search||;mkg.location.list||;mkg.node.get||;mkg.node.listAll||;mkg.query||;mkg.stats||;mkg.tag.tree||;mkg.view.list||;mkg.view.run||"
     },
     {
       "name": "monitor",
       "type": "process",
       "entry": "packages/modules/monitor/dist/index.js",
       "autoStart": true,
-      "description": "系统监控：CPU/内存/磁盘实时状态"
+      "description": "系统监控：CPU/内存/磁盘实时状态",
+      "version": "0.6.0"
     },
     {
       "name": "music",
       "type": "process",
       "entry": "packages/modules/music/dist/index.js",
       "autoStart": true,
-      "description": "音乐：多源搜索（网易云/QQ/酷狗）+ 下载播放（网易云）；ffmpeg 走 av 模块"
+      "description": "音乐：多源搜索（网易云/QQ/酷狗）+ 下载播放（网易云）；ffmpeg 走 av 模块",
+      "version": "0.1.0",
+      "capabilityHash": "music.download||下载歌曲;music.playUrl||歌曲外链;music.play||点歌;music.search||搜歌"
     },
     {
       "name": "napcat",
@@ -134,56 +167,68 @@
       "type": "process",
       "entry": "packages/modules/nlp/dist/index.js",
       "autoStart": true,
-      "description": "自然语言（谐音）：拼音首字母 + 维特比模型"
+      "description": "自然语言（谐音）：拼音首字母 + 维特比模型",
+      "version": "0.2.0",
+      "capabilityHash": "nlp.xieyin||谐音"
     },
     {
       "name": "plugins",
       "type": "process",
       "entry": "packages/modules/plugins/dist/index.js",
       "autoStart": true,
-      "description": "插件运行时：扫描 plugins/ 动态加载、命令分发、Git 市场安装/更新/卸载"
+      "description": "插件运行时：扫描 plugins/ 动态加载、命令分发、Git 市场安装/更新/卸载",
+      "version": "0.1.0"
     },
     {
       "name": "proof",
       "type": "process",
       "entry": "packages/modules/proof/dist/index.js",
       "autoStart": true,
-      "description": "数字论证模块：字符串/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）"
+      "description": "数字论证模块：字符串/数字论证为一串数字（字母序号/笔画数 + 逆波兰搜索）",
+      "version": "0.2.0",
+      "capabilityHash": "proof.demonstrate||论证"
     },
     {
       "name": "qrcode",
       "type": "process",
       "entry": "packages/modules/qrcode/dist/index.js",
       "autoStart": true,
-      "description": "二维码：文本/链接生成二维码 PNG"
+      "description": "二维码：文本/链接生成二维码 PNG",
+      "version": "0.1.0",
+      "capabilityHash": "qrcode.generate||二维码"
     },
     {
       "name": "scheduler",
       "type": "process",
       "entry": "packages/modules/scheduler/dist/index.js",
       "autoStart": true,
-      "description": "定时任务调度（M4）：按 cron 触发模块请求/事件/命令"
+      "description": "定时任务调度（M4）：按 cron 触发模块请求/事件/命令",
+      "version": "0.6.0"
     },
     {
       "name": "text",
       "type": "process",
       "entry": "packages/modules/text/dist/index.js",
       "autoStart": true,
-      "description": "文本功能综合模块：反转/大小写/乱序/切分/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天"
+      "description": "文本功能综合模块：反转/大小写/乱序/切分/攻受/讽刺/营销号/狗屁不通/火星文/随机汉字/历史上的今天",
+      "version": "0.1.0"
     },
     {
       "name": "translate",
       "type": "process",
       "entry": "packages/modules/translate/dist/index.js",
       "autoStart": true,
-      "description": "翻译模块：Google 网页接口翻译，单语言翻译 + 译N次多语言接力"
+      "description": "翻译模块：Google 网页接口翻译，单语言翻译 + 译N次多语言接力",
+      "version": "0.1.0"
     },
     {
       "name": "tts",
       "type": "process",
       "entry": "packages/modules/tts/dist/index.js",
       "autoStart": true,
-      "description": "语音合成（M6）：sherpa-onnx 离线 TTS / ChatTTS / Windows SAPI"
+      "description": "语音合成（M6）：sherpa-onnx 离线 TTS / ChatTTS / Windows SAPI",
+      "version": "0.2.0",
+      "capabilityHash": "tts.speak||语音合成,说话;tts.status||"
     },
     {
       "name": "math",

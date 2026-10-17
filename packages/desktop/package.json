@@ -1,0 +1,15 @@
+{
+  "name": "@kugua/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "苦瓜工作室桌面壳（Tauri）：内嵌本地 WebUI，不依赖系统浏览器",
+  "scripts": {
+    "dev": "cargo run --manifest-path src-tauri/Cargo.toml",
+    "build": "node scripts/build.mjs",
+    "build:debug": "node scripts/build.mjs --debug"
+  },
+  "kugua": {
+    "desktop": true
+  }
+}

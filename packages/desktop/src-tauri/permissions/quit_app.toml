@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "quit-app"
+description = "允许前端请求关闭应用（Rust 侧会先收走 WebUI 侧车进程）"
+commands.allow = ["quit_app"]

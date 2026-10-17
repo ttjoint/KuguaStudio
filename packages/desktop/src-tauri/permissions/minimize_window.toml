@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "minimize-window"
+description = "允许前端最小化主窗口"
+commands.allow = ["minimize_window"]

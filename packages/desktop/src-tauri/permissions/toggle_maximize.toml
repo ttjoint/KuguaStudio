@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "toggle-maximize"
+description = "允许前端切换主窗口最大化状态"
+commands.allow = ["toggle_maximize"]

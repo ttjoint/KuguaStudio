@@ -33,7 +33,21 @@ if not exist "packages\webui\dist\server.js" (
     )
 )
 
-REM -- Start WebUI in background --
+REM -- Desktop shell (Tauri) preferred --
+REM    Runs in its own WebView2 process tree: no browser window, and it is not
+REM    affected by problems with the user's Chrome installation.
+if exist "packages\desktop\src-tauri\target\release\kugua-desktop.exe" (
+    start "" "packages\desktop\src-tauri\target\release\kugua-desktop.exe"
+    exit /b 0
+)
+if exist "packages\desktop\src-tauri\target\debug\kugua-desktop.exe" (
+    start "" "packages\desktop\src-tauri\target\debug\kugua-desktop.exe"
+    exit /b 0
+)
+
+REM -- Desktop shell not built yet: fall back to the browser-based WebUI --
+echo [INFO] Desktop shell not found, starting the WebUI in the default browser.
+echo        To build it: node packages\desktop\scripts\build.mjs
 powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Set-Location '%~dp0'; Start-Process 'node' -ArgumentList 'packages\webui\dist\server.js' -WindowStyle Hidden"
 
 exit /b 0
