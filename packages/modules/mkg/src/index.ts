@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import { MKG, type 资源关系类型, type 内容分类, type 查询条件, type 侧车数据 } from "@kugua/mkg";
 import type { 能力声明 } from "@kugua/capability";
@@ -408,7 +408,32 @@ void 启动模块({
     if (!path) throw new Error(`资源不存在：${resourceId}`);
     const enc: BufferEncoding = encoding === "base64" ? "base64" : "utf8";
     writeFileSync(path, content, enc);
-    return { success: true };
+    return { success: true, path };
+  });
+
+  /** 文件路径与所属来源（用于保存前提示是否修改了原始文件） */
+  客户端.onRequest("mkg.file.pathInfo", (params) => {
+    const { resourceId } = (params ?? {}) as { resourceId?: number };
+    if (resourceId === undefined) throw new Error("缺少 resourceId");
+    const path = mkg.getPhysicalPath(resourceId);
+    if (!path) throw new Error(`资源不存在：${resourceId}`);
+    // 位于任一「已登记位置」目录下 = 原址扫描的原始文件，保存会直接修改源文件。
+    // 导入/收藏的副本落在库目录，不属于任何登记位置。
+    const 规范 = (p: string) => resolve(p).toLowerCase().replace(/[\\/]+$/, "");
+    const 规范路径 = 规范(path);
+    const 命中位置 = mkg
+      .列出位置()
+      .find((l) => {
+        const 根 = 规范(l.path);
+        return 规范路径 === 根 || 规范路径.startsWith(根 + sep);
+      });
+    return {
+      path,
+      /** 是否为原址扫描（保存会改原始文件） */
+      inPlace: !!命中位置,
+      locationId: 命中位置?.id,
+      locationPath: 命中位置?.path,
+    };
   });
 
   /** 判断文件是否为文本类型（按扩展名） */

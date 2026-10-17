@@ -260,3 +260,76 @@ describe("回复栏图标：折叠 / 刷新 / 收藏", () => {
     expect(块).toContain('按钮.textContent = "☆"');
   });
 });
+
+describe("文本编辑器重做：布局与操作逻辑", () => {
+  const 源码 = 读("parts/07g-explorer-editor.ts");
+  const 页面 = readFileSync(join(渲染层, "index.html"), "utf-8");
+  const 样式 = readFileSync(join(渲染层, "style.css"), "utf-8");
+  const mkg模块 = readFileSync(join(仓库根, "packages", "modules", "mkg", "src", "index.ts"), "utf-8");
+
+  it("三区布局：工具栏 + 行号槽 + 状态栏", () => {
+    expect(页面).toContain('class="editor-toolbar"');
+    expect(页面).toContain('id="editor-gutter"');
+    expect(页面).toContain('class="editor-statusbar"');
+    // 旧版只有一个裸 textarea + 单行页脚
+    expect(页面).not.toContain("preview-text-footer");
+    expect(样式).toContain(".editor-gutter");
+    expect(样式).toContain(".editor-statusbar");
+  });
+
+  it("保存按钮移入工具栏（原来在弹窗底部）", () => {
+    const 工具栏 = 页面.slice(页面.indexOf('class="editor-toolbar"'), 页面.indexOf('id="editor-find-bar"'));
+    expect(工具栏).toContain('id="preview-save"');
+    // 弹窗底部不应再有第二个保存按钮
+    const 底部 = 页面.slice(页面.indexOf('class="modal-actions"'));
+    expect(底部.slice(0, 400)).not.toContain('id="preview-save"');
+  });
+
+  it("状态栏实时反映 行/列/字符/行数/脏标记", () => {
+    expect(页面).toContain('id="editor-cursor-status"');
+    expect(页面).toContain('id="editor-dirty-status"');
+    expect(源码).toContain("function 刷新光标状态");
+    expect(源码).toContain("function 刷新编辑器状态");
+    expect(源码).toContain("已修改");
+  });
+
+  it("Tab 缩进 / Shift+Tab 反缩进 / Enter 保持缩进", () => {
+    expect(源码).toContain("function 处理缩进键");
+    expect(源码).toContain("function 处理回车缩进");
+    // Shift+Tab 去缩进
+    expect(源码).toMatch(/e\.shiftKey\s*\?\s*行\.replace/);
+  });
+
+  it("Ctrl+S 保存、Ctrl+F 查找、Ctrl+滚轮缩放", () => {
+    expect(源码).toMatch(/ev\.key\.toLowerCase\(\) === "s"/);
+    expect(源码).toMatch(/ev\.key\.toLowerCase\(\) === "f"/);
+    expect(源码).toContain("function 调整字号");
+    expect(源码).toContain("kugua_editor_font");
+    expect(源码).toContain("kugua_editor_wrap");
+  });
+
+  it("查找：命中计数与上下切换", () => {
+    expect(源码).toContain("function 执行查找");
+    expect(源码).toContain("editor-find-count");
+    expect(页面).toContain('id="editor-find-next"');
+    expect(页面).toContain('id="editor-find-prev"');
+  });
+
+  it("保存后刷新左侧列表（不再只对片段刷新）", () => {
+    const 起点 = 源码.indexOf("async function 保存编辑器内容");
+    const 块 = 源码.slice(起点, 起点 + 1800);
+    // 关键：无条件调用 加载所有内容，而不是 resourceId == null 才刷新
+    expect(块).toContain("await Explorer.加载所有内容()");
+    expect(块).not.toMatch(/if \(编辑器当前文件\.resourceId == null\) await Explorer\.加载所有内容/);
+    expect(块).toContain("刷新编辑器状态()");
+  });
+
+  it("原址扫描文件保存前提示将修改原始文件", () => {
+    expect(mkg模块).toContain('客户端.onRequest("mkg.file.pathInfo"');
+    expect(mkg模块).toContain("inPlace");
+    const 起点 = 源码.indexOf("async function 保存编辑器内容");
+    const 块 = 源码.slice(起点, 起点 + 1800);
+    expect(块).toContain("这将直接修改原始文件");
+    expect(块).toContain("编辑目标非原件");
+  });
+});

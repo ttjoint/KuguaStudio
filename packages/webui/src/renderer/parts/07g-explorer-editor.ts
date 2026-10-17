@@ -63,6 +63,166 @@ export async function 系统默认打开(item: Explorer.内容条目): Promise<v
 let 编辑器当前文件: Explorer.内容条目 | null = null;
 let 编辑器原始内容 = "";
 let 预览聚焦定时器: number | null = null;
+/** 保存目标是否为知识库副本（false = 原址扫描的原始文件，保存会改源文件） */
+let 编辑目标非原件 = true;
+let 编辑文件物理路径 = "";
+
+// --- 编辑器视图状态（字体大小 / 自动换行 持久化）---
+const 编辑器字号键 = "kugua_editor_font";
+const 编辑器换行键 = "kugua_editor_wrap";
+let 编辑器字号 = Number(localStorage.getItem(编辑器字号键) ?? "13") || 13;
+let 编辑器自动换行 = localStorage.getItem(编辑器换行键) === "1";
+
+function 应用编辑器视图(): void {
+  const 区 = document.getElementById("preview-text") as HTMLTextAreaElement | null;
+  const 槽 = document.getElementById("editor-gutter") as HTMLDivElement | null;
+  if (区) {
+    区.style.fontSize = 编辑器字号 + "px";
+    区.wrap = 编辑器自动换行 ? "soft" : "off";
+  }
+  if (槽) 槽.style.fontSize = 编辑器字号 + "px";
+  const 换行钮 = document.getElementById("editor-wrap-toggle");
+  if (换行钮) 换行钮.classList.toggle("active", 编辑器自动换行);
+}
+
+/** 行号槽：与 textarea 行高对齐 */
+function 刷新行号(): void {
+  const 区 = document.getElementById("preview-text") as HTMLTextAreaElement | null;
+  const 槽 = document.getElementById("editor-gutter") as HTMLDivElement | null;
+  if (!区 || !槽) return;
+  const 行数 = 区.value.split("\n").length;
+  if (槽.dataset.lines !== String(行数)) {
+    槽.textContent = Array.from({ length: 行数 }, (_, i) => String(i + 1)).join("\n");
+    槽.dataset.lines = String(行数);
+  }
+  槽.scrollTop = 区.scrollTop;
+}
+
+/** 光标位置（行/列）*/
+function 刷新光标状态(): void {
+  const 区 = document.getElementById("preview-text") as HTMLTextAreaElement | null;
+  const 标 = document.getElementById("editor-cursor-status");
+  if (!区 || !标) return;
+  const 前 = 区.value.slice(0, 区.selectionStart);
+  const 行 = 前.split("\n").length;
+  const 列 = 前.length - 前.lastIndexOf("\n");
+  标.textContent = `行 ${行}, 列 ${列}`;
+}
+
+/** 刷新底部状态：字符数 / 行数 / 是否已修改 */
+function 刷新编辑器状态(): void {
+  const 区 = document.getElementById("preview-text") as HTMLTextAreaElement | null;
+  if (!区) return;
+  const 字符标 = document.getElementById("preview-text-status");
+  if (字符标) 字符标.textContent = `${区.value.length} 字符`;
+  const 行标 = document.getElementById("editor-size-status");
+  if (行标) 行标.textContent = `${区.value.split("\n").length} 行`;
+  const 脏标 = document.getElementById("editor-dirty-status");
+  if (脏标) {
+    const 已改 = 区.value !== 编辑器原始内容;
+    脏标.textContent = 已改 ? "● 已修改" : "已保存";
+    脏标.classList.toggle("dirty", 已改);
+  }
+  刷新行号();
+  刷新光标状态();
+}
+
+/** 在光标处插入文本（用于 Tab 缩进）*/
+function 插入文本(区: HTMLTextAreaElement, 文本: string): void {
+  const { selectionStart: 起, selectionEnd: 止 } = 区;
+  区.setRangeText(文本, 起, 止, "end");
+  区.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Tab / Shift+Tab：缩进或反缩进（支持多行）*/
+function 处理缩进键(区: HTMLTextAreaElement, e: KeyboardEvent): void {
+  const 缩进 = "  ";
+  if (e.key !== "Tab") return;
+  e.preventDefault();
+  const 起 = 区.selectionStart;
+  const 止 = 区.selectionEnd;
+  const 多行 = 区.value.slice(起, 止).includes("\n");
+  if (!e.shiftKey && !多行) {
+    插入文本(区, 缩进);
+    return;
+  }
+  // 多行或反缩进：按行处理
+  const 块起 = 区.value.lastIndexOf("\n", 起 - 1) + 1;
+  const 块尾 = (() => {
+    const i = 区.value.indexOf("\n", 止);
+    return i === -1 ? 区.value.length : i;
+  })();
+  const 行列表 = 区.value.slice(块起, 块尾).split("\n");
+  const 新 = 行列表
+    .map((行) => (e.shiftKey ? 行.replace(new RegExp("^" + 缩进), "").replace(/^\t/, "") : 缩进 + 行))
+    .join("\n");
+  区.setRangeText(新, 块起, 块尾, "select");
+  区.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Enter：保持上一行缩进 */
+function 处理回车缩进(区: HTMLTextAreaElement, e: KeyboardEvent): void {
+  if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  const 起 = 区.selectionStart;
+  const 行首 = 区.value.lastIndexOf("\n", 起 - 1) + 1;
+  const 缩进 = (区.value.slice(行首, 起).match(/^[ \t]*/) ?? [""])[0];
+  if (!缩进) return;
+  e.preventDefault();
+  插入文本(区, "\n" + 缩进);
+}
+
+// --- 查找 ---
+let 查找命中: number[] = [];
+let 查找索引 = -1;
+
+function 执行查找(向后 = true): void {
+  const 区 = document.getElementById("preview-text") as HTMLTextAreaElement | null;
+  const 输入 = document.getElementById("editor-find-input") as HTMLInputElement | null;
+  const 计数 = document.getElementById("editor-find-count");
+  if (!区 || !输入) return;
+  const 关键词 = 输入.value;
+  if (!关键词) {
+    查找命中 = [];
+    查找索引 = -1;
+    if (计数) 计数.textContent = "";
+    return;
+  }
+  const 小写文本 = 区.value.toLowerCase();
+  const 小写词 = 关键词.toLowerCase();
+  查找命中 = [];
+  for (let i = 小写文本.indexOf(小写词); i !== -1; i = 小写文本.indexOf(小写词, i + 小写词.length)) {
+    查找命中.push(i);
+  }
+  if (查找命中.length === 0) {
+    查找索引 = -1;
+    if (计数) 计数.textContent = "无结果";
+    return;
+  }
+  if (向后) 查找索引 = (查找索引 + 1) % 查找命中.length;
+  else 查找索引 = (查找索引 - 1 + 查找命中.length) % 查找命中.length;
+  const 位置 = 查找命中[查找索引];
+  区.focus();
+  区.setSelectionRange(位置, 位置 + 关键词.length);
+  // 滚动到可见
+  const 行号 = 区.value.slice(0, 位置).split("\n").length;
+  const 行高 = 编辑器字号 * 1.5;
+  区.scrollTop = Math.max(0, (行号 - 3) * 行高);
+  if (计数) 计数.textContent = `${查找索引 + 1}/${查找命中.length}`;
+  刷新行号();
+  刷新光标状态();
+}
+
+function 切换查找条(显示?: boolean): void {
+  const 条 = document.getElementById("editor-find-bar");
+  const 输入 = document.getElementById("editor-find-input") as HTMLInputElement | null;
+  if (!条) return;
+  const 应显示 = 显示 ?? 条.classList.contains("hidden");
+  条.classList.toggle("hidden", !应显示);
+  if (应显示) {
+    输入?.focus();
+    输入?.select();
+  }
+}
 
 async function 打开内置编辑器(item: Explorer.内容条目): Promise<void> {
   const 对话框 = document.getElementById("preview-dialog") as HTMLDivElement;
@@ -121,6 +281,25 @@ async function 打开内置编辑器(item: Explorer.内容条目): Promise<void>
       文本容器.classList.remove("hidden");
       保存按钮.classList.remove("hidden");
       标题.textContent = item.name;
+      // 工具栏文件名
+      const 文件名标 = document.getElementById("editor-file-name");
+      if (文件名标) 文件名标.textContent = item.name;
+      // 查询该资源是否为原址扫描（原址 = 保存会改源文件）
+      编辑目标非原件 = true;
+      编辑文件物理路径 = "";
+      if (item.resourceId != null) {
+        try {
+          const 信息 = (await window.kugua.request("mkg", "mkg.file.pathInfo", {
+            resourceId: item.resourceId,
+          })) as { path?: string; inPlace?: boolean };
+          编辑文件物理路径 = 信息?.path ?? "";
+          编辑目标非原件 = 信息?.inPlace !== true;
+        } catch {
+          /* 查询失败按库内处理 */
+        }
+      }
+      应用编辑器视图();
+      刷新编辑器状态();
       // 页脚显示字符数
       const 状态条 = document.getElementById("preview-text-status") as HTMLSpanElement | null;
       if (状态条) 状态条.textContent = 文本编辑区.value.length + " 字符";
@@ -240,6 +419,13 @@ async function 保存编辑器内容(): Promise<void> {
         patch: { content: 新内容 },
       });
     } else {
+      // 原址扫描文件：保存会直接修改原始文件，先明确提示
+      if (!编辑目标非原件 && 编辑文件物理路径) {
+        const 确认 = await new Promise<boolean>((resolve) =>
+          显示确认对话框(`这将直接修改原始文件：\n${编辑文件物理路径}\n\n继续保存？`, resolve),
+        );
+        if (!确认) return;
+      }
       const 编码内容 = btoa(unescape(encodeURIComponent(新内容)));
       await window.kugua.request("mkg", "mkg.file.write", {
         resourceId: 编辑器当前文件.resourceId,
@@ -249,7 +435,10 @@ async function 保存编辑器内容(): Promise<void> {
     }
     编辑器原始内容 = 新内容;
     添加消息("已保存：" + 编辑器当前文件.name, "system");
-    if (编辑器当前文件.resourceId == null) await Explorer.加载所有内容();
+    刷新编辑器状态();
+    // 保存后刷新左侧内容区（文件与片段都要），弹窗保持打开
+    await Explorer.加载所有内容();
+    if (Explorer.选中内容) 更新内容信息面板();
   } catch (err) {
     添加消息("保存失败：" + String(err), "error");
   }
@@ -341,11 +530,87 @@ export function 绑定编辑器事件(): void {
     }
   });
   document.getElementById("preview-dialog")?.querySelector(".modal-backdrop")?.addEventListener("click", () => void 关闭内置编辑器());
-  // Ctrl+S 保存
-  document.getElementById("preview-text")?.addEventListener("keydown", (e) => {
-    if ((e as KeyboardEvent).ctrlKey && (e as KeyboardEvent).key === "s") {
-      e.preventDefault();
-      void 保存编辑器内容();
+
+  const 区 = document.getElementById("preview-text") as HTMLTextAreaElement | null;
+  if (区) {
+    区.addEventListener("input", () => {
+      刷新编辑器状态();
+      if (!document.getElementById("editor-find-bar")?.classList.contains("hidden")) 执行查找(false);
+    });
+    区.addEventListener("scroll", () => {
+      const 槽 = document.getElementById("editor-gutter");
+      if (槽) 槽.scrollTop = 区.scrollTop;
+    });
+    区.addEventListener("click", 刷新光标状态);
+    区.addEventListener("keyup", 刷新光标状态);
+    区.addEventListener("keydown", (e) => {
+      const ev = e as KeyboardEvent;
+      // Ctrl+S 保存
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") {
+        ev.preventDefault();
+        void 保存编辑器内容();
+        return;
+      }
+      // Ctrl+F 查找
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "f") {
+        ev.preventDefault();
+        切换查找条(true);
+        return;
+      }
+      处理缩进键(区, ev);
+      处理回车缩进(区, ev);
+      const 槽 = document.getElementById("editor-gutter");
+      window.setTimeout(() => {
+        if (槽) 槽.scrollTop = 区.scrollTop;
+        刷新光标状态();
+      }, 0);
+    });
+    // Ctrl+滚轮缩放字号
+    区.addEventListener(
+      "wheel",
+      (e) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        调整字号(e.deltaY < 0 ? 1 : -1);
+      },
+      { passive: false },
+    );
+  }
+
+  // 工具栏：字号 / 换行 / 查找
+  document.getElementById("editor-zoom-in")?.addEventListener("click", () => 调整字号(1));
+  document.getElementById("editor-zoom-out")?.addEventListener("click", () => 调整字号(-1));
+  document.getElementById("editor-wrap-toggle")?.addEventListener("click", () => {
+    编辑器自动换行 = !编辑器自动换行;
+    localStorage.setItem(编辑器换行键, 编辑器自动换行 ? "1" : "0");
+    应用编辑器视图();
+  });
+  document.getElementById("editor-find-toggle")?.addEventListener("click", () => 切换查找条());
+  document.getElementById("editor-find-close")?.addEventListener("click", () => 切换查找条(false));
+  document.getElementById("editor-find-next")?.addEventListener("click", () => 执行查找(true));
+  document.getElementById("editor-find-prev")?.addEventListener("click", () => 执行查找(false));
+  const 查找输入 = document.getElementById("editor-find-input") as HTMLInputElement | null;
+  查找输入?.addEventListener("input", () => {
+    查找索引 = -1;
+    执行查找(true);
+  });
+  查找输入?.addEventListener("keydown", (e) => {
+    const ev = e as KeyboardEvent;
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      执行查找(!ev.shiftKey);
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      切换查找条(false);
+      区?.focus();
     }
   });
+}
+
+/** 调整编辑器字号并持久化 */
+function 调整字号(增量: number): void {
+  编辑器字号 = Math.min(28, Math.max(9, 编辑器字号 + 增量));
+  localStorage.setItem(编辑器字号键, String(编辑器字号));
+  应用编辑器视图();
+  刷新行号();
 }

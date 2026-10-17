@@ -677,8 +677,33 @@
       <div class="modal-content">
         <!-- 文本编辑器 -->
         <div id="preview-text-wrap" class="hidden">
-          <textarea id="preview-text" class="preview-text-content" spellcheck="false"></textarea>
-          <div class="preview-text-footer"><span id="preview-text-status">0 字符</span></div>
+          <div class="editor-toolbar">
+            <span class="editor-file" id="editor-file-name">-</span>
+            <span class="editor-spacer"></span>
+            <button id="editor-find-toggle" class="preview-btn" title="查找（Ctrl+F）">🔍</button>
+            <button id="editor-wrap-toggle" class="preview-btn" title="自动换行">↩</button>
+            <button id="editor-zoom-out" class="preview-btn" title="减小字号（Ctrl+-）">A−</button>
+            <button id="editor-zoom-in" class="preview-btn" title="增大字号（Ctrl++）">A+</button>
+            <button id="preview-save" class="preview-btn primary" title="保存（Ctrl+S）">保存</button>
+          </div>
+          <div id="editor-find-bar" class="editor-find-bar hidden">
+            <input id="editor-find-input" type="text" placeholder="查找内容…" spellcheck="false" />
+            <span id="editor-find-count" class="editor-find-count"></span>
+            <button id="editor-find-prev" class="preview-btn" title="上一个（Shift+Enter）">↑</button>
+            <button id="editor-find-next" class="preview-btn" title="下一个（Enter）">↓</button>
+            <button id="editor-find-close" class="preview-btn" title="关闭（Esc）">×</button>
+          </div>
+          <div class="editor-body">
+            <div id="editor-gutter" class="editor-gutter" aria-hidden="true"></div>
+            <textarea id="preview-text" class="preview-text-content" spellcheck="false" wrap="off"></textarea>
+          </div>
+          <div class="editor-statusbar">
+            <span id="preview-text-status">0 字符</span>
+            <span id="editor-cursor-status">行 1, 列 1</span>
+            <span id="editor-encoding-status">UTF-8</span>
+            <span id="editor-dirty-status" class="editor-dirty">已保存</span>
+            <span id="editor-size-status" class="editor-size"></span>
+          </div>
         </div>
         <!-- 十六进制预览 -->
         <div id="preview-hex-wrap" class="hidden">
@@ -748,7 +773,6 @@
       </div>
       <div class="modal-actions">
         <button id="preview-close" class="modal-btn">关闭</button>
-        <button id="preview-save" class="modal-btn primary hidden">保存</button>
         <button id="preview-open-system" class="modal-btn">用系统程序打开</button>
       </div>
     </div>

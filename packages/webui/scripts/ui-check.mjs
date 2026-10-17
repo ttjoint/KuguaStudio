@@ -457,6 +457,33 @@ const 写入断言 = `(async () => {
     await sleep(1300);
     const pDlg = document.getElementById("preview-dialog");
     R.内置编辑器 = !!(pDlg && !pDlg.classList.contains("hidden"));
+    // 编辑器布局：工具栏 / 行号槽 / 状态栏 / 查找条
+    R.编辑器工具栏 = !!document.querySelector("#preview-text-wrap .editor-toolbar");
+    R.保存钮在工具栏 = !!document.querySelector(".editor-toolbar #preview-save");
+    R.旧页脚已移除 = !document.querySelector(".preview-text-footer");
+    R.编辑器行号槽 = !!document.getElementById("editor-gutter");
+    const 状态栏 = document.querySelectorAll(".editor-statusbar span");
+    R.编辑器状态栏 = 状态栏.length >= 4;
+    R.状态栏有行列 = !!document.getElementById("editor-cursor-status") &&
+       /行\\s*\\d+/.test(document.getElementById("editor-cursor-status").textContent || "");
+    R.状态栏有脏标记 = !!document.getElementById("editor-dirty-status");
+    R.编辑器查找条 = !!document.getElementById("editor-find-bar");
+    // 行号随内容行数更新
+    const 文本区 = document.getElementById("preview-text");
+    if (文本区) {
+      const NL = String.fromCharCode(10);
+      文本区.value = ["甲", "乙"].join(NL) + NL + "丙";
+      文本区.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(200);
+      R.行号行数 = (document.getElementById("editor-gutter")?.textContent || "").split(NL).length;
+      R.字符数已更新 = (document.getElementById("preview-text-status")?.textContent || "").includes("字符");
+      R.脏标记已变 = (document.getElementById("editor-dirty-status")?.textContent || "").includes("已修改");
+      // 查找条开关
+      document.getElementById("editor-find-toggle")?.click();
+      await sleep(150);
+      R.查找条可开关 = !document.getElementById("editor-find-bar")?.classList.contains("hidden");
+      document.getElementById("editor-find-close")?.click();
+    }
     document.getElementById("preview-close")?.click();
     await sleep(400);
   } else {
@@ -653,6 +680,17 @@ async function main() {
     !R3.片段弹窗 ||
     !R3.片段已保存 ||
     R3.内置编辑器 !== true ||
+    R3.编辑器工具栏 !== true ||
+    R3.保存钮在工具栏 !== true ||
+    R3.旧页脚已移除 !== true ||
+    R3.编辑器行号槽 !== true ||
+    R3.编辑器状态栏 !== true ||
+    R3.状态栏有脏标记 !== true ||
+    R3.编辑器查找条 !== true ||
+    R3.行号行数 !== 3 ||
+    R3.字符数已更新 !== true ||
+    R3.脏标记已变 !== true ||
+    R3.查找条可开关 !== true ||
     R4.request !== "function" ||
     R4.onReady !== "function" ||
     R4.窗口控制 !== "undefined" ||
