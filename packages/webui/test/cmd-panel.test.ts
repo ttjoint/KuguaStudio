@@ -202,3 +202,61 @@ describe("用户消息就地编辑 + 回复版本切换", () => {
     expect(块).toContain("当前回复容器");
   });
 });
+
+describe("回复栏图标：折叠 / 刷新 / 收藏", () => {
+  const 预览 = 读("parts/03-preview.ts");
+  const 样式 = readFileSync(join(渲染层, "style.css"), "utf-8");
+  const mkg模块 = readFileSync(
+    join(仓库根, "packages", "modules", "mkg", "src", "index.ts"),
+    "utf-8",
+  );
+  const mkg文件域 = readFileSync(join(仓库根, "packages", "mkg", "src", "domains", "files.ts"), "utf-8");
+
+  it("图标位于模块名右侧同一行（.msg-reply-head + .msg-reply-actions）", () => {
+    expect(预览).toContain("msg-reply-head");
+    expect(预览).toContain("msg-reply-actions");
+    expect(样式).toContain(".msg-reply-head");
+    expect(样式).toContain(".msg-reply-actions");
+  });
+
+  it("折叠只保留模块名一行", () => {
+    expect(预览).toContain("rbtn-collapse");
+    expect(预览).toContain('块.classList.toggle("collapsed")');
+    // 折叠隐藏正文类节点
+    expect(预览).toMatch(/应用折叠\(块\)/);
+    expect(预览).toMatch(/:scope > \.msg-reply-content, :scope > \.msg-sender/);
+    expect(样式).toContain(".msg-reply.collapsed");
+  });
+
+  it("刷新 = 重跑原指令并作为新版本", () => {
+    const 起点 = 预览.indexOf("rbtn-refresh");
+    const 块 = 预览.slice(起点, 起点 + 900);
+    expect(块).toContain("处理输入重发");
+    expect(块).toContain("dataset.指令");
+  });
+
+  it("收藏写入知识库笔记：标签 = 模块名 + 对话标题", () => {
+    expect(预览).toContain("rbtn-fav");
+    expect(预览).toContain("mkg.note.create");
+    expect(预览).toContain("确保标签");
+    expect(预览).toMatch(/模块名 \+ 当前对话标题|模块.*对话/);
+  });
+
+  it("收藏多媒体：base64 → 知识库资源文件 + 笔记引用", () => {
+    expect(预览).toContain("mkg.resource.saveBase64");
+    expect(预览).toContain("收集多媒体");
+    // 后端能力：saveBase64 落临时文件后复用 importFile 索引
+    expect(mkg模块).toContain('客户端.onRequest("mkg.resource.saveBase64"');
+    expect(mkg文件域).toContain("proto.saveBase64");
+    expect(mkg文件域).toContain("mkdtempSync");
+  });
+
+  it("已收藏回复左侧显示 ★，再点取消收藏", () => {
+    expect(样式).toMatch(/\.msg-reply\.faved::before/);
+    expect(样式).toContain('content: "★"');
+    const 起点 = 预览.indexOf("async function 切换收藏");
+    const 块 = 预览.slice(起点, 起点 + 1200);
+    expect(块).toContain("mkg.note.delete");
+    expect(块).toContain('按钮.textContent = "☆"');
+  });
+});

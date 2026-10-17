@@ -301,6 +301,46 @@ const 异步断言 = `(async () => {
       R.回切后标签 = 容器?.querySelector(".msg-reply-versions .vlabel")?.textContent || "";
       R.回切生效 = R.回切后标签 !== 标;
       R.回切后内容变化 = (容器?.innerHTML || "") !== 切前HTML;
+      // 回复栏图标：折叠 / 刷新 / 收藏
+      const 头 = 容器?.querySelector(".msg-reply-head");
+      R.回复头部行 = !!头;
+      R.回复图标数 = 容器?.querySelectorAll(".msg-reply-head .msg-reply-actions .rbtn").length ?? 0;
+      R.模块名右侧图标 = !!头?.querySelector(".msg-reply-sender") && !!头?.querySelector(".msg-reply-actions");
+      // 折叠：只留模块名一行
+      容器?.querySelector(".rbtn-collapse")?.click();
+      await sleep(250);
+      const 首块 = 容器?.querySelector(".msg-reply");
+      R.折叠生效 = 首块?.classList.contains("collapsed") === true;
+      R.折叠后正文隐藏 = !!容器?.querySelector(".msg-reply-content") &&
+        (容器.querySelector(".msg-reply-content")?.style.display === "none");
+      R.折叠后模块名仍在 = !!容器?.querySelector(".msg-reply-head .msg-reply-sender");
+      容器?.querySelector(".rbtn-collapse")?.click();
+      await sleep(200);
+      R.展开恢复 = 容器?.querySelector(".msg-reply-content")?.style.display !== "none";
+      // 收藏（★）→ 知识库笔记
+      容器?.querySelector(".rbtn-fav")?.click();
+      await sleep(2500);
+      R.收藏已标记 = !!容器?.querySelector(".msg-reply[data-收藏='1']");
+      R.收藏星星 = 容器?.querySelector(".rbtn-fav")?.textContent === "★";
+      try {
+        const 笔记 = await window.kugua.request("mkg", "mkg.note.list", {});
+        R.知识库有笔记 = Array.isArray(笔记) && 笔记.length > 0;
+        R.笔记标题含模块名 = Array.isArray(笔记) && String(笔记[0]?.title || "").includes("【");
+      } catch (e) {
+        R.知识库有笔记 = "异常:" + String(e);
+      }
+      // 取消收藏
+      容器?.querySelector(".rbtn-fav")?.click();
+      await sleep(1800);
+      R.取消收藏星星 = 容器?.querySelector(".rbtn-fav")?.textContent === "☆";
+      // 刷新 → 新版本（开始回复组 会重建容器，故刷新后重新查询）
+      容器?.querySelector(".rbtn-refresh")?.click();
+      await sleep(3000);
+      const 新容器 = 气泡?.querySelector(".msg-replies") ?? 容器;
+      R.刷新后仍有图标 = (新容器?.querySelectorAll(".msg-reply-head .msg-reply-actions .rbtn").length ?? 0) === 3;
+      R.刷新后版本标签 = 新容器?.querySelector(".msg-reply-versions .vlabel")?.textContent || "";
+      R.刷新后版本数 = JSON.parse(新容器?.getAttribute("data-versions") || "[]").length;
+      R.刷新产生新版本 = R.刷新后版本数 >= 3;
     }
   } catch (e) {
     R.就地编辑 = "异常:" + String(e);
@@ -590,6 +630,18 @@ async function main() {
     R2.版本导航条 !== true ||
     R2.版本标签形如 !== true ||
     R2.回切生效 !== true ||
+    R2.回复头部行 !== true ||
+    R2.回复图标数 !== 3 ||
+    R2.模块名右侧图标 !== true ||
+    R2.折叠生效 !== true ||
+    R2.折叠后正文隐藏 !== true ||
+    R2.折叠后模块名仍在 !== true ||
+    R2.展开恢复 !== true ||
+    R2.收藏星星 !== true ||
+    R2.知识库有笔记 !== true ||
+    R2.取消收藏星星 !== true ||
+    R2.刷新后仍有图标 !== true ||
+    R2.刷新产生新版本 !== true ||
     !R2.回到文件 ||
     !R2.点全部标签 ||
     !R2.次级视图 ||

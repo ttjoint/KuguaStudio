@@ -3,8 +3,9 @@
  *
  * 从原单体 MKG 类拆出（P2 结构化改造），以原型安装方式挂到 MKG.prototype。
  */
-import { existsSync, statSync, mkdirSync, copyFileSync, readFileSync } from "node:fs";
+import { existsSync, statSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { exec, spawn } from "node:child_process";
 import type Database from "better-sqlite3";
@@ -49,6 +50,14 @@ declare module "../index.js" {
       items: Array<{ sourcePath: string; name?: string; alias?: string; tagIds?: number[] }>;
       destDir?: string;
     }): Promise<导入文件结果[]>;
+    /** 直接将 base64 字节写入知识库（收藏聊天多媒体回复用） */
+    saveBase64(params: {
+      base64: string;
+      name: string;
+      destDir?: string;
+      alias?: string;
+      tagIds?: number[];
+    }): Promise<导入文件结果>;
   }
 }
 
@@ -74,6 +83,15 @@ interface 上下文 {
     sourcePath: string;
     destDir?: string;
     name?: string;
+    alias?: string;
+    tagIds?: number[];
+  }): Promise<导入文件结果>;
+
+  /** 将 base64 字节直接写入知识库（用于收藏聊天里的图片/音频等二进制回复） */
+  saveBase64(params: {
+    base64: string;
+    name: string;
+    destDir?: string;
     alias?: string;
     tagIds?: number[];
   }): Promise<导入文件结果>;
@@ -363,6 +381,36 @@ export function 安装文件域(proto: { [k: string]: unknown }): void {
     const 详情 = this.getResourceDetail(资源.id);
     if (!详情) throw new Error(`获取资源详情失败：${资源.id}`);
     return 详情;
+  };
+
+  /** 写入 base64 字节到知识库（收藏聊天多媒体回复用）
+   *  实现：先落临时文件，再复用 importFile 的索引/去重/标注能力。*/
+  proto.saveBase64 = async function (
+    this: 上下文,
+    params: {
+      base64: string;
+      name: string;
+      destDir?: string;
+      alias?: string;
+      tagIds?: number[];
+    },
+  ): Promise<导入文件结果> {
+    const { base64, name, destDir, alias, tagIds = [] } = params;
+    if (!base64) throw new Error("缺少 base64");
+    if (!name) throw new Error("缺少 name");
+    const 临时目录 = mkdtempSync(join(tmpdir(), "kugua-fav-"));
+    const 临时文件 = join(临时目录, basename(name));
+    try {
+      writeFileSync(临时文件, Buffer.from(base64, "base64"));
+      return await this.importFile({ sourcePath: 临时文件, destDir, name, alias, tagIds });
+    } finally {
+      try {
+        unlinkSync(临时文件);
+        rmdirSync(临时目录);
+      } catch {
+        /* 清理失败忽略 */
+      }
+    }
   };
 
   proto.importFiles = async function (

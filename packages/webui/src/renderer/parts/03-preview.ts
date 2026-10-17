@@ -613,6 +613,21 @@ export function 开始回复组(宿主: HTMLElement): void {
 }
 
 /** 结束回复组：为本次回复生成版本导航条（并与已有历史版本合并） */
+/** 取快照 HTML：剔除临时的图标区与版本导航（它们由 JS 重建）*/
+function 取快照HTML(容器: HTMLElement): string {
+  const 克隆 = 容器.cloneNode(true) as HTMLElement;
+  克隆.querySelectorAll(".msg-reply-actions, .msg-reply-versions").forEach((n) => n.remove());
+  return 克隆.innerHTML;
+}
+
+/** 恢复快照后重建图标与导航（按当前编辑器状态）*/
+function 应用快照(容器: HTMLDivElement, html: string): void {
+  容器.innerHTML = html;
+  for (const 块 of 容器.querySelectorAll<HTMLElement>(":scope > .msg-reply")) {
+    安装回复图标(块, 容器);
+  }
+}
+
 export function 结束回复组(): void {
   if (!当前回复容器) return;
   const 容器 = 当前回复容器;
@@ -620,7 +635,7 @@ export function 结束回复组(): void {
   if (容器.children.length === 0) return;
   const 宿主 = 容器.parentElement;
   const 历史 = 宿主?.dataset.历史版本 ? (JSON.parse(宿主.dataset.历史版本) as string[]) : [];
-  const 当前 = 容器.innerHTML;
+  const 当前 = 取快照HTML(容器);
   // 新回复置为最新版本（放在末尾），导航默认停在最新
   设定版本(容器, [...历史, 当前], 历史.length);
   if (宿主) {
@@ -632,14 +647,14 @@ export function 结束回复组(): void {
 /** 固化一个已存在的容器（无导航条时补上） */
 function 固化版本(容器: HTMLDivElement): void {
   if (!容器.dataset.versions) {
-    设定版本(容器, [容器.innerHTML], 0);
+    设定版本(容器, [取快照HTML(容器)], 0);
   }
 }
 
 function 设定版本(容器: HTMLDivElement, 版本列表: string[], 当前: number): void {
   容器.dataset.versions = JSON.stringify(版本列表);
   容器.dataset.vindex = String(当前);
-  容器.innerHTML = 版本列表[当前] ?? "";
+  应用快照(容器, 版本列表[当前] ?? "");
   刷新版本导航(容器);
 }
 
@@ -651,9 +666,27 @@ function 读版本(容器: HTMLDivElement): string[] {
   }
 }
 
-/** 从 innerHTML 恢复后，重建所有回复容器的版本导航条（监听器不保留） */
+/** 从 innerHTML 恢复后，重建所有回复容器/回复块上的交互（监听器不保留） */
 export function 恢复回复交互(): void {
   for (const 容器 of 聊天日志.querySelectorAll<HTMLDivElement>(".msg-replies")) {
+    // 先清理旧的图标区（它们写在 innerHTML 里但监听器已丢失）
+    容器.querySelectorAll(".msg-reply-actions").forEach((n) => n.remove());
+    for (const 块 of 容器.querySelectorAll<HTMLElement>(":scope > .msg-reply")) {
+      if (!块.querySelector(":scope > .msg-reply-head")) {
+        // 兼容旧数据：无头部行时补一个（取 .msg-sender 文本）
+        const 旧名 = 块.querySelector<HTMLElement>(":scope > .msg-sender");
+        const 名文本 = 旧名?.textContent?.trim() ?? "";
+        旧名?.remove();
+        const 头部 = 创建回复头部(块, 名文本 || undefined);
+        if (头部) 块.insertBefore(头部, 块.firstChild);
+      }
+      安装回复图标(块, 容器);
+      if (块.classList.contains("collapsed")) {
+        const 折叠 = 块.querySelector<HTMLButtonElement>(".rbtn-collapse");
+        if (折叠) 折叠.textContent = "▸";
+        应用折叠(块);
+      }
+    }
     if (!容器.dataset.versions) continue;
     刷新版本导航(容器);
     重算搜索文本(容器.parentElement);
@@ -661,7 +694,8 @@ export function 恢复回复交互(): void {
 }
 
 /** 刷新/创建版本导航条（左下角 ‹ n/N ›）*/
-function 刷新版本导航(容器: HTMLDivElement): void {  容器.querySelector(":scope > .msg-reply-versions")?.remove();
+function 刷新版本导航(容器: HTMLDivElement): void {
+  容器.querySelector(":scope > .msg-reply-versions")?.remove();
   const 版本列表 = 读版本(容器);
   if (版本列表.length <= 1) return;
   const 条 = document.createElement("div");
@@ -699,8 +733,7 @@ function 切换版本(容器: HTMLDivElement, 目标: number): void {
   const 版本列表 = 读版本(容器);
   if (目标 < 0 || 目标 >= 版本列表.length) return;
   容器.dataset.vindex = String(目标);
-  // 保留导航条本身：先移除旧内容再回填（导航条会重新创建）
-  容器.innerHTML = 版本列表[目标];
+  应用快照(容器, 版本列表[目标]);
   刷新版本导航(容器);
   const 宿主 = 容器.parentElement;
   if (宿主) 重算搜索文本(宿主);
@@ -743,18 +776,216 @@ export function 添加回应(内容: string, 发送者?: string, 错误 = false)
   }
   const 块 = 追加到容器(容器);
   块.className = "msg-reply" + (错误 ? " error" : "");
-  if (发送者) {
-    const 标签 = document.createElement("div");
-    标签.className = "msg-reply-sender";
-    标签.textContent = 发送者;
-    块.appendChild(标签);
-  }
+  宿主标记(块, 容器);
+  const 头部 = 创建回复头部(块, 发送者);
+  if (头部) 块.appendChild(头部);
   const 内容块 = document.createElement("div");
   内容块.className = "msg-reply-content";
   内容块.textContent = 内容;
   块.appendChild(内容块);
+  安装回复图标(块, 容器);
   筛选聊天消息(容器.parentElement as HTMLElement);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
+}
+
+/** 标记回复块的宿主用户气泡（供刷新/收藏定位原始指令）*/
+function 宿主标记(块: HTMLElement, 容器: HTMLElement): void {
+  const 用户块 = 容器.parentElement;
+  if (用户块?.dataset.原文) 块.dataset.指令 = 用户块.dataset.原文;
+  const 对话 = document.getElementById("chat-conv-title")?.textContent ?? "";
+  块.dataset.对话 = 对话.replace(/^💬\s*/, "").trim();
+}
+
+/** 构建回复头部（模块名 + 右侧图标）；无发送者但需图标时返回空行 */
+function 创建回复头部(块: HTMLElement, 发送者?: string): HTMLDivElement | null {
+  if (!发送者) return null;
+  const 行 = document.createElement("div");
+  行.className = "msg-reply-head";
+  const 名 = document.createElement("div");
+  名.className = "msg-reply-sender";
+  名.textContent = 发送者;
+  行.appendChild(名);
+  return 行;
+}
+
+/** 为回复块安装右侧图标：折叠 / 刷新 / 收藏（★）*/
+function 安装回复图标(块: HTMLElement, 容器: HTMLDivElement): void {
+  const 行 = 块.querySelector<HTMLDivElement>(":scope > .msg-reply-head");
+  if (!行 || 行.querySelector(".msg-reply-actions")) return;
+  const 区 = document.createElement("div");
+  区.className = "msg-reply-actions";
+
+  // 折叠 / 展开：只留模块名一行
+  const 折叠 = document.createElement("button");
+  折叠.className = "rbtn rbtn-collapse";
+  折叠.title = "折叠/展开此回复";
+  折叠.textContent = "▾";
+  折叠.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const 收起 = 块.classList.toggle("collapsed");
+    折叠.textContent = 收起 ? "▸" : "▾";
+    应用折叠(块);
+  });
+
+  // 刷新：重跑产生该回复的指令，作为新版本追加
+  const 刷新 = document.createElement("button");
+  刷新.className = "rbtn rbtn-refresh";
+  刷新.title = "重新生成（重跑原指令，作为新版本）";
+  刷新.textContent = "↻";
+  刷新.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const 宿主 = 容器.parentElement as HTMLDivElement | null;
+    const 指令 = 块.dataset.指令 ?? 宿主?.dataset.原文 ?? "";
+    if (!宿主 || !指令) {
+      添加提示("无法刷新：未记录原指令", true);
+      return;
+    }
+    const { 处理输入重发 } = await import("./04-router");
+    await 处理输入重发(指令, 宿主);
+  });
+
+  // 收藏（★）：写入知识库，再点取消
+  const 收藏 = document.createElement("button");
+  收藏.className = "rbtn rbtn-fav";
+  收藏.title = "收藏此回复到知识库";
+  收藏.textContent = "☆";
+  if (块.dataset.收藏 === "1") {
+    收藏.textContent = "★";
+    块.classList.add("faved");
+  }
+  收藏.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await 切换收藏(块, 收藏);
+  });
+
+  区.appendChild(折叠);
+  区.appendChild(刷新);
+  区.appendChild(收藏);
+  行.appendChild(区);
+}
+
+/** 折叠时隐藏正文类节点（保留模块名一行）*/
+function 应用折叠(块: HTMLElement): void {
+  const 收起 = 块.classList.contains("collapsed");
+  块
+    .querySelectorAll<HTMLElement>(":scope > .msg-reply-content, :scope > .msg-sender, :scope > img, :scope > audio")
+    .forEach((n) => (n.style.display = 收起 ? "none" : ""));
+}
+
+/** 收藏 / 取消收藏一条回复 */
+async function 切换收藏(块: HTMLElement, 按钮: HTMLButtonElement): Promise<void> {
+  if (块.dataset.收藏 === "1") {
+    const 笔记ID = Number(块.dataset.收藏笔记 ?? "0");
+    if (笔记ID) {
+      try {
+        await window.kugua.request("mkg", "mkg.note.delete", { id: 笔记ID });
+      } catch {
+        /* 已删除：忽略 */
+      }
+    }
+    delete 块.dataset.收藏;
+    delete 块.dataset.收藏笔记;
+    块.classList.remove("faved");
+    按钮.textContent = "☆";
+    按钮.title = "收藏此回复到知识库";
+    添加提示("已取消收藏");
+    return;
+  }
+  try {
+    const 笔记ID = await 写入收藏(块);
+    块.dataset.收藏 = "1";
+    if (笔记ID) 块.dataset.收藏笔记 = String(笔记ID);
+    块.classList.add("faved");
+    按钮.textContent = "★";
+    按钮.title = "已收藏，点击取消";
+    添加提示("已收藏到知识库");
+  } catch (err) {
+    添加提示("收藏失败：" + String(err), true);
+  }
+}
+
+/** 标签：模块名 + 当前对话标题 */
+function 收藏标签名(块: HTMLElement): { 模块: string; 对话: string } {
+  const 模块 = 块.querySelector(".msg-reply-sender")?.textContent?.trim() || "聊天回复";
+  const 对话 =
+    (块.dataset.对话 || document.getElementById("chat-conv-title")?.textContent?.replace(/^💬\s*/, "").trim()) ||
+    "未命名对话";
+  return { 模块, 对话 };
+}
+
+/** 按名称取（或创建）标签 id */
+async function 确保标签(名称: string): Promise<number[]> {
+  try {
+    const 标签列表 = (await window.kugua.request("mkg", "mkg.tag.list", {})) as Array<{ id: number; name: string }>;
+    const 命中 = 标签列表.find((t) => t.name === 名称);
+    if (命中) return [命中.id];
+    const 新建 = (await window.kugua.request("mkg", "mkg.tag.create", { name: 名称 })) as
+      | { id?: number }
+      | number;
+    const id = typeof 新建 === "number" ? 新建 : 新建?.id;
+    return id ? [id] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 收集回复块内的多媒体（data: URL 的图片 / 音频）*/
+function 收集多媒体(块: HTMLElement): Array<{ base64: string; 扩展: string }> {
+  const 结果: Array<{ base64: string; 扩展: string }> = [];
+  const 取 = (src: string, 默认扩展: string) => {
+    if (!src?.startsWith("data:")) return;
+    const m = src.match(/^data:([^;,]+);base64,(.*)$/);
+    if (!m) return;
+    const mime = m[1];
+    const 扩展 = mime.includes("wav") ? "wav" : mime.includes("mpeg") ? "mp3" : mime.split("/")[1] || 默认扩展;
+    结果.push({ base64: m[2], 扩展: 扩展.replace(/\+.*$/, "") });
+  };
+  块.querySelectorAll<HTMLImageElement>("img").forEach((i) => 取(i.getAttribute("src") ?? "", "png"));
+  块.querySelectorAll<HTMLAudioElement>("audio").forEach((a) => 取(a.getAttribute("src") ?? "", "wav"));
+  return 结果;
+}
+
+/** 写入知识库：文本 → 笔记；多媒体 → 资源文件 + 笔记引用。返回笔记 id */
+async function 写入收藏(块: HTMLElement): Promise<number | undefined> {
+  const { 模块, 对话 } = 收藏标签名(块);
+  const 标签 = [...(await 确保标签(模块)), ...(await 确保标签(对话))];
+  const 文本 = 块.querySelector(".msg-reply-content")?.textContent?.trim() || "";
+  const 媒体 = 收集多媒体(块);
+  const 标题 = `【${模块}】${对话} · ${本地时间(new Date())}`;
+
+  if (媒体.length === 0) {
+    if (!文本) throw new Error("无内容可收藏");
+    const r = (await window.kugua.request("mkg", "mkg.note.create", {
+      title: 标题,
+      content: 文本,
+      tagIds: 标签,
+    })) as { id?: number };
+    return r?.id;
+  }
+
+  const 引用行: string[] = [];
+  for (let i = 0; i < 媒体.length; i++) {
+    const 名 = `${标题.replace(/[\\/:*?"<>|]/g, "_")}_${i + 1}.${媒体[i].扩展}`;
+    try {
+      const 资源 = (await window.kugua.request("mkg", "mkg.resource.saveBase64", {
+        base64: 媒体[i].base64,
+        name: 名,
+        alias: 名,
+        tagIds: 标签,
+      })) as { path?: string; existingPath?: string };
+      const 路径 = 资源?.path ?? 资源?.existingPath ?? 名;
+      引用行.push(`![媒体](${路径})`);
+    } catch (err) {
+      引用行.push(`（媒体写入失败：${String(err)}）`);
+    }
+  }
+  const 内容 = [文本, ...引用行].filter(Boolean).join("\n\n");
+  const r = (await window.kugua.request("mkg", "mkg.note.create", {
+    title: 标题,
+    content: 内容,
+    tagIds: 标签,
+  })) as { id?: number };
+  return r?.id;
 }
 
 /** 独立回应：自建一个 system 气泡承载回复（不吸附上一条 user 消息）。
@@ -814,6 +1045,14 @@ export function 添加HTML(html: string): void {
   const 块 = 追加到容器(容器);
   块.className = "msg-reply";
   块.innerHTML = html;
+  宿主标记(块, 容器);
+  // 把 HTML 里的 .msg-sender 提升为头部行（模块名 + 右侧图标）
+  const 旧名 = 块.querySelector<HTMLElement>(":scope > .msg-sender");
+  const 名文本 = 旧名?.textContent?.trim() ?? "";
+  旧名?.remove();
+  const 头部 = 创建回复头部(块, 名文本 || undefined);
+  if (头部) 块.insertBefore(头部, 块.firstChild);
+  安装回复图标(块, 容器);
   筛选聊天消息(容器.parentElement as HTMLElement);
   聊天日志.scrollTop = 聊天日志.scrollHeight;
 }

@@ -499,6 +499,19 @@ void 启动模块({
     return mkg.importFiles({ items: p.items, destDir: p.destDir });
   });
 
+  /** 将 base64 字节直接存入知识库（收藏聊天多媒体回复时使用） */
+  客户端.onRequest("mkg.resource.saveBase64", async (params) => {
+    const p = (params ?? {}) as {
+      base64?: string; name?: string; destDir?: string; alias?: string; tagIds?: number[];
+    };
+    if (!p.base64) throw new Error("缺少 base64");
+    if (!p.name) throw new Error("缺少 name");
+    return mkg.saveBase64({
+      base64: p.base64, name: p.name, destDir: p.destDir, alias: p.alias,
+      tagIds: Array.isArray(p.tagIds) ? p.tagIds : [],
+    });
+  });
+
   客户端.onRequest("mkg.tag.setResourceTags", (params) => {
     const { resourceId, tagIds } = (params ?? {}) as { resourceId?: number; tagIds?: number[] };
     if (resourceId === undefined || !Array.isArray(tagIds)) throw new Error("缺少 resourceId 或 tagIds（数组）");
