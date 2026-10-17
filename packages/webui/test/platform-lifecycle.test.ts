@@ -192,6 +192,40 @@ describe.skipIf(!已构建)("平台生命周期", () => {
     }
   }, 90000);
 
+  it("配置写回保留不认识的顶层节（ai / plugins）", async () => {
+    const 主控端口 = await 空闲端口();
+    const 临时数据 = join(临时目录, `keep-${主控端口}`);
+    const 配置路径 = join(临时目录, `keep-${主控端口}.json`);
+    writeFileSync(
+      配置路径,
+      JSON.stringify({
+        host: "127.0.0.1",
+        port: 主控端口,
+        token: "",
+        modules: [{ name: "echo", type: "process", entry: "packages/modules/echo/dist/index.js", autoStart: true }],
+        // 主控自身不认识这两节，但落盘时必须原样保留，否则模块配置会被静默抹掉
+        ai: { openwebui: { enabled: true, baseUrl: "http://127.0.0.1:8090" } },
+        plugins: { dir: "./plugins" },
+      }),
+    );
+    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据 });
+    let 客户端: Awaited<ReturnType<typeof 连接主控>> | null = null;
+    try {
+      await sleep(4000);
+      客户端 = await 连接主控(主控端口);
+      await sleep(500);
+      // 触发一次落盘：reload 会写回配置
+      await 客户端.request("nigane", "nigane.registry.reload", {});
+      await sleep(800);
+      const 回读 = JSON.parse(readFileSync(配置路径, "utf-8")) as Record<string, unknown>;
+      expect(回读.ai).toEqual({ openwebui: { enabled: true, baseUrl: "http://127.0.0.1:8090" } });
+      expect(回读.plugins).toEqual({ dir: "./plugins" });
+    } finally {
+      客户端?.close();
+      await main.结束();
+    }
+  }, 60000);
+
   it("插件动态检测：投放插件目录自动加载，删除后自动卸载", async () => {
     const 主控端口 = await 空闲端口();
     const 临时数据 = join(临时目录, `plug-${主控端口}`);

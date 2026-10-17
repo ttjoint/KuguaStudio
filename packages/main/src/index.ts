@@ -36,6 +36,12 @@ interface 主控配置 {
   token: string;
   /** 模块注册表：主控侧管理的模块定义 */
   modules?: 模块描述[];
+  /**
+   * 其它顶层配置节（如 `ai`、`plugins`）原样透传。
+   * 主控只读写自己认识的字段，但**必须把不认识的节原样写回**，
+   * 否则每次落盘都会静默抹掉模块自己的配置。
+   */
+  [其它节: string]: unknown;
 }
 
 /** 加载配置：文件缺失或非法时回落到默认值 */
@@ -47,6 +53,8 @@ function 加载配置(): 主控配置 {
     const 文本 = readFileSync(路径, "utf-8");
     const 对象 = JSON.parse(文本) as Partial<主控配置>;
     return {
+      // 先展开原文件，保留本次不认识的配置节（ai / plugins / …）
+      ...对象,
       host: typeof 对象.host === "string" ? 对象.host : 默认.host,
       port: typeof 对象.port === "number" ? 对象.port : 默认.port,
       token: typeof 对象.token === "string" ? 对象.token : 默认.token,

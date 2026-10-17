@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { 加载OpenWebUI配置, type OpenWebUI配置 } from "./openwebui.js";
 
 export interface AI提供方 {
   name: string;
@@ -18,10 +19,12 @@ export interface AI提供方 {
 export interface AI配置 {
   providers: AI提供方[];
   default: string;
+  /** OpenWebUI 网关（可选）：作为模型目录与统一入口 */
+  openwebui?: OpenWebUI配置;
 }
 
 function 读配置节(): { providers?: AI提供方[]; default?: string } {
-  const 路径 = resolve(process.cwd(), "kugua.config.json");
+  const 路径 = resolve(process.cwd(), process.env.KUGUA_CONFIG ?? "kugua.config.json");
   if (!existsSync(路径)) return {};
   try {
     const j = JSON.parse(readFileSync(路径, "utf-8")) as { ai?: { providers?: AI提供方[]; default?: string } };
@@ -33,6 +36,7 @@ function 读配置节(): { providers?: AI提供方[]; default?: string } {
 
 /** 加载 AI 配置：config.ai → 环境变量 → 本地默认（LM Studio / Ollama） */
 export function 加载AI配置(): AI配置 {
+  const openwebui = 加载OpenWebUI配置() ?? undefined;
   const 节 = 读配置节();
   if (Array.isArray(节.providers) && 节.providers.length > 0) {
     const providers = 节.providers.map((p) => ({
@@ -41,7 +45,7 @@ export function 加载AI配置(): AI配置 {
       apiKey: String(p.apiKey ?? ""),
       models: p.models ?? {},
     }));
-    return { providers, default: String(节.default ?? providers[0].name) };
+    return { providers, default: String(节.default ?? providers[0].name), openwebui };
   }
   // 环境变量回退（单提供方 default）
   if (process.env.KUGUA_AI_BASE_URL) {
@@ -59,7 +63,12 @@ export function 加载AI配置(): AI配置 {
         },
       ],
       default: "default",
+      openwebui,
     };
+  }
+  // 只配了 OpenWebUI：用它当唯一提供方
+  if (openwebui) {
+    return { providers: [], default: "openwebui", openwebui };
   }
   // 本地默认
   return {

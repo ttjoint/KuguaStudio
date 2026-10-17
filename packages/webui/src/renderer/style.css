@@ -3088,3 +3088,19 @@ body {
   outline: none;
 }
 .mod-details > summary:hover { opacity: 0.9; }
+
+/* 聊天头部：模型刷新按钮 */
+.chat-ai-refresh {
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.chat-ai-refresh:hover { color: var(--text); border-color: var(--accent, #4a9eff); }

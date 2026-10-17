@@ -150,6 +150,9 @@ vite.config.ts.timestamp-*
 # 参考项目（尚未彻底迁移完毕，保留但不纳入版本管理）
 参考/
 
+# 本地私有配置覆盖（含凭据，绝不提交）
+kugua.config.local.json
+
 # 运行时数据与本地知识库（不应提交）
 data/webui.lock
 data/mkg.db

@@ -205,23 +205,105 @@ export function 渲染对话列表(): void {
   if (过滤后.length === 0) 容器.innerHTML = '<div class="conv-empty">（无对话）</div>';
 }
 
+/**
+ * 刷新 AI 模型选择器。
+ *
+ * 两条来源合并：
+ * 1. OpenWebUI（若已配置）：按「连接」分组列出全部模型，值形如 `openwebui|前缀.模型`
+ * 2. 本地 providers：每项一个 `提供方|默认模型`
+ *
+ * 模型总数可能上百，用 optgroup 分组，靠原生下拉的键盘搜索定位。
+ */
 export async function 刷新AI模型选择器(): Promise<void> {
   const 框 = document.getElementById("chat-ai-model") as HTMLSelectElement | null;
   if (!框) return;
+  const 组: string[] = [];
+
   try {
     const p = (await window.kugua.request("ai", "ai.providers", {})) as {
       default: string;
       providers: Array<{ name: string; models: Record<string, string> }>;
+      openwebui?: { baseUrl: string; defaultModel: string | null } | null;
     };
-    框.innerHTML = (p.providers ?? [])
-      .map((prov) => {
-        const 模型 = prov.models?.chat ?? "";
-        return `<option value="${prov.name}|${模型}">${prov.name}${模型 ? " / " + 模型 : "（自动）"}</option>`;
-      })
-      .join("");
+
+    // —— OpenWebUI：按连接分组 ——
+    if (p.openwebui) {
+      try {
+        const m = (await window.kugua.request("ai", "ai.openwebui.models", {}, 30000)) as {
+          total: number;
+          分组: Array<{ prefix: string; count: number; models: string[] }>;
+        };
+        const 默认 = p.openwebui.defaultModel;
+        // optgroup 不能嵌套，每个连接一个平级 optgroup
+        组.push(
+          `<optgroup label="OpenWebUI · 默认">` +
+            `<option value="openwebui|">使用默认（${escapeAttr(默认 ?? "首个模型")}）</option>` +
+            `</optgroup>`,
+        );
+        for (const g of m.分组 ?? []) {
+          组.push(
+            `<optgroup label="${escapeAttr(g.prefix)}（${g.count}）">` +
+              g.models.map((id) => `<option value="openwebui|${escapeAttr(id)}">${escapeAttr(id)}</option>`).join("") +
+              `</optgroup>`,
+          );
+        }
+      } catch (err) {
+        组.push(`<optgroup label="OpenWebUI"><option value="openwebui|">（不可用：${escapeAttr(String(err).slice(0, 40))}）</option></optgroup>`);
+      }
+    }
+
+    // —— 本地 providers ——
+    if ((p.providers ?? []).length > 0) {
+      组.push(
+        `<optgroup label="本地提供方">` +
+          p.providers
+            .map((prov) => {
+              const 模型 = prov.models?.chat ?? "";
+              return `<option value="${escapeAttr(prov.name)}|${escapeAttr(模型)}">${escapeAttr(prov.name)}${模型 ? " / " + escapeAttr(模型) : "（自动）"}</option>`;
+            })
+            .join("") +
+          `</optgroup>`,
+      );
+    }
   } catch {
-    框.innerHTML = '<option value="">（AI 未配置）</option>';
+    /* 下面统一兜底 */
   }
+
+  框.innerHTML = 组.length > 0 ? 组.join("") : '<option value="">（AI 未配置）</option>';
+
+  // 下拉的 title 兼作状态提示：悬停即可看到 OpenWebUI 是否连通
+  try {
+    const st = (await window.kugua.request("ai", "ai.openwebui.status", {}, 20000)) as {
+      enabled: boolean;
+      ok?: boolean;
+      模型数?: number;
+      错误?: string;
+    };
+    if (!st.enabled) 框.title = "AI 模型（未配置 OpenWebUI）";
+    else if (st.ok) 框.title = `AI 模型（OpenWebUI 已连接，${st.模型数 ?? 0} 个模型）`;
+    else 框.title = `AI 模型（OpenWebUI 不可用：${st.错误 ?? "未知错误"}）`;
+  } catch {
+    框.title = "AI 模型";
+  }
+
+  // 恢复当前对话的选择；值不匹配（如模型已被移除）时回落到第一项
+  const d = 当前对话();
+  if (d) {
+    const 目标 = `${d.provider || ""}|${d.model || ""}`;
+    框.value = 目标;
+    if (框.selectedIndex < 0) {
+      框.selectedIndex = 0;
+      const [provider, model] = String(框.value).split("|");
+      d.provider = provider ?? "";
+      d.model = model ?? "";
+      保存对话列表();
+    }
+  }
+}
+
+/** 转义 HTML 属性值 */
+function escapeAttr(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
 export async function 与AI对话(文本: string): Promise<void> {
@@ -257,6 +339,10 @@ export const 对话观察器 = new MutationObserver(() => 保存当前对话DOM(
 
 document.getElementById("conv-new")?.addEventListener("click", () => 新建对话());
 document.getElementById("conv-project-new")?.addEventListener("click", () => 新建项目());
+document.getElementById("chat-ai-refresh")?.addEventListener("click", () => {
+  void 刷新AI模型选择器();
+});
+
 document.getElementById("chat-ai-model")?.addEventListener("change", (e) => {
   const d = 当前对话();
   if (!d) return;

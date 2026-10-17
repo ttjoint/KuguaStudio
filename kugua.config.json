@@ -191,5 +191,14 @@
       "file": "bin/math.dll",
       "description": "静态库示例（仅检测文件存在性）"
     }
-  ]
+  ],
+  "ai": {
+    "openwebui": {
+      "enabled": true,
+      "baseUrl": "http://127.0.0.1:8090",
+      "email": "lunarsa@163.com",
+      "password": "",
+      "defaultModel": "硅基流动.Qwen/Qwen3-8B"
+    }
+  }
 }
