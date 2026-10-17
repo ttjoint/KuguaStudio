@@ -260,3 +260,170 @@ describe.skipIf(!已构建)("平台生命周期", () => {
     }
   }, 90000);
 });
+
+/**
+ * 外部程序动态接入（docs/接入协议.md）
+ *
+ * 验证两条生命周期语义：
+ *  1) 运行中接入的外部程序 → 其能力立即进注册表、断开后自动移除；
+ *  2) 平台退出时只广播 system.shutdown，不对外部进程发信号、不强杀。
+ */
+describe.skipIf(!已构建)("外部程序动态接入", () => {
+  const 临时目录 = mkdtempSync(join(tmpdir(), "kugua-external-"));
+
+  afterAll(() => {
+    rmSync(临时目录, { recursive: true, force: true });
+  });
+
+  it("接入后能力可见，断开后自动移除，平台退出只广播 system.shutdown", async () => {
+    const 主控端口 = await 空闲端口();
+    const 配置路径 = join(临时目录, "kugua.config.json");
+    writeFileSync(
+      配置路径,
+      JSON.stringify({ host: "127.0.0.1", port: 主控端口, token: "", modules: [] }),
+      "utf-8",
+    );
+
+    const 主控 = 启动(主控脚本, {
+      KUGUA_CONFIG: 配置路径,
+      KUGUA_GLOBAL_LOCK: join(临时目录, "studio.lock"),
+      KUGUA_DATA_DIR: join(临时目录, "data"),
+    });
+
+    let 外部: 子实例 | null = null;
+    let 观察者: Awaited<ReturnType<typeof 连接主控>> | null = null;
+    try {
+      // 等主控就绪
+      for (let i = 0; i < 30; i += 1) {
+        if (主控.输出().includes("苦音服务端已启动")) break;
+        await sleep(500);
+      }
+      expect(主控.输出()).toContain("苦音服务端已启动");
+
+      // 以「外部程序」身份接入：使用仓库里的示例（不依赖 @kugua/nigane）
+      const 示例脚本 = join(仓库根, "examples", "external-module", "run.mjs");
+      expect(existsSync(示例脚本)).toBe(true);
+      外部 = 启动(示例脚本, { KUGUA_PORT: String(主控端口), KUGUA_TOKEN: "" });
+
+      // 等它握手成功
+      let 已接入 = false;
+      for (let i = 0; i < 30; i += 1) {
+        if (外部.输出().includes("握手成功")) {
+          已接入 = true;
+          break;
+        }
+        await sleep(500);
+      }
+      expect(已接入).toBe(true);
+
+      // 1) 能力注册表里能看到外部模块声明的能力
+      观察者 = await 连接主控(主控端口);
+      const 能力 = (await 观察者.request("kugua-main", "capability.list", {})) as Array<{
+        名称: string;
+        模块: string;
+        中文指令?: string[];
+      }>;
+      const 条目 = 能力.find((c) => c.名称 === "示例外部模块.回声");
+      expect(条目).toBeTruthy();
+      expect(条目?.模块).toBe("示例外部模块");
+      expect(条目?.中文指令).toContain("回声");
+
+      // 2) 外部程序退出 → 能力自动移除（对方下线这边自动下线）
+      外部.进程.kill();
+      let 已移除 = false;
+      for (let i = 0; i < 30; i += 1) {
+        const 当前 = (await 观察者.request("kugua-main", "capability.list", {})) as Array<{ 名称: string }>;
+        if (!当前.some((c) => c.名称 === "示例外部模块.回声")) {
+          已移除 = true;
+          break;
+        }
+        await sleep(500);
+      }
+      expect(已移除).toBe(true);
+    } finally {
+      观察者?.close();
+      外部?.进程.kill();
+      await 主控.结束();
+    }
+  }, 90000);
+});
+
+/**
+ * 平台退出：外部程序应收到 system.shutdown 广播并自行退出。
+ * 通过内置动作 nigane.shutdown 触发优雅关闭
+ * （Windows 上对进程发 SIGTERM 是硬杀，收不到广播）。
+ */
+describe.skipIf(!已构建)("平台退出通知", () => {
+  const 临时目录 = mkdtempSync(join(tmpdir(), "kugua-shutdown-"));
+
+  afterAll(() => {
+    rmSync(临时目录, { recursive: true, force: true });
+  });
+
+  it("nigane.shutdown 触发 system.shutdown 广播，外部程序收到后自行退出", async () => {
+    const 主控端口 = await 空闲端口();
+    const 配置路径 = join(临时目录, "kugua.config.json");
+    writeFileSync(
+      配置路径,
+      JSON.stringify({ host: "127.0.0.1", port: 主控端口, token: "", modules: [] }),
+      "utf-8",
+    );
+
+    const 主控 = 启动(主控脚本, {
+      KUGUA_CONFIG: 配置路径,
+      KUGUA_GLOBAL_LOCK: join(临时目录, "studio.lock"),
+      KUGUA_DATA_DIR: join(临时目录, "data"),
+    });
+
+    let 外部: 子实例 | null = null;
+    let 观察者: Awaited<ReturnType<typeof 连接主控>> | null = null;
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        if (主控.输出().includes("苦音服务端已启动")) break;
+        await sleep(500);
+      }
+
+      const 示例脚本 = join(仓库根, "examples", "external-module", "run.mjs");
+      外部 = 启动(示例脚本, { KUGUA_PORT: String(主控端口), KUGUA_TOKEN: "" });
+
+      let 已接入 = false;
+      for (let i = 0; i < 30; i += 1) {
+        if (外部.输出().includes("握手成功")) {
+          已接入 = true;
+          break;
+        }
+        await sleep(500);
+      }
+      expect(已接入).toBe(true);
+
+      观察者 = await 连接主控(主控端口);
+      await 观察者.request("kugua-main", "nigane.shutdown", {});
+
+      // 外部程序应收到 system.shutdown 并自行退出
+      let 已收到通知 = false;
+      for (let i = 0; i < 30; i += 1) {
+        if (外部.输出().includes("收到 system.shutdown")) {
+          已收到通知 = true;
+          break;
+        }
+        await sleep(300);
+      }
+      expect(已收到通知).toBe(true);
+
+      // 平台自己也要真的关掉（不是被硬杀）
+      let 已关闭 = false;
+      for (let i = 0; i < 30; i += 1) {
+        if (主控.输出().includes("正在关闭")) {
+          已关闭 = true;
+          break;
+        }
+        await sleep(300);
+      }
+      expect(已关闭).toBe(true);
+    } finally {
+      观察者?.close();
+      外部?.进程.kill();
+      await 主控.结束();
+    }
+  }, 90000);
+});

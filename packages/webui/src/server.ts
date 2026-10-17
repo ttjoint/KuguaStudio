@@ -560,11 +560,7 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
     }
     if (req.method === "POST" && 路径 === "/api/shutdown") {
       发送JSON(res, 200, { shuttingDown: true });
-      setTimeout(() => {
-        苦音客户端?.close();
-        主控进程?.kill();
-        process.exit(0);
-      }, 300);
+      setTimeout(() => void 关闭平台(0), 300);
       return;
     }
     if (req.method === "GET" && 路径 === "/api/status") {
@@ -748,21 +744,53 @@ function 启动托盘(url: string): void {
  *   3) 退出当前进程。
  * 新实例会通过单实例守卫确认旧实例已退出后再接管。
  */
-async function 重启平台(): Promise<void> {
-  console.log("[WebUI] 正在重启平台……");
-  const 入口 = process.argv[1];
-  const 参数 = process.argv.slice(2);
-  // 关闭主控（主控会广播 system.shutdown 并结束所有子模块）
+/**
+ * 请求主控优雅关闭。
+ *
+ * 不能直接用 `主控进程.kill("SIGTERM")`：Windows 上它实际上是 `TerminateProcess` 硬杀，
+ * 主控的 `process.on("SIGTERM")` 不会执行，`system.shutdown` 广播就发不出去，
+ * 运行中接入的外部程序收不到退出信号。
+ * 所以走主控内置动作 `nigane.shutdown`。失败时才回退到 kill。
+ */
+async function 请求主控关闭(): Promise<void> {
+  try {
+    await 苦音客户端?.request("kugua-main", "nigane.shutdown", {}, 3000);
+    console.log("[WebUI] 已请求主控优雅关闭（system.shutdown 已广播）");
+  } catch (err) {
+    console.warn(`[WebUI] 请求主控优雅关闭失败，回退到 kill：${String(err)}`);
+    try {
+      主控进程?.kill("SIGTERM");
+    } catch {
+      /* 忽略 */
+    }
+  }
+}
+
+/** 平台整体退出：先让主控优雅关闭（广播 system.shutdown），再退出自身 */
+async function 关闭平台(码: number): Promise<void> {
+  await 请求主控关闭();
+  // 给主控一点时间结束托管子进程并关闭 WebSocket
+  await new Promise<void>((resolve) => setTimeout(resolve, 1200));
   try {
     苦音客户端?.close();
   } catch {
     /* 忽略 */
   }
+  process.exit(码);
+}
+
+async function 重启平台(): Promise<void> {
+  console.log("[WebUI] 正在重启平台……");
+  const 入口 = process.argv[1];
+  const 参数 = process.argv.slice(2);
+  // 关闭主控（主控会广播 system.shutdown 并结束所有子模块）
+  await 请求主控关闭();
   const 主控 = 主控进程;
   if (主控 && !主控.killed) {
     await new Promise<void>((resolve) => {
       const 完成 = (): void => resolve();
       主控.once("exit", 完成);
+      // Windows 上 kill("SIGTERM") 实际是硬杀，仅在请求关闭失败时兜底
       主控.kill("SIGTERM");
       setTimeout(完成, 3000);
     });

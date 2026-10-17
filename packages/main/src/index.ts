@@ -149,6 +149,25 @@ export function 已有实例运行(锁路径: string = 全局单例锁路径()):
   return 信息 ? { pid: 信息.pid, 附加: 信息.附加 } : null;
 }
 
+/**
+ * 优雅关闭入口。
+ *
+ * 为什么要暴露成模块级变量：Windows 上对子进程 `kill("SIGTERM")` 实际上是
+ * `TerminateProcess` 硬杀，Node 的 `process.on("SIGTERM")` 处理器不会执行，
+ * 导致 `服务端.stop()` 里的 `system.shutdown` 广播永远发不出去。
+ * 所以由 WebUI 通过内置动作 `nigane.shutdown` 主动请求主控优雅关闭。
+ */
+let 请求关闭: (() => Promise<void>) | null = null;
+
+/** 内置动作：请求主控优雅关闭（先广播 system.shutdown，再结束托管子进程） */
+function 注册关闭动作(服务端: NiganeServer): void {
+  服务端.handle("nigane.shutdown", async () => {
+    // 不阻塞响应：先回执，再异步关闭
+    setTimeout(() => void 请求关闭?.(), 100);
+    return { shuttingDown: true };
+  });
+}
+
 async function 启动(): Promise<void> {
   // —— 第一道守卫：全局单例锁（与端口/配置无关）——
   全局单例守卫();
@@ -183,6 +202,7 @@ async function 启动(): Promise<void> {
 
   // —— 注册自定义内置动作：详情 / 启动 / 停止 ——
   注册内置动作(服务端);
+  注册关闭动作(服务端);
 
   // —— 日志 ——
   服务端.on("registered", (信息: 模块信息) => {
@@ -241,6 +261,9 @@ async function 启动(): Promise<void> {
   const 关闭 = async (): Promise<void> => {
     clearInterval(检测定时器);
     console.log("[主控] 正在关闭……");
+    // 1) 先广播 system.shutdown：运行中接入的外部程序据此自行决定是否退出
+    //    （平台不持有它们的进程，也不对其发信号）
+    //    这一步必须在结束任何进程之前，否则外部程序看不到通知。
     if (!服务端) {
       释放全局锁();
       process.exit(0);
@@ -276,9 +299,10 @@ async function 启动(): Promise<void> {
     释放全局锁();
     process.exit(0);
   };
+  // 暴露给内置动作 nigane.shutdown（Windows 上 SIGTERM 会被硬杀，靠它才能优雅退出）
+  请求关闭 = 关闭;
   process.on("SIGINT", () => void 关闭());
-  process.on("SIGTERM", () => void 关闭());
-  // 异常/意外退出也释放全局锁，避免遗留陈旧锁阻止下次启动
+  process.on("SIGTERM", () => void 关闭());  // 异常/意外退出也释放全局锁，避免遗留陈旧锁阻止下次启动
   process.on("exit", () => 释放全局锁());
 }
 
