@@ -2393,6 +2393,55 @@ body {
   overflow-y: auto;
   padding: 1rem 1.25rem;
 }
+
+/* 设置页：宽屏走多列。
+ *
+ * 问题：原来是单列纵向排布，每条 .oc-setting-row 用 space-between 把标签推到
+ * 最左、按钮推到最右。屏幕一宽，中间就是一大片空白——"数据或操作左边一半
+ * 右边一半"，眼睛要在两端来回找，很难确认哪个按钮对应哪一行。
+ *
+ * 做法：容器切成多列自适应，每列有最大宽度；这样一行内的元素距离被限制在
+ * 一屏可扫的范围内，同时宽屏能并排展示更多区块，不用一直往下滚。
+ */
+#settings-view .oc-page-body {
+  display: grid;
+  /* 460px 是"标签+控件放得下且不用横跨半屏"的经验下限：
+     再窄会对折行，再宽就回到原来一行拉满两端的问题。 */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+  gap: 1rem;
+  align-content: start;
+  /* 上限：超宽屏（2560+）不让内容无限摊开，居中对齐更好读 */
+  max-width: 1680px;
+  margin: 0 auto;
+  width: 100%;
+}
+/* 网格自身负责间距，区块不再自带上外边距（否则行间会被撑出双倍空隙） */
+#settings-view .oc-section {
+  margin-bottom: 0;
+  min-width: 0; /* 允许内容比列宽时收缩，避免长路径把列撑破 */
+}
+/* 模块列表天然很高：让它独占整行，否则会把旁边那列拉出一大片空白 */
+#settings-view .oc-section:has(#settings-module-list) {
+  grid-column: 1 / -1;
+}
+/* 单行设置内部再限一次宽：极宽屏下（如 2560）一列仍可能很宽，
+   标签与控件之间最多拉开这么多距离 */
+#settings-view .oc-setting-row {
+  gap: 1rem;
+}
+#settings-view .oc-setting-label {
+  /* 标签不参与压缩，控件靠右但不至于飞出去 */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* 模块列表本身也走多列：卡片比一整条横杠好认得多 */
+#settings-view .mod-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 10px;
+  align-items: start;
+}
 .oc-section {
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
