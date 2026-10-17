@@ -80,7 +80,10 @@ function 渲染对象数组(字段: 表单字段): string {
       return `<select ${类} data-col="${转义(列声明.键)}">${选项}</select>`;
     }
     const 类型 = 列声明.类型 === "number" ? "number" : 列声明.类型 === "secret" ? "password" : "text";
-    return `<input type="${类型}" ${类} data-col="${转义(列声明.键)}" value="${转义(原值 ?? "")}" placeholder="${转义(列声明.提示 ?? "")}">`;
+    // 凭据列：服务端只回空值 + 已设置标记，占位符提示「留空=不改」
+    const 已设置 = 行数据[`${列声明.键}__已设置`] === true;
+    const 占位 = 已设置 && 列声明.凭据 ? "已设置（留空则不改）" : (列声明.提示 ?? "");
+    return `<input type="${类型}" ${类} data-col="${转义(列声明.键)}"${列声明.凭据 ? ' data-secret="1"' : ""} value="${转义(原值 ?? "")}" placeholder="${转义(占位)}">`;
   };
 
   const 行 = 值
@@ -251,7 +254,13 @@ export function 挂载配置表单(
         tr.querySelectorAll<HTMLInputElement | HTMLSelectElement>(".cfg-cell-input").forEach((el) => {
           const 列名 = el.dataset.col ?? "";
           if (!列名) return;
-          行[列名] = el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : el.value;
+          if (el instanceof HTMLInputElement && el.type === "checkbox") {
+            行[列名] = el.checked;
+            return;
+          }
+          // 凭据列留空表示「不改」，不能提交空串覆盖已保存的密钥
+          if (el instanceof HTMLInputElement && el.dataset.secret === "1" && el.value === "") return;
+          行[列名] = el.value;
         });
         return 行;
       });

@@ -32,6 +32,14 @@ export interface 配置列声明 {
   必填?: boolean;
   /** select 的选项 */
   选项?: Array<string | { 值: string; 标题: string }>;
+  /**
+   * 该列是凭据：写进 `kugua.config.local.json`，不进版本库，
+   * 表单里也按密码框渲染、只回「已设置」标记。
+   *
+   * 对象数组里的密钥必须靠这一项才能隔离——否则 `providers[0].apiKey`
+   * 会直接落进 `kugua.config.json`。
+   */
+  凭据?: boolean;
 }
 
 /** 数组项声明：既可以是简单类型（字符串列表），也可以是对象表格 */

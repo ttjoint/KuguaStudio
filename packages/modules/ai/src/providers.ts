@@ -23,15 +23,71 @@ export interface AI配置 {
   openwebui?: OpenWebUI配置;
 }
 
-function 读配置节(): { providers?: AI提供方[]; default?: string } {
-  const 路径 = resolve(process.cwd(), process.env.KUGUA_CONFIG ?? "kugua.config.json");
+interface AI配置节 {
+  providers?: AI提供方[];
+  default?: string;
+}
+
+function 读文件(路径: string): AI配置节 {
   if (!existsSync(路径)) return {};
   try {
-    const j = JSON.parse(readFileSync(路径, "utf-8")) as { ai?: { providers?: AI提供方[]; default?: string } };
+    const j = JSON.parse(readFileSync(路径, "utf-8")) as { ai?: AI配置节 };
     return j.ai ?? {};
   } catch {
     return {};
   }
+}
+
+/**
+ * 合并提供方列表的两层配置。
+ *
+ * 密钥由平台写进 `kugua.config.local.json`（不进版本库），公开信息
+ * （名称、地址、模型）留在 `kugua.config.json`。
+ *
+ * 分开存之后，本地文件里的 `providers` 只有 `apiKey` 一列，**必须按
+ * 名称逐行补回**——否则模块读到的提供方全部没有密钥，配置页里填的
+ * 密钥等于白填（这是个真出现过的 bug：`ai.providers` 一直回
+ * `hasKey: false`）。
+ *
+ * 按名称而不是按位置合并：用户可能在配置页里删行或调整顺序。
+ */
+export function 合并提供方(主: AI提供方[] = [], 覆盖: AI提供方[] = []): AI提供方[] {
+  if (覆盖.length === 0) return 主;
+  const 结果 = 主.map((p) => ({ ...p, models: { ...(p.models ?? {}) } }));
+  for (const 密 of 覆盖) {
+    const 名 = String(密?.name ?? "").trim();
+    const 命中 = 结果.find((p) => p.name === 名);
+    if (命中) {
+      // 只补凭据，不覆盖公开字段（公开字段以主配置为准）
+      if (密.apiKey) 命中.apiKey = String(密.apiKey);
+      continue;
+    }
+    // 本地文件里凭空多出来的整行（少见）：并进去，避免丢失用户手改的数据
+    if (名) {
+      结果.push({
+        name: 名,
+        baseUrl: String(密.baseUrl ?? "").replace(/\/+$/, ""),
+        apiKey: String(密.apiKey ?? ""),
+        models: 密.models ?? {},
+      });
+    }
+  }
+  return 结果;
+}
+
+function 读配置节(): AI配置节 {
+  const 主路径 = resolve(process.cwd(), process.env.KUGUA_CONFIG ?? "kugua.config.json");
+  const 覆盖路径 = resolve(process.cwd(), process.env.KUGUA_CONFIG_LOCAL ?? "kugua.config.local.json");
+  const 主 = 读文件(主路径);
+  const 覆盖 = 读文件(覆盖路径);
+  if (!覆盖.providers && !覆盖.default) return 主;
+  return {
+    ...主,
+    ...覆盖,
+    // 数组是整体替换的，深合并帮不上忙，这里单独按名称补
+    providers: 合并提供方(主.providers, 覆盖.providers),
+    default: 覆盖.default || 主.default,
+  };
 }
 
 /** 加载 AI 配置：config.ai → 环境变量 → 本地默认（LM Studio / Ollama） */

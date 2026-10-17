@@ -42,7 +42,13 @@ export const 视图映射: Record<string, { 视图: HTMLElement; 激活时?: () 
     视图: 日志视图El,
     激活时: () => void 刷新系统日志(),
   },
-  "tab-settings": { 视图: 设置视图El },
+  "tab-settings": {
+    视图: 设置视图El,
+    // 设置页的模块列表是懒加载的（要拉配置列表 + 声明名单），
+    // 首次进入必须刷一次，否则会一直停在「暂无已注册模块」。
+    // 这里用事件解耦：14-plugin-ui 依赖本文件，不能反向 import。
+    激活时: () => window.dispatchEvent(new CustomEvent("kugua:settings-shown")),
+  },
 };
 export function 切换视图(tabId: string): void {
   for (const id of Object.keys(视图映射)) {

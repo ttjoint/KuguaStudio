@@ -19,6 +19,8 @@ import {
   校验值,
   展开表单,
   读取模块配置,
+  合并凭据,
+  拆分凭据,
   路径删值,
   路径取值,
   路径写值,
@@ -304,3 +306,146 @@ describe("推送载荷", () => {
     expect(读取模块配置("不存在")).toEqual({});
   });
 });
+
+/**
+ * 对象数组里的凭据隔离。
+ *
+ * 这是一个真实漏洞：最初只有顶层字段支持 `凭据: true`，
+ * 于是 `providers[0].apiKey` 这种「藏在表格列里的密钥」会直接写进
+ * kugua.config.json —— 也就是被提交进版本库。凭据隔离形同虚设。
+ */
+describe("数组内凭据隔离", () => {
+  const 声明: 配置声明 = {
+    字段: [
+      {
+        键: "providers",
+        标题: "模型提供方",
+        类型: "array",
+        数组: {
+          元素: "object",
+          列: [
+            { 键: "name", 标题: "名称", 类型: "string", 必填: true },
+            { 键: "baseUrl", 标题: "地址", 类型: "string" },
+            { 键: "apiKey", 标题: "密钥", 类型: "secret", 凭据: true },
+          ],
+        },
+      },
+    ],
+  };
+
+  function 读本地配置(): Record<string, unknown> {
+    const p = join(process.cwd(), "kugua.config.local.json");
+    if (!existsSync(p)) return {};
+    return JSON.parse(readFileSync(p, "utf-8")) as Record<string, unknown>;
+  }
+
+  function 清本地配置(): void {
+    rmSync(join(process.cwd(), "kugua.config.local.json"), { force: true });
+  }
+
+  beforeEach(() => {
+    清本地配置();
+    写主配置({ ai: {} });
+  });
+  afterEach(清本地配置);
+
+  it("拆分：凭据列进凭据层，其余进公开层", () => {
+    const r = 拆分凭据(声明, [{ name: "a", baseUrl: "http://x", apiKey: "sk-1" }], ["providers"]);
+    expect(r.公开).toEqual([{ name: "a", baseUrl: "http://x" }]);
+    // 凭据层必须带上主键（第一列），否则读取时对不回行、密钥等于丢失
+    expect(r.凭据).toEqual([{ apiKey: "sk-1", name: "a" }]);
+  });
+
+  it("合并：按主键对齐，用户删行或调序后密钥不串行", () => {
+    const r = 合并凭据(
+      [{ name: "b" }, { name: "a" }],
+      [{ apiKey: "sk-a", name: "a" }, { apiKey: "sk-b", name: "b" }],
+      "name",
+    );
+    expect(r).toEqual([
+      { name: "b", apiKey: "sk-b" },
+      { name: "a", apiKey: "sk-a" },
+    ]);
+  });
+
+  it("拆分：没有凭据列时不产生凭据层", () => {
+    const r = 拆分凭据(声明, [{ name: "a" }], ["providers"]);
+    expect(r.公开).toEqual([{ name: "a" }]);
+    expect(r.凭据).toBeUndefined();
+  });
+
+  it("合并：按行把凭据补回公开层", () => {
+    const r = 合并凭据(
+      [{ name: "a" }, { name: "b" }],
+      [{ apiKey: "sk-1" }, { apiKey: "sk-2" }],
+    );
+    expect(r).toEqual([
+      { name: "a", apiKey: "sk-1" },
+      { name: "b", apiKey: "sk-2" },
+    ]);
+  });
+
+  it("合并：凭据层缺失时原样返回", () => {
+    expect(合并凭据([{ name: "a" }], undefined)).toEqual([{ name: "a" }]);
+  });
+
+  it("保存时密钥不落主配置，只落 local 文件", () => {
+    记录声明("ai", 声明);
+    保存模块配置(
+      "ai",
+      {
+        providers: [{ name: "lmstudio", baseUrl: "http://127.0.0.1:1234/v1", apiKey: "sk-secret" }],
+      },
+      声明,
+    );
+    const 主文本 = readFileSync(process.env.KUGUA_CONFIG!, "utf-8");
+    expect(主文本).not.toContain("sk-secret");
+    const 主 = 读主配置() as { ai: { providers: Array<Record<string, unknown>> } };
+    expect(主.ai.providers[0]?.apiKey).toBeUndefined();
+    expect(主.ai.providers[0]?.name).toBe("lmstudio");
+
+    const 本地 = 读本地配置() as { ai: { providers: Array<Record<string, unknown>> } };
+    expect(本地.ai.providers[0]?.apiKey).toBe("sk-secret");
+  });
+
+  it("读取时凭据被合并回来", () => {
+    记录声明("ai", 声明);
+    保存模块配置(
+      "ai",
+      { providers: [{ name: "p1", baseUrl: "http://x", apiKey: "sk-1" }] },
+      声明,
+    );
+    const 配置 = 读取模块配置("ai") as { providers: Array<Record<string, unknown>> };
+    expect(配置.providers[0]?.apiKey).toBe("sk-1");
+    expect(配置.providers[0]?.name).toBe("p1");
+  });
+
+  it("表单模型里表格密钥列被脱敏，只回已设置标记", () => {
+    记录声明("ai", 声明);
+    保存模块配置("ai", { providers: [{ name: "p1", apiKey: "sk-1" }] }, 声明);
+    const 模型 = 构造表单模型("ai");
+    const 字段 = 模型.字段.find((f) => f.键 === "providers")!;
+    const 行 = (字段.值 as Array<Record<string, unknown>>)[0]!;
+    expect(行.apiKey).toBe("");
+    expect(行["apiKey__已设置"]).toBe(true);
+    expect(JSON.stringify(模型)).not.toContain("sk-1");
+  });
+
+  it("凭据列声称是凭据时才隔离——未标记的列照常入主配置", () => {
+    const 无凭据声明: 配置声明 = {
+      字段: [
+        {
+          键: "list",
+          标题: "列表",
+          类型: "array",
+          数组: { 元素: "object", 列: [{ 键: "note", 标题: "备注", 类型: "string" }] },
+        },
+      ],
+    };
+    记录声明("x", 无凭据声明);
+    保存模块配置("x", { list: [{ note: "plain" }] }, 无凭据声明);
+    const 主 = 读主配置() as { x: { list: Array<Record<string, unknown>> } };
+    expect(主.x.list[0]?.note).toBe("plain");
+  });
+});
+

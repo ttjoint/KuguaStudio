@@ -362,7 +362,19 @@ describe.skipIf(!已构建)("外部程序动态接入", () => {
       expect(条目?.模块).toBe("示例外部模块");
       expect(条目?.中文指令).toContain("回声");
 
-      // 2) 外部程序退出 → 能力自动移除（对方下线这边自动下线）
+      // 2) 动态接入的模块必须出现在管理列表里。
+      //    回归：config.list 原来只遍历配置文件的 modules 数组，
+      //    用户手动跑起来的外部程序在设置页里完全看不见——状态查得到、
+      //    配置改不了，等于「东西在那儿但摸不到」。
+      const 管理列表 = (await 观察者.request("kugua-main", "nigane.registry.config.list", {})) as Array<{
+        name: string;
+        在线: boolean;
+      }>;
+      const 管理项 = 管理列表.find((m) => m.name === "示例外部模块");
+      expect(管理项).toBeTruthy();
+      expect(管理项?.在线).toBe(true);
+
+      // 3) 外部程序退出 → 能力自动移除（对方下线这边自动下线）
       外部.进程.kill();
       let 已移除 = false;
       for (let i = 0; i < 30; i += 1) {

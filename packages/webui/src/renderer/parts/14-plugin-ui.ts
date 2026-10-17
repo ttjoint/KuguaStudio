@@ -342,6 +342,9 @@ export function 绑定模块管理事件(): void {
   const 容器 = document.getElementById("settings-module-list");
   if (!容器) return;
 
+  // 切到设置页时刷新（由 11-tabs 触发，避免两文件互相 import）
+  window.addEventListener("kugua:settings-shown", () => void 刷新模块配置());
+
   document.getElementById("settings-mod-refresh")?.addEventListener("click", () => {
     void 刷新模块配置();
   });

@@ -710,26 +710,40 @@ function 注册内置动作(服务端: NiganeServer): void {
 
   // 模块配置管理：列出（含托管状态、路径、参数、运行时状态）
   服务端.handle("nigane.registry.config.list", () => {
+    // 以「注册表里实际存在的模块」为准，而不是配置文件里的 modules 数组。
+    //
+    // 外部程序可能不通过配置文件启动（用户自己手动跑起来连上来），
+    // 这类模块以前完全不出现在设置页里——找得到状态、改不了配置，
+    // 属于「东西在那儿但摸不到」。配置只是它的**补充**信息，不是存在性来源。
     const 配置表 = 加载配置().modules ?? [];
+    const 配置索引 = new Map(配置表.map((m) => [m.name, m]));
     const 详情表 = 构造详情(服务端!);
-    const 详情索引 = new Map(详情表.map((d) => [d.name, d]));
-    return 配置表.map((m) => {
-      const d = 详情索引.get(m.name);
-      const 待 = 待确认模块.get(m.name);
-      const 拒 = 拒绝模块.get(m.name);
+    return 详情表.map((d) => {
+      const m: 模块描述 = 配置索引.get(d.name) ?? {
+        name: d.name,
+        type: (d.type ?? "process") as 模块描述["type"],
+        autoStart: false,
+        entry: d.entry,
+        file: d.file,
+        args: [],
+        description: d.description,
+        autoUpdate: true,
+      };
+      const 待 = 待确认模块.get(d.name);
+      const 拒 = 拒绝模块.get(d.name);
       // 状态灯：待确认/被拒 → 红；在线 → 绿；否则灰
-      const 状态 = 待 || 拒 ? "blocked" : d?.online ? "online" : "offline";
+      const 状态 = 待 || 拒 ? "blocked" : d.online ? "online" : "offline";
       return {
-        name: m.name,
+        name: d.name,
         类型: m.type,
         启用: m.autoStart ?? false,
         路径: m.entry ?? m.file ?? "",
         参数: m.args ?? [],
         说明: m.description ?? "",
-        在线: d?.online ?? false,
-        子进程: d?.pid ?? null,
+        在线: d.online,
+        子进程: d.pid ?? null,
         // —— 版本与更新状态 ——
-        版本: m.version ?? d?.version ?? "",
+        版本: d.version ?? m.version ?? "",
         自动更新: m.autoUpdate ?? true,
         外部: !是内置模块(m),
         状态,
@@ -738,7 +752,7 @@ function 注册内置动作(服务端: NiganeServer): void {
           ? { 原因: 待.原因, 旧版本: 待.旧版本, 新版本: 待.新版本, 差异: 待.差异 }
           : null,
         // 有新版本但未自动更新（开关关闭）：显示绿色「更新」按钮
-        待更新版本: 手动更新提示.get(m.name)?.新版本 ?? null,
+        待更新版本: 手动更新提示.get(d.name)?.新版本 ?? null,
         // 被拒绝（非原位 / 重复注册 / 缺少状态查询）
         拒绝原因: 拒 ? 拒.原因 : null,
         拒绝详情: 拒 ? 拒.详情 : null,

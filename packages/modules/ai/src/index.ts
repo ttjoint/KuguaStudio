@@ -11,12 +11,20 @@
 
 import { 启动模块 } from "@kugua/module-kit";
 import { 能力清单, 注册AI处理器 } from "./handlers.js";
+import { AI配置声明 } from "./declaration.js";
 import { 加载AI配置 } from "./providers.js";
 
 void 启动模块({
   name: "ai",
-  version: "0.7.0",
+  version: "0.8.0",
   能力: 能力清单,
+  // 声明一次，平台自动生成配置页（提供方表格 + OpenWebUI 各项）
+  配置声明: AI配置声明,
+  // 本模块每次调用都重新读配置，无需清缓存；这里只记一笔方便排查
+  配置变更: (载荷) => {
+    const 摘要 = 载荷.变更.length ? 载荷.变更.join(", ") : "无字段变化";
+    console.log(`[AI网关] 配置已更新（来源：${载荷.来源}，变更：${摘要}）`);
+  },
   注册: (客户端) => {
     注册AI处理器(客户端);
   },
