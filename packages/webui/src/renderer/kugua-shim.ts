@@ -30,6 +30,42 @@ const 就绪回调: Array<() => void> = [];
 const 总线回调: Array<(action: string, params: unknown) => void> = [];
 let 已就绪 = false;
 
+/**
+ * 断线提示横幅。
+ *
+ * 为什么需要：WebSocket 断开后页面**看起来还是好的**——按钮能点、输入框能打字，
+ * 但所有请求都会失败。用户不知道是「后台挂了」还是「这个功能坏了」，
+ * 只会反复点、反复失败，最后以为程序坏了。
+ *
+ * 所以断线必须让用户看见。连上后横幅自动消失，不需要用户手动关闭。
+ */
+let 横幅: HTMLDivElement | null = null;
+let 断线次数 = 0;
+
+function 显示断线横幅(文案: string): void {
+  if (!横幅) {
+    横幅 = document.createElement("div");
+    横幅.id = "kugua-conn-banner";
+    横幅.style.cssText = [
+      "position:fixed", "top:0", "left:0", "right:0", "z-index:99999",
+      "padding:6px 12px", "font-size:13px", "text-align:center",
+      "color:#fff", "background:#b45309", "box-shadow:0 2px 6px rgba(0,0,0,.25)",
+      "font-family:inherit", "pointer-events:none",
+    ].join(";");
+    document.body.appendChild(横幅);
+    // 把页面整体下推，避免横幅盖住顶部工具栏
+    document.body.style.paddingTop = "30px";
+  }
+  横幅.textContent = 文案;
+  横幅.style.display = "";
+}
+
+function 隐藏断线横幅(): void {
+  if (!横幅) return;
+  横幅.style.display = "none";
+  document.body.style.paddingTop = "";
+}
+
 function 建立连接(): void {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -58,6 +94,8 @@ function 建立连接(): void {
       });
     } else if (消息.type === "ready") {
       已就绪 = true;
+      if (断线次数 > 0) 隐藏断线横幅();
+      断线次数 = 0;
       就绪回调.forEach((回调) => {
         try {
           回调();
@@ -68,6 +106,13 @@ function 建立连接(): void {
     }
   };
   ws.onclose = () => {
+    已就绪 = false;
+    断线次数 += 1;
+    显示断线横幅(
+      断线次数 === 1
+        ? "已与后台断开，正在重连…（后台可能已关闭，请重新运行 start.bat）"
+        : `仍在重连（第 ${断线次数} 次）…（后台可能已关闭，请重新运行 start.bat）`,
+    );
     window.setTimeout(建立连接, 1500);
   };
 }

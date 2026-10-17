@@ -225,7 +225,127 @@ fn is_maximized(窗口: tauri::Window) -> Result<bool, String> {
     窗口.is_maximized().map_err(|e| e.to_string())
 }
 
+
+/// 桌面壳单例守卫。
+///
+/// **为什么必须做**：`start.bat` 每次运行都会启动本程序。没有单例的话，
+/// 你点几次就多几个窗口，而且它们都指向同一个后端——看起来像「打开了多份
+/// Studio」，实际是同一份数据被多个窗口同时操作，很容易造成"我这边改了
+/// 那边没变"的困惑。
+///
+/// 做法：用一个具名互斥体（mutex）标记"已经有一个桌面壳在跑"。
+/// 后启动的那个发现互斥体已存在，就把已有窗口**唤到前台**然后自己退出。
+///
+/// 选互斥体而不是锁文件：互斥体是内核对象，进程一死（包括被任务管理器杀掉）
+/// 系统会自动释放，不会有残留锁导致"再也打不开"。
+#[cfg(windows)]
+mod 单例 {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+
+    /// 互斥体名（带 Local\ 前缀 = 仅当前登录会话，多用户环境下互不干扰）
+    const 互斥体名: &str = r"Local\KuguaStudio.DesktopShell";
+
+    /// 转成宽字符（带结尾 0）
+    fn 宽(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    /// 持有互斥体句柄；进程存活期间一直持有，退出时由系统回收。
+    pub struct 守卫(HANDLE);
+
+    // 句柄只在进程生命周期内使用，不需要跨线程共享所有权判断
+    unsafe impl Send for 守卫 {}
+
+    impl Drop for 守卫 {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    /// 尝试取得单例。
+    ///
+    /// - `Some(守卫)`：本进程是唯一实例，正常继续启动
+    /// - `None`：已有实例在跑，调用方应**激活已有窗口并退出**
+    pub fn 取得() -> Option<守卫> {
+        let 名字 = 宽(互斥体名);
+        let 句柄 = unsafe { CreateMutexW(std::ptr::null(), 0, 名字.as_ptr()) };
+        if 句柄.is_null() {
+            // 创建失败（极少见）：不阻止启动，宁可多开也不要打不开
+            return Some(守卫(std::ptr::null_mut()));
+        }
+        // 句柄有效但对象已存在 → 说明已有实例
+        let 已存在 = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        if 已存在 {
+            unsafe {
+                CloseHandle(句柄);
+            }
+            return None;
+        }
+        Some(守卫(句柄))
+    }
+
+    /// 把已有窗口唤到前台（最小化则先还原）。
+    ///
+    /// 找不到窗口也不报错：可能正在启动中，或用户关掉了窗口但进程还在收尾。
+    pub fn 激活已有窗口() -> bool {
+        let 标题 = 宽("苦瓜工作室");
+        let 标题前缀 = 宽("苦瓜工作室");
+        unsafe {
+            let mut 窗口 = FindWindowW(std::ptr::null(), 标题.as_ptr());
+            if 窗口.is_null() {
+                // 启动失败时标题带后缀（"苦瓜工作室 - 启动失败"），退化为按前缀找
+                let _ = 标题前缀;
+                窗口 = FindWindowW(std::ptr::null(), 宽("苦瓜工作室 - 启动失败").as_ptr());
+            }
+            if 窗口.is_null() {
+                return false;
+            }
+            if IsIconic(窗口) != 0 {
+                ShowWindow(窗口, SW_RESTORE);
+            }
+            SetForegroundWindow(窗口) != 0
+        }
+    }
+}
+
+/// 非 Windows 平台：不做单例限制（Tauri 在 Linux/macOS 上通常由桌面环境
+/// 保证只有一个实例；本项目目前也只在 Windows 上分发）。
+#[cfg(not(windows))]
+mod 单例 {
+    pub struct 守卫;
+    pub fn 取得() -> Option<守卫> {
+        Some(守卫)
+    }
+    pub fn 激活已有窗口() -> bool {
+        false
+    }
+}
+
 fn main() {
+    // 单例检查必须在**所有初始化之前**：
+    // 后面的侧车启动、端口等待都要花时间，先判断能避免"新窗口闪一下才退出"。
+    let _单例守卫 = match 单例::取得() {
+        Some(守卫) => 守卫,
+        None => {
+            // 已经有窗口了：把它叫到前面，本次启动直接结束。
+            // 用户看到的应该是"原来的窗口跳出来了"，而不是"又多了一个窗口"。
+            if !单例::激活已有窗口() {
+                eprintln!("[桌面端] 已有实例在运行，但未能激活它的窗口");
+            }
+            std::process::exit(0);
+        }
+    };
+
     let 根 = 找仓库根();
     let mut 侧车: Option<Child> = None;
 

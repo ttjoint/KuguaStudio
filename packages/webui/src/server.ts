@@ -50,6 +50,14 @@ interface 配置 {
     open?: boolean;
     /** 是否显示系统托盘图标（仅 Windows），默认 true */
     tray?: boolean;
+    /**
+     * 启动 GUI 用哪种方式：
+     *   "desktop" 桌面壳（Tauri，独立窗口，不依赖浏览器）
+     *   "browser" 浏览器版（默认浏览器打开 http://127.0.0.1:<port>）
+     *
+     * 由 start.bat 读取；桌面壳模式下若已有实例在跑，只是把已有窗口唤到前台。
+     */
+    gui?: "desktop" | "browser";
   };
   plugins?: {
     /** 插件目录，默认 plugins */
