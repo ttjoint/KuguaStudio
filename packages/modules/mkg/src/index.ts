@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
+import { MKG配置声明 } from "./declaration.js";
 import { MKG, type 资源关系类型, type 内容分类, type 查询条件, type 侧车数据 } from "@kugua/mkg";
 import type { 能力声明 } from "@kugua/capability";
 
@@ -99,14 +100,54 @@ const 能力清单: 能力声明[] = [
 let 数据库路径: string | null = null;
 let 数据库实例: MKG | null = null;
 
+/** 索引默认选项：来自配置，每次索引时套用（可被单次调用的参数覆盖） */
+interface 索引默认值 {
+  maxDepth?: number;
+  exclude?: string[];
+  indexTextContent?: boolean;
+  maxTextSize?: number;
+}
+let 索引默认: 索引默认值 = {};
+
+/** 把配置里的索引默认值转成 索引选项（0 / 空值表示「不限」） */
+function 读取索引默认值(节: Record<string, unknown>): 索引默认值 {
+  const 深度 = Number(节.indexMaxDepth ?? 0);
+  const 上限MB = Number(节.maxTextSizeMb ?? 10);
+  const 排除 = Array.isArray(节.excludePatterns)
+    ? 节.excludePatterns.map((x) => String(x)).filter((x) => x.trim() !== "")
+    : [];
+  return {
+    maxDepth: Number.isFinite(深度) && 深度 > 0 ? 深度 : undefined,
+    exclude: 排除.length > 0 ? 排除 : undefined,
+    indexTextContent: 节.indexTextContent === false ? false : true,
+    maxTextSize: Number.isFinite(上限MB) && 上限MB > 0 ? 上限MB * 1024 * 1024 : undefined,
+  };
+}
+
 void 启动模块({
   name: "mkg",
-  version: "0.3.0",
+  version: "0.4.0",
   能力: 能力清单,
+  // 声明一次，平台自动生成配置页
+  配置声明: MKG配置声明,
   读配置: (文件配置) => {
-    const m = (文件配置.mkg ?? {}) as { dbPath?: string };
+    const m = (文件配置.mkg ?? {}) as { dbPath?: string; database?: Record<string, unknown> };
     数据库路径 = resolve(m.dbPath ?? "data/mkg.db");
+    索引默认 = 读取索引默认值(m.database ?? {});
     return {};
+  },
+  // 索引默认值可以热更新；dbPath 不行（数据库已打开），所以只刷默认值
+  配置变更: (载荷) => {
+    // 注意：载荷.配置 是「本模块的配置节」本身（即 mkg 的内容），
+    // 不是整个配置文件——写成 载荷.配置.mkg 会取到 undefined，
+    // 于是每次推送都把默认值刷成初始值，配置等于没生效。
+    const 节 = 载荷.配置 as { database?: Record<string, unknown> };
+    索引默认 = 读取索引默认值(节.database ?? {});
+    const 需要重启 = 载荷.变更.includes("dbPath");
+    console.log(
+      `[知识库] 配置已更新（来源：${载荷.来源}，变更：${载荷.变更.join(", ") || "无"}）` +
+        (需要重启 ? " —— 数据库路径改动需重启本模块才生效" : ""),
+    );
   },
   注册: (客户端) => {
     const mkg = new MKG(数据库路径!);
@@ -115,7 +156,8 @@ void 启动模块({
     客户端.onRequest("mkg.index", async (params) => {
     const { path, options } = (params ?? {}) as { path?: string; options?: Record<string, unknown> };
     if (!path) throw new Error("缺少 path 参数");
-    return mkg.index(path, options);
+    // 单次调用显式传的选项优先，未传的项用配置里的默认值
+    return mkg.index(path, { ...索引默认, ...(options ?? {}) });
   });
 
   客户端.onRequest("mkg.tag.create", (params) => {

@@ -14,6 +14,21 @@ export function 默认数据路径(): string {
   return process.env.KUGUA_SCHEDULER_DATA ?? resolve(process.cwd(), "data/scheduler/tasks.json");
 }
 
+/**
+ * 命令执行用的 shell。
+ *
+ * undefined = Node 的默认行为（Windows 用 cmd.exe，其他用 /bin/sh）；
+ * 其余情况显式指定可执行文件。**不用 `shell: true`**，
+ * 因为那样无法换 shell，而换个 shell 往往就是用户在别处验证过的命令
+ * 在这边不按预期执行的原因。
+ */
+let 命令Shell: string | undefined = undefined;
+
+/** 由模块入口按配置调用 */
+export function 设置命令Shell(shell?: string): void {
+  命令Shell = shell && shell !== "默认" ? shell : undefined;
+}
+
 /** 创建动作执行者：request → 经苦音请求；event → 广播；command → 本地执行 */
 export function 创建动作执行者(客户端: NiganeClient): (动作: 任务动作) => Promise<任务结果> {
   return async (动作) => {
@@ -37,7 +52,12 @@ export function 创建动作执行者(客户端: NiganeClient): (动作: 任务�
 
 function 执行命令(command: string, args: string[], timeoutMs: number): Promise<任务结果> {
   return new Promise((resolve) => {
-    const proc = spawn(command, args, { cwd: process.cwd(), shell: true, windowsHide: true });
+    const proc = 命令Shell
+      ? spawn(命令Shell, ["-c", [command, ...args].join(" ")], {
+          cwd: process.cwd(),
+          windowsHide: true,
+        })
+      : spawn(command, args, { cwd: process.cwd(), shell: true, windowsHide: true });
     let 输出 = "";
     const 定时 = setTimeout(() => {
       try {

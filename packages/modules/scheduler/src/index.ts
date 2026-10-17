@@ -6,17 +6,28 @@
  * 启动样板（读配置 / 连主控 / 处理退出）已收敛到 @kugua/module-kit。
  */
 
+import { resolve } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import { 任务调度器 } from "./scheduler.js";
-import { 创建动作执行者, 默认数据路径, 注册调度处理器, 任务存储 } from "./handlers.js";
+import { 创建动作执行者, 默认数据路径, 注册调度处理器, 任务存储, 设置命令Shell } from "./handlers.js";
+import { 调度配置声明 } from "./declaration.js";
 
 let 调度器: 任务调度器 | null = null;
+/** 任务文件路径（读配置阶段确定，注册时使用） */
+let 任务文件: string | null = null;
 
 void 启动模块({
   name: "scheduler",
-  version: "0.6.0",
+  version: "0.7.0",
+  配置声明: 调度配置声明,
+  读配置: (文件配置) => {
+    const 节 = (文件配置.scheduler ?? {}) as { dataFile?: string; commandShell?: string };
+    任务文件 = 节.dataFile ? resolve(process.cwd(), 节.dataFile) : 默认数据路径();
+    设置命令Shell(节.commandShell);
+    return {};
+  },
   注册: (客户端) => {
-    const 存储 = new 任务存储(默认数据路径());
+    const 存储 = new 任务存储(任务文件 ?? 默认数据路径());
     调度器 = new 任务调度器(存储, 创建动作执行者(客户端), (任务, 结果) => {
       客户端.sendEvent("scheduler.task.ran", {
         id: 任务.id,

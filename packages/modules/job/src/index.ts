@@ -14,6 +14,7 @@ import { resolve, join } from "node:path";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { 启动模块 } from "@kugua/module-kit";
+import { 作业配置声明 } from "./declaration.js";
 import type { 能力声明 } from "@kugua/capability";
 import { 作业存储 } from "./store.js";
 import type { 作业记录, 日志行, 启动作业参数 } from "./types.js";
@@ -21,6 +22,8 @@ import type { 作业记录, 日志行, 启动作业参数 } from "./types.js";
 /** 由读配置阶段写入，供注册阶段使用 */
 let 作业目录路径: string | null = null;
 let 最大并发 = 4;
+/** 作业未指定超时时的默认值（毫秒），0 表示不限时 */
+let 默认超时 = 0;
 let 存储实例: 作业存储 | null = null;
 let 运行中实例: Map<string, 运行中作业> | null = null;
 let 结束作业实例: ((id: string, 状态: 作业记录["状态"], 退出码: number | null, 错误: string | null) => void) | null = null;
@@ -117,13 +120,25 @@ interface 运行中作业 {
 
 void 启动模块({
   name: "job",
-  version: "0.1.0",
+  version: "0.2.0",
   能力: 能力清单,
+  配置声明: 作业配置声明,
   读配置: (文件配置) => {
-    const j = (文件配置.job ?? {}) as { dir?: string; maxConcurrent?: number };
+    const j = (文件配置.job ?? {}) as { dir?: string; maxConcurrent?: number; defaultTimeoutMs?: number };
     作业目录路径 = resolve(process.cwd(), j.dir ?? "data/jobs");
     最大并发 = Math.max(j.maxConcurrent ?? 4, 1);
+    默认超时 = Math.max(j.defaultTimeoutMs ?? 0, 0);
     return {};
+  },
+  配置变更: (载荷) => {
+    // 载荷.配置 是 job 节本身，不是整个配置文件
+    const j = 载荷.配置 as { dir?: string; maxConcurrent?: number; defaultTimeoutMs?: number };
+    最大并发 = Math.max(j.maxConcurrent ?? 4, 1);
+    默认超时 = Math.max(j.defaultTimeoutMs ?? 0, 0);
+    // 只变更并发/超时的话不需要重启：作业目录只在启动时打开一次数据库
+    if (载荷.变更.some((k) => k === "dir" || k.startsWith("dir."))) {
+      console.log("[作业] 作业目录已变更，需重启本模块才生效");
+    }
   },
   注册: (客户端) => {
     const 作业目录 = 作业目录路径!;
@@ -259,8 +274,10 @@ void 启动模块({
       }
     });
 
-    const 超时 = 参数.超时毫秒;
-    if (typeof 超时 === "number" && 超时 > 0) {
+    // 单次调用显式指定的超时优先，否则用配置里的默认超时
+    const 显式超时 = 参数.超时毫秒;
+    const 超时 = typeof 显式超时 === "number" && 显式超时 > 0 ? 显式超时 : 默认超时;
+    if (超时 > 0) {
       运行中.get(id)!.定时 = setTimeout(() => {
         const 项 = 运行中.get(id);
         if (!项) return;

@@ -301,6 +301,18 @@ describe("推送载荷", () => {
     expect(载荷.配置).toEqual({ defaultEngine: "voxcpm" });
   });
 
+  it("载荷.配置 是模块节本身，不是整个配置文件", () => {
+    // 回归：mkg 曾把取值写成 载荷.配置.mkg，拿到 undefined，
+    // 于是每次推送都把索引默认值刷成初始值——配置填了等于没填，
+    // 而且没有任何报错，只是行为「莫名其妙不对」。
+    写主配置({ mkg: { dbPath: "a.db", database: { indexMaxDepth: 3 } }, tts: { x: 1 } });
+    const 载荷 = 构造载荷("mkg", "用户", []);
+    expect(载荷.配置).toEqual({ dbPath: "a.db", database: { indexMaxDepth: 3 } });
+    // 关键断言：不能从这里再剥一层
+    expect(载荷.配置.mkg).toBeUndefined();
+    expect(载荷.配置.tts).toBeUndefined();
+  });
+
   it("读取不存在模块得到空对象", () => {
     写主配置({});
     expect(读取模块配置("不存在")).toEqual({});

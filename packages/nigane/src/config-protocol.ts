@@ -105,7 +105,13 @@ export interface 配置声明 {
 export interface 配置载荷 {
   /** 模块名 */
   模块: string;
-  /** 该模块的完整配置对象（已合并 local 覆盖层） */
+  /**
+   * **本模块的配置节本身**（已合并 local 覆盖层），不是整个配置文件。
+   *
+   * 也就是说：如果 `kugua.config.json` 里是 `{ "mkg": { "dbPath": "…" } }`，
+   * 这里拿到的就是 `{ "dbPath": "…" }`，**不要**再写 `载荷.配置.mkg`
+   * （会得到 `undefined`，然后把你的默认值刷成空）。
+   */
   配置: Record<string, unknown>;
   /** 变更来源：便于模块区分「自己改的」与「用户在 UI 改的」 */
   来源: "用户" | "模块" | "初始化";
