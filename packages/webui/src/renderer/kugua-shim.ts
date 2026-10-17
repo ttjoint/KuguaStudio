@@ -6,7 +6,7 @@
  *
  * 必须早于 index.js 加载（index.html 中以普通 <script> 引入）。
  */
-import { 创建基础接口, type 苦瓜接口 } from "./bridge";
+import { 设置后台连通, 创建基础接口, type 苦瓜接口 } from "./bridge";
 
 /**
  * 是否为 Tauri 桌面壳环境。
@@ -66,6 +66,33 @@ function 隐藏断线横幅(): void {
   document.body.style.paddingTop = "";
 }
 
+
+/**
+ * 重连成功后的「需要刷新」提示。
+ *
+ * 与断线横幅不同：这里是**黄色提醒**而不是红色告警，因为功能已经恢复，
+ * 只是界面上的数据可能已经过期。用户可以选择现在刷新，也可以先把手头的
+ * 事情做完再刷——自动刷新会丢掉正在编辑的内容，所以这个决定必须交给用户。
+ */
+function 显示待刷新提示(): void {
+  window.setTimeout(() => {
+    if (!横幅) return;
+    // 只在真的重新连上之后才提示（避免和正在显示的断线横幅打架）
+    if (断线次数 > 0) return;
+    横幅.style.background = "#a16207";
+    横幅.style.pointerEvents = "auto";
+    横幅.style.cursor = "pointer";
+    横幅.textContent = "已重新连接。断线期间后台数据可能已变化，点击此处刷新页面。";
+    横幅.title = "刷新会丢失当前未保存的输入";
+    横幅.onclick = () => window.location.reload();
+    横幅.style.display = "";
+    document.body.style.paddingTop = "30px";
+    // 刻意**不自动收起**：数据过期的风险在用户刷新之前一直存在，
+    // 自动消失会让他误以为"没事了"。横幅只有 30px 高且带点击刷新，
+    // 一直留着比悄悄消失更有用。用户点一下刷新，横幅自然就没了。
+  }, 300);
+}
+
 function 建立连接(): void {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -94,6 +121,7 @@ function 建立连接(): void {
       });
     } else if (消息.type === "ready") {
       已就绪 = true;
+      设置后台连通(true);
       if (断线次数 > 0) 隐藏断线横幅();
       断线次数 = 0;
       就绪回调.forEach((回调) => {
@@ -107,6 +135,9 @@ function 建立连接(): void {
   };
   ws.onclose = () => {
     已就绪 = false;
+    // 关闸：断线期间不再发任何请求。后端已经没了，发出去只会在各自的超时里
+    // 逐个失败，用户看到的是"点了没反应，过一会儿弹一堆错"。
+    设置后台连通(false);
     断线次数 += 1;
     显示断线横幅(
       断线次数 === 1
@@ -114,6 +145,15 @@ function 建立连接(): void {
         : `仍在重连（第 ${断线次数} 次）…（后台可能已关闭，请重新运行 start.bat）`,
     );
     window.setTimeout(建立连接, 1500);
+  };
+
+  ws.onopen = () => {
+    // 连接恢复（包括首次连接）：把闸门重新打开，让界面能继续工作。
+    // 但**不自动刷新数据**——断线期间后台可能已经变了很多，界面上显示的还是
+    // 旧的那一份。自动重载会丢掉用户正在写的内容；不刷新又会"看起来恢复了、
+    // 实际数据对不上"。所以这里只恢复通路，并把"需要手动刷新"这件事明确告诉
+    // 用户，由他自己决定什么时候刷。
+    if (断线次数 > 0) 显示待刷新提示();
   };
 }
 建立连接();

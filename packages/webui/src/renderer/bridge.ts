@@ -6,8 +6,38 @@
  *  - 插件页：`plugin-sdk.ts`（仅 HTTP，不建立 WebSocket）
  */
 
+/**
+ * 后台连通状态闸门。
+ *
+ * 问题的来由：WebSocket 断开后，**HTTP 请求照样会发出去**——日志/总线走 WS，
+ * 但所有 `window.kugua.request` 走的是 `/api/request`（HTTP），两者完全独立。
+ * 后端已经没了，请求会在各自的超时里逐个失败，界面上表现为"点了半天没反应
+ * 然后突然弹一堆错误"。
+ *
+ * 所以断线期间直接拒发：让每个调用立刻拿到一个明确的错误，而不是排队等超时。
+ * 这也符合"断线后各模块不再发消息"的约定——不发，比发了再失败干净。
+ *
+ * 注意：默认是「连通」，只有在明确收到断线信号后才关闭闸门。
+ * 插件页（plugin-sdk）不建立 WebSocket，所以它永远保持连通状态。
+ */
+let 后台连通 = true;
+
+/** 由 WebSocket 侧调用：报告与后台的连接状态 */
+export function 设置后台连通(连通: boolean): void {
+  后台连通 = 连通;
+}
+
+/** 查询当前是否连通（供 UI 决定要不要提示用户手动刷新） */
+export function 是后台连通(): boolean {
+  return 后台连通;
+}
+
 /** 通过 HTTP 调用平台 API（错误信息优先取响应体中的 error 字段） */
 export async function 请求<T = unknown>(路径: string, 体?: unknown): Promise<T> {
+  if (!后台连通) {
+    // 快速失败：不发请求，也就不会在断线期间堆积一堆注定失败的调用
+    throw new Error("已与后台断开，请求未发送。请检查后台是否在运行，恢复后手动刷新页面。");
+  }
   const 响应 = await fetch(路径, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
