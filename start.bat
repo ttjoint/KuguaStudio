@@ -93,9 +93,11 @@ for /f "delims=" %%i in ('node -e "try{const c=require('./kugua.config.json');pr
 
 netstat -ano | findstr /r /c:"127.0.0.1:!WEBUI_PORT! .*LISTENING" >nul 2>nul
 if !errorlevel! equ 0 (
-    REM Already running: reuse the existing window/tab instead of opening another.
-    echo [INFO] Studio is already running on port !WEBUI_PORT!, opening the existing UI.
-    start "" "http://127.0.0.1:!WEBUI_PORT!/"
+    REM Already running: do NOT open another tab. The browser tab from the first
+    REM launch is still there (the page auto-reconnects), and opening the URL
+    REM again would pile up duplicate tabs (one per double-clicked start.bat).
+    echo [INFO] Studio is already running on port !WEBUI_PORT!.
+    echo        Switch to the existing browser tab, or open http://127.0.0.1:!WEBUI_PORT!/ manually.
     exit /b 0
 )
 
