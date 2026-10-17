@@ -2,6 +2,28 @@ import { 市场条目 } from "./01-types";
 import { 添加消息 } from "./03-preview";
 import { 刷新插件市场, 刷新本地插件, 刷新模块列表, 刷新统计, 操作插件, 显示确认对话框 } from "./06-shell";
 import { 切换视图, 视图映射 } from "./11-tabs";
+import { 挂载配置表单 } from "./17-config-form";
+
+/** 已上报配置声明的模块名（缓存，刷新列表时更新） */
+let 已声明配置 = new Set<string>();
+
+/** 拉取所有模块的配置声明名，供列表渲染判断哪些模块有配置页 */
+async function 同步声明名单(): Promise<void> {
+  try {
+    const 声明表 = (await window.kugua.request("nigane", "nigane.moduleConfig.declarations", {})) as Record<
+      string,
+      { 字段?: unknown[] }
+    >;
+    已声明配置 = new Set(
+      Object.entries(声明表 ?? {})
+        .filter(([, v]) => Array.isArray(v?.字段) && v.字段.length > 0)
+        .map(([k]) => k),
+    );
+  } catch {
+    // 主控尚未支持此接口时静默跳过
+    已声明配置 = new Set();
+  }
+}
 
 /** 全局提示：模块卡片上的局部提示位不可用时退回消息区 */
 function 提示全局(文本: string, 错 = false): void {
@@ -195,6 +217,7 @@ export async function 刷新模块配置(
   容器: HTMLElement | null = document.getElementById("settings-module-list"),
 ): Promise<void> {
   if (!容器) return;
+  await 同步声明名单();
   let 列表: 模块配置条目[] = [];
   try {
     列表 = (await window.kugua.request("nigane", "nigane.registry.config.list", {})) as 模块配置条目[];
@@ -248,8 +271,19 @@ export async function 刷新模块配置(
           </label>
         </div>
         ${拒绝}${待确认}
+        ${
+          // 模块自定义配置区：仅对上报了配置声明的模块渲染，内容在展开时按需加载
+          已声明配置.has(m.name)
+            ? `<details class="mod-details mod-cfg">
+                 <summary>模块配置</summary>
+                 <div class="cfg-body" data-module="${转义(m.name)}">
+                   <div class="mod-empty">展开以加载…</div>
+                 </div>
+               </details>`
+            : ""
+        }
         <details class="mod-details">
-          <summary>配置</summary>
+          <summary>平台配置</summary>
           <div class="mod-row">
             <label class="mod-label">路径</label>
             <input type="text" class="mod-input-path" value="${转义(m.路径)}" placeholder="可执行文件或脚本的物理路径">
@@ -280,6 +314,42 @@ export function 绑定模块管理事件(): void {
   document.getElementById("settings-mod-refresh")?.addEventListener("click", () => {
     void 刷新模块配置();
   });
+
+  // —— 「模块配置」展开时懒加载表单 ——
+  容器.addEventListener("toggle", (ev) => {
+    const 详情 = ev.target as HTMLElement;
+    if (!详情.classList?.contains("mod-cfg") || !详情.hasAttribute("open")) return;
+    const 区 = 详情.querySelector<HTMLElement>(".cfg-body");
+    const 模块名 = 区?.dataset.module ?? "";
+    if (!区 || !模块名 || 区.dataset.loaded === "1") return;
+    区.dataset.loaded = "1";
+    void (async () => {
+      try {
+        const 模型 = (await window.kugua.request("nigane", "nigane.moduleConfig.get", {
+          name: 模块名,
+        })) as {
+          模块: string;
+          说明?: string;
+          字段: unknown[];
+        };
+        if (!Array.isArray(模型.字段) || 模型.字段.length === 0) {
+          区.innerHTML = '<div class="mod-empty">该模块未声明可配置项</div>';
+          return;
+        }
+        挂载配置表单(
+          区,
+          模型 as Parameters<typeof 挂载配置表单>[1],
+          async (变更) => {
+            await window.kugua.request("nigane", "nigane.moduleConfig.set", { name: 模块名, 变更 });
+          },
+          (文本, 错) => 提示全局(`${模块名}：${文本}`, 错),
+        );
+      } catch (err) {
+        区.innerHTML = `<div class="mod-empty">加载失败：${转义(err)}</div>`;
+        区.dataset.loaded = "";
+      }
+    })();
+  }, true);
 
   const 提示 = (项: HTMLElement, 文本: string, 错 = false): void => {
     const 位 = 项.querySelector<HTMLElement>(".mod-msg");

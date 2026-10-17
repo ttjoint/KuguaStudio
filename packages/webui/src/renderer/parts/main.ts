@@ -15,3 +15,5 @@ import "./13-tools";
 import "./14-plugin-ui";
 import "./15-misc";
 import "./16-cmd-panel";
+// 声明式配置表单（模块自报配置声明 → 平台自动渲染）
+import "./17-config-form";

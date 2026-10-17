@@ -20,6 +20,7 @@ import {
   type 模块详情,
 } from "@kugua/nigane";
 import { 能力注册表, type 能力声明, type 能力入口 } from "@kugua/capability";
+import type { 配置声明 } from "@kugua/nigane";
 import { 审计日志, type 审计过滤 } from "@kugua/audit";
 import { 日志器, type 日志级别 } from "@kugua/logger";
 import { 抢占全局单例锁, 读取单实例锁, 全局单例锁路径 } from "@kugua/paths";
@@ -29,6 +30,15 @@ import {
   规整路径,
   type 上报快照,
 } from "./module-identity.js";
+import {
+  保存模块配置,
+  全部声明,
+  取声明,
+  构造表单模型,
+  构造载荷,
+  记录声明,
+  读取模块配置,
+} from "./module-config.js";
 
 interface 主控配置 {
   host: string;
@@ -239,6 +249,10 @@ async function 启动(): Promise<void> {
     );
     // 外部模块自报托管意愿 → 首次注册写入配置；已有配置则不覆盖
     if (信息.托管) 处理托管申请(信息);
+    // 记录配置声明（供配置页渲染，离线后仍可用）
+    记录声明(信息.name, 信息.配置声明);
+    // 推送当前配置：模块首次上线就拿到自己的配置，免去自行读盘
+    服务端?.sendEventTo(信息.name, "module.config", 构造载荷(信息.name, "初始化", []));
     // 记录本次成功上线使用的版本与能力指纹（供下次接入时比对）
     记录模块快照(信息);
     // 首次上线后探测是否实现 module.query，结果持久化供下次握手门禁使用
@@ -346,6 +360,61 @@ async function 启动(): Promise<void> {
 }
 
 function 注册内置动作(服务端: NiganeServer): void {
+  // ===== 模块配置（声明式、双向推送） =====
+
+  /** 列出所有模块的配置声明，供 UI 渲染表单 */
+  服务端.handle("nigane.moduleConfig.declarations", () => 全部声明());
+
+  /**
+   * 获取某模块的配置表单模型。
+   *
+   * 值已合并 local 覆盖层；凭据字段不回传明文，只标 `已设置`。
+   */
+  服务端.handle("nigane.moduleConfig.get", (params) => {
+    const p = (params ?? {}) as { name?: string };
+    if (!p.name) throw new Error("缺少 name");
+    return 构造表单模型(p.name);
+  });
+
+  /**
+   * 写入某模块的配置并推送给它。
+   *
+   * 凭据字段自动落入 `kugua.config.local.json`；写盘成功后向该模块
+   * 推送 `module.config`，它自行热重载。
+   */
+  服务端.handle("nigane.moduleConfig.set", (params, 发送者) => {
+    const p = (params ?? {}) as { name?: string; 变更?: Record<string, unknown> };
+    if (!p.name) throw new Error("缺少 name");
+    if (!p.变更 || typeof p.变更 !== "object") throw new Error("缺少 变更");
+    const 变更列表 = 保存模块配置(p.name, p.变更, 取声明(p.name));
+    if (变更列表.length > 0) {
+      console.log(`[主控] 模块「${p.name}」配置已更新：${变更列表.join("；")}（操作者：${发送者}）`);
+    }
+    // 推送合并后的完整配置（含凭据）给该模块，让它热重载
+    服务端.sendEventTo(p.name, "module.config", 构造载荷(p.name, "用户", 变更列表));
+    // 同时广播节名，供 UI 刷新
+    服务端.broadcast("module.config.changed", { 模块: p.name, 变更: 变更列表 });
+    return { 更新: 变更列表.length > 0, 变更: 变更列表, 配置: 读取模块配置(p.name) };
+  });
+
+  /**
+   * 模块主动上报自己的配置变更。
+   *
+   * 平台写盘成功后，把结果**广播给所有模块**（含自己），
+   * 这样其他模块也能感知到变化（例如 AI 模型列表更新后 UI 跟着刷新）。
+   */
+  服务端.handle("nigane.moduleConfig.report", (params, 发送者) => {
+    const p = (params ?? {}) as { 变更?: Record<string, unknown>; 声明?: 配置声明 };
+    if (!p.变更 || typeof p.变更 !== "object") throw new Error("缺少 变更");
+    // 模块可能同时更新自己的字段声明（例如动态音色列表）
+    if (p.声明) 记录声明(发送者, p.声明);
+    const 变更列表 = 保存模块配置(发送者, p.变更, 取声明(发送者));
+    const 载荷 = 构造载荷(发送者, "模块", 变更列表);
+    for (const 名 of 服务端.moduleNames()) 服务端.sendEventTo(名, "module.config", 载荷);
+    服务端.broadcast("module.config.changed", { 模块: 发送者, 变更: 变更列表 });
+    return { 更新: 变更列表.length > 0, 变更: 变更列表 };
+  });
+
   // 模块详情：供 WebUI/其他模块查询运行时状态
   服务端.handle("nigane.registry.details", () => 构造详情(服务端));
 

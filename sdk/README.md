@@ -251,6 +251,75 @@ SDK 已默认实现平台必需的 `module.query`（状态查询），无需业�
 
 ---
 
+### 4.3 Configuration UI: let the platform build your settings page
+
+You do **not** need to write any frontend code to get a settings page.
+Declare your fields during the handshake and the platform renders the form for you.
+
+```python
+CONFIG_SCHEMA = {
+    "说明": "My tool settings",
+    "字段": [
+        {"键": "host", "标题": "Service URL", "类型": "string",
+         "提示": "http://127.0.0.1:9000"},
+        {"键": "enabled", "标题": "Enabled", "类型": "boolean", "默认值": True},
+        {"键": "mode", "标题": "Mode", "类型": "select",
+         "选项": ["fast", {"值": "quality", "标题": "High quality"}]},
+        {"键": "token", "标题": "API key", "类型": "secret", "凭据": True},
+    ],
+}
+```
+
+Send it as `配置声明` in your `hello` params.
+
+**Field types**: `string` / `text` / `number` / `boolean` / `select` / `path` / `secret` / `array`.
+
+- Keys support dot notation for nesting: `engines.voxcpm.url` maps to
+  `{ "engines": { "voxcpm": { "url": ... } } }`
+- `number` accepts `最小` / `最大` / `步进` (min / max / step)
+- `select` options may be plain strings or `{ 值, 标题 }` (value / label)
+- `array` needs `数组: { 元素: "string" }` or `{ 元素: "object", 列: [...] }`
+- **`凭据: true`** marks a field as a secret: the value is stored in
+  `kugua.config.local.json` (gitignored) and **never returned in plaintext**
+- `生效` (optional) — `立即` (default) / `重启模块` / `重启平台`; UI hint only
+
+**Receiving updates.** The platform pushes a `module.config` event:
+
+```json
+{
+  "模块": "my-tool",
+  "配置": { "host": "http://127.0.0.1:9000", "enabled": true },
+  "来源": "用户",
+  "变更": ["host"]
+}
+```
+
+`来源` (source) is one of `初始化` / `用户` / `模块` (init / user / module).
+`配置` is the **fully merged configuration**, so you never deal with the
+two-layer config files yourself. You receive an init push on every connect,
+so you don't need to read the config file at startup.
+
+**Reporting changes back.** If your module discovers new settings on its own:
+
+```json
+{ "type": "request", "action": "nigane.moduleConfig.report",
+  "params": { "变更": { "models": ["a", "b"] } } }
+```
+
+The platform persists it and broadcasts the result to every module.
+You may include a `声明` field to update your own schema at the same time.
+
+**Platform actions:**
+
+| Action | Purpose |
+|---|---|
+| `nigane.moduleConfig.declarations` | All modules' config schemas |
+| `nigane.moduleConfig.get` | `{name}` → form model (secrets redacted) |
+| `nigane.moduleConfig.set` | `{name, 变更}` → persist and push |
+| `nigane.moduleConfig.report` | `{变更, 声明?}` → module-initiated update |
+
+---
+
 ## 五、生命周期：平台退出时会发生什么
 
 平台区分两类模块，**退出行为完全不同**：

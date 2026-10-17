@@ -26,7 +26,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NiganeClient } from "@kugua/nigane";
+import type { 配置声明, 配置载荷 } from "@kugua/nigane";
 import type { 能力声明 } from "@kugua/capability";
+
+/** 配置热重载回调：收到平台推送的新配置 */
+export type 模块配置处理器 = (载荷: 配置载荷) => void | Promise<void>;
 
 /** 主控地址解析所需的配置字段（各模块 config 的公共子集） */
 export interface 基础模块配置 {
@@ -93,6 +97,19 @@ export interface 启动模块选项<配置 extends 基础模块配置 = 基础�
   入口文件URL?: string;
   /** 连接失败时的退出码（默认 1） */
   失败退出码?: number;
+  /**
+   * 配置声明（可选）：上报本模块有哪些可配置项。
+   * 平台据此自动渲染配置页，无需模块自带前端。
+   */
+  配置声明?: 配置声明;
+  /**
+   * 配置热重载回调（可选）：收到平台推送的新配置时调用。
+   *
+   * 推送时机：模块首次上线（来源 `初始化`）、用户在 UI 改配置（来源 `用户`）、
+   * 其他模块改了共享配置（来源 `模块`）。
+   * 载荷里是**合并后的完整配置**，模块无需自己处理两层文件。
+   */
+  配置变更?: 模块配置处理器;
 }
 
 /**
@@ -171,6 +188,7 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
     version: 选项.version,
     capabilities,
     capabilityDefs: 能力声明,
+    配置声明: 选项.配置声明,
   });
 
   // —— 注册处理器 ——
@@ -179,6 +197,18 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
   }
   for (const [action, 处理器] of Object.entries(选项.事件 ?? {})) {
     客户端.onEvent(action, (参数, 消息) => void 处理器(参数, 消息));
+  }
+
+  // —— 配置热重载：平台推送 module.config 时回调给模块 ——
+  if (选项.配置变更) {
+    客户端.onEvent("module.config", (参数) => {
+      const 载荷 = 参数 as 配置载荷 | undefined;
+      if (!载荷 || 载荷.模块 !== 选项.name) return;
+      // 初始化推送不视为「变更」以外的特殊处理，统一交给模块判断
+      Promise.resolve(选项.配置变更?.(载荷)).catch((err) => {
+        日志.错误(`应用新配置失败：${String(err)}`);
+      });
+    });
   }
 
   // —— 自定义注册（处理器位于其它文件的模块）——

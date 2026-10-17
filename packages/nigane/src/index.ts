@@ -8,6 +8,10 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import type { 能力声明 } from "@kugua/capability";
+import type { 配置声明, 配置载荷, 配置字段声明, 配置字段类型 } from "./config-protocol.js";
+
+export type { 配置声明, 配置载荷, 配置字段声明, 配置字段类型 } from "./config-protocol.js";
+export type { 配置列声明, 配置数组声明 } from "./config-protocol.js";
 
 /** 当前协议版本 */
 export const 协议版本 = "0.2";
@@ -152,6 +156,11 @@ export interface 模块信息 {
   path?: string;
   /** 模块自报的实例标识（可选；例如进程启动 ID，用于区分同路径的不同接入） */
   instance?: string;
+  /**
+   * 配置声明（可选）：上报本模块有哪些可配置项。
+   * 平台据此自动渲染配置表单，无需模块自带前端页面。
+   */
+  配置声明?: 配置声明;
 }
 
 /** 外部模块自报的托管启动信息 */
@@ -459,6 +468,7 @@ export class NiganeServer extends EventEmitter {
         version: 参数.version,
         capabilities: 参数.capabilities,
         capabilityDefs: 参数.capabilityDefs,
+        配置声明: 参数.配置声明,
         path: 参数.path,
         instance: 参数.instance,
         托管: 参数.托管,
@@ -481,6 +491,7 @@ export class NiganeServer extends EventEmitter {
       version: 参数.version,
       capabilities: 参数.capabilities,
       capabilityDefs: 参数.capabilityDefs,
+      配置声明: 参数.配置声明,
       path: 参数.path,
       instance: 参数.instance,
       托管: 参数.托管,
@@ -616,6 +627,11 @@ export interface 客户端选项 {
   /** 能力声明：握手时上报给主控，用于汇总为全局能力注册表 */
   capabilityDefs?: 能力声明[];
   /**
+   * 配置声明：握手时上报给主控，平台据此自动渲染配置表单。
+   * 模块无需自己写前端页面。
+   */
+  配置声明?: 配置声明;
+  /**
    * 托管申请：声明「下次跟随平台一起启动」。
    * 仅作首次注册时的初始值；已有同名配置时以用户配置为准。
    */
@@ -692,6 +708,7 @@ export class NiganeClient extends EventEmitter {
                 version: this.选项.version,
                 capabilities: this.计算能力名(),
                 capabilityDefs: this.选项.capabilityDefs ?? [],
+                配置声明: this.选项.配置声明,
                 托管: this.选项.托管,
                 token: this.选项.token ?? "",
               },
