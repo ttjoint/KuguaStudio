@@ -479,6 +479,19 @@ ws.addEventListener("open", () => {
 ws.addEventListener("message", (e) => {
   const m = JSON.parse(e.data);
   if (m.type === "hello_ack") console.log("握手成功");
+  // 协议要求：必须实现 module.query，否则平台判定为离线
+  if (m.type === "request" && m.action === "module.query") {
+    ws.send(信封("response", {
+      to: "kugua-main",
+      echo: m.id,
+      data: {
+        name: ${JSON.stringify(模块名)},
+        version: "0.0.1",
+        path: ${JSON.stringify(入口)},
+        capabilityDefs: [],
+      },
+    }));
+  }
   if (m.type === "event" && m.action === "system.shutdown") process.exit(0);
 });
 setInterval(() => {}, 1000);

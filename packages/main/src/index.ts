@@ -23,6 +23,12 @@ import { 能力注册表, type 能力声明, type 能力入口 } from "@kugua/ca
 import { 审计日志, type 审计过滤 } from "@kugua/audit";
 import { 日志器, type 日志级别 } from "@kugua/logger";
 import { 抢占全局单例锁, 读取单实例锁, 全局单例锁路径 } from "@kugua/paths";
+import {
+  判定重新接入,
+  能力指纹,
+  规整路径,
+  type 上报快照,
+} from "./module-identity.js";
 
 interface 主控配置 {
   host: string;
@@ -93,6 +99,11 @@ interface 子进程记录 {
   /** 模块是否已通过 hello 注册到主控（online） */
   registered: boolean;
 }
+
+/** 平台版本（供外部模块查询；与根 package.json 保持同步） */
+const 平台版本 = "0.9.0";
+/** 平台启动时间（毫秒） */
+const 平台启动时间 = Date.now();
 
 const 子进程表 = new Map<string, 子进程记录>();
 const 库文件状态 = new Map<string, boolean>(); // name → exists?
@@ -216,10 +227,14 @@ async function 启动(): Promise<void> {
       ...(信息.capabilityDefs ?? []).map((c) => c.名称),
     ]);
     console.log(
-      `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，能力：${[...能力名集].join("、") || "无"}）`,
+      `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，路径 ${信息.path ?? "未上报"}，能力：${[...能力名集].join("、") || "无"}）`,
     );
     // 外部模块自报托管意愿 → 首次注册写入配置；已有配置则不覆盖
     if (信息.托管) 处理托管申请(信息);
+    // 记录本次成功上线使用的版本与能力指纹（供下次接入时比对）
+    记录模块快照(信息);
+    // 首次上线后探测是否实现 module.query，结果持久化供下次握手门禁使用
+    void 探测可查询性(信息.name);
   });
   服务端.on("unregistered", (名: string) => {
     const 记录 = 子进程表.get(名);
@@ -229,7 +244,16 @@ async function 启动(): Promise<void> {
   });
 
   await 服务端.start();
+  // 通知已在线的模块：平台已就绪（模块可选择处理或忽略）
+  服务端.broadcast("system.startup", {
+    版本: 平台版本,
+    协议: "0.2",
+    启动时间: 平台启动时间,
+  });
   console.log(`[主控] 苦音服务端已启动：ws://${配置.host}:${配置.port}`);
+
+  // —— 握手门禁：按身份/版本/路径决定是否允许接入 ——
+  服务端.握手校验 = (信息: 模块信息) => 校验接入(信息);
   if (!配置.token) {
     console.warn("[主控] 警告：未配置 token，任何本地进程均可接入，请在 kugua.config.json 中设置。");
   }
@@ -316,6 +340,164 @@ async function 启动(): Promise<void> {
 function 注册内置动作(服务端: NiganeServer): void {
   // 模块详情：供 WebUI/其他模块查询运行时状态
   服务端.handle("nigane.registry.details", () => 构造详情(服务端));
+
+  // ===== 模块状态与身份管理 =====
+
+  /**
+   * 向指定模块发送状态查询（module.query），要求其重报自身信息。
+   * 模块必须实现该动作；超时或不回则判为离线（状态灯标红）。
+   *
+   * 平台也用它做「刷新」：刷新后若模块上线且版本/路径/名称一致，则重新变绿。
+   */
+  服务端.handle("nigane.registry.query", async (params) => {
+    const { name } = (params ?? {}) as { name?: string };
+    if (!name) throw new Error("缺少 name");
+    try {
+      const 结果 = (await 服务端.request(name, "module.query", {}, 3000)) as {
+        name?: string;
+        version?: string;
+        path?: string;
+        capabilityDefs?: 能力声明[];
+        托管?: { entry?: string };
+      } | null;
+      if (!结果) throw new Error("模块未返回状态");
+      const 在线 =
+        结果.name === undefined || 结果.name === name;
+      if (!在线) throw new Error(`模块名不匹配（期望 ${name}，返回 ${结果.name}）`);
+
+      // 刷新成功后：比对版本/路径/能力，决定是否允许恢复上线
+      const 配置项 = (加载配置().modules ?? []).find((m) => m.name === name);
+      if (!配置项) return { 在线: true, 状态: "unregistered", 版本: 结果.version };
+
+      const 上报: 上报快照 = {
+        name,
+        version: 结果.version,
+        path: 结果.path ?? 结果.托管?.entry,
+        capabilityHash: 能力指纹(结果.capabilityDefs as unknown as Array<Record<string, unknown>>),
+      };
+      const 判定 = 判定重新接入(
+        {
+          name: 配置项.name,
+          version: 配置项.version,
+          path: 配置项.modulePath ?? 配置项.entry ?? 配置项.file,
+          capabilityHash: 配置项.capabilityHash,
+          autoUpdate: 配置项.autoUpdate,
+        },
+        上报,
+      );
+      if (判定.类型 === "online" || 判定.类型 === "first") {
+        待确认模块.delete(name);
+        拒绝模块.delete(name);
+        return { 在线: true, 状态: "online", 版本: 结果.version };
+      }
+      if (判定.类型 === "auto-update") {
+        记录模块快照({
+          name,
+          version: 结果.version,
+          capabilityDefs: 结果.capabilityDefs,
+        } as 模块信息);
+        待确认模块.delete(name);
+        拒绝模块.delete(name);
+        return { 在线: true, 状态: "auto-update", 旧版本: 判定.旧版本, 新版本: 判定.新版本 };
+      }
+      return { 在线: true, 状态: "需人工确认", 判定 };
+    } catch (err) {
+      // 查不到状态 → 视为离线
+      服务端?.broadcast("module.offline", { 模块: name, 原因: String(err) });
+      return { 在线: false, 状态: "offline", 原因: String(err) };
+    }
+  });
+
+  /** 手动确认采纳模块的新信息（信息变化 / 版本回退 / 关闭自动更新时的升级） */
+  服务端.handle("nigane.registry.apply", async (params) => {
+    const { name } = (params ?? {}) as { name?: string };
+    if (!name) throw new Error("缺少 name");
+
+    // 情形一：有新版本但自动更新关闭 → 接受后重启模块使其生效
+    const 升级 = 手动更新提示.get(name);
+    if (升级) {
+      const 当前配置0 = 加载配置();
+      const 表0 = 当前配置0.modules ?? [];
+      const 项0 = 表0.find((m) => m.name === name);
+      if (!项0) throw new Error(`模块不存在：${name}`);
+      项0.version = 升级.新版本;
+      if (!保存配置({ ...当前配置0, modules: 表0 })) throw new Error("保存配置失败");
+      服务端?.setDescription(项0);
+      手动更新提示.delete(name);
+      待确认模块.delete(name);
+      // 重启模块以加载新版本代码（失败不影响版本记录）
+      try {
+        if (子进程表.has(name)) {
+          await 停止模块(name);
+        }
+        await 启动模块(项0);
+      } catch (err) {
+        console.warn(`[主控] 模块「${name}」重启失败：${String(err)}`);
+      }
+      console.log(`[主控] 模块「${name}」已手动更新到版本 ${升级.新版本}。`);
+      服务端?.broadcast("registry.changed", { 变更: "手动更新", 模块: name });
+      return { 更新: true, 版本: 升级.新版本 };
+    }
+
+    const 待确认 = 待确认模块.get(name);
+    if (!待确认) throw new Error(`模块 ${name} 没有待确认的信息更新`);
+    const 当前配置 = 加载配置();
+    const 表 = 当前配置.modules ?? [];
+    const 项 = 表.find((m) => m.name === name);
+    if (!项) throw new Error(`模块不存在：${name}`);
+    项.version = 待确认.新版本 === "?" ? 项.version : 待确认.新版本;
+    if (待确认.上报.path) 项.entry = 待确认.上报.path;
+    if (待确认.上报.capabilityHash) 项.capabilityHash = 待确认.上报.capabilityHash;
+    if (!保存配置({ ...当前配置, modules: 表 })) throw new Error("保存配置失败");
+    服务端?.setDescription(项);
+    待确认模块.delete(name);
+    console.log(`[主控] 模块「${name}」已按手动确认更新到版本 ${项.version ?? "?"}。`);
+    服务端?.broadcast("registry.changed", { 变更: "手动更新", 模块: name });
+    return { 更新: true, 版本: 项.version };
+  });
+
+  /** 取消注册（移除模块定义；运行中的外部模块会被要求退出但不强杀） */
+  服务端.handle("nigane.registry.remove", async (params) => {
+    const { name } = (params ?? {}) as { name?: string };
+    if (!name) throw new Error("缺少 name");
+    const 当前配置 = 加载配置();
+    const 表 = 当前配置.modules ?? [];
+    const 索引 = 表.findIndex((m) => m.name === name);
+    if (索引 < 0) return { 移除: false, 原因: "不存在" };
+    表.splice(索引, 1);
+    if (!保存配置({ ...当前配置, modules: 表 })) throw new Error("保存配置失败");
+    // 先请模块自行退出，再断开连接（外部模块不强杀）
+    try {
+      await 服务端.request(name, "module.shutdown", {}, 1500);
+    } catch {
+      // 模块不在线或未实现：忽略
+    }
+    待确认模块.delete(name);
+    拒绝模块.delete(name);
+    手动更新提示.delete(name);
+    console.log(`[主控] 模块「${name}」已取消注册。`);
+    服务端?.broadcast("registry.changed", { 变更: "移除", 模块: name });
+    return { 移除: true };
+  });
+
+  /** 待确认 / 被拒绝模块列表（供管理界面显示红灯） */
+  服务端.handle("nigane.registry.pending", () => ({
+    待确认: [...待确认模块.entries()].map(([名, v]) => ({ name: 名, ...v })),
+    拒绝: [...拒绝模块.entries()].map(([名, v]) => ({ name: 名, ...v })),
+  }));
+
+  /**
+   * 平台健康与版本：外部模块可通过 SDK 查询平台在线状态与版本信息。
+   */
+  服务端.handle("nigane.platform.info", () => ({
+    在线: true,
+    平台: "苦瓜工作室",
+    版本: 平台版本,
+    协议: "0.2",
+    启动时间: 平台启动时间,
+    运行秒数: Math.floor((Date.now() - 平台启动时间) / 1000),
+    模块数: 服务端.descriptionNames().length,
+  }));
 
   // ===== 能力注册表 =====
   // 列出能力（可按入口/模块过滤）
@@ -455,6 +637,10 @@ function 注册内置动作(服务端: NiganeServer): void {
     const 详情索引 = new Map(详情表.map((d) => [d.name, d]));
     return 配置表.map((m) => {
       const d = 详情索引.get(m.name);
+      const 待 = 待确认模块.get(m.name);
+      const 拒 = 拒绝模块.get(m.name);
+      // 状态灯：待确认/被拒 → 红；在线 → 绿；否则灰
+      const 状态 = 待 || 拒 ? "blocked" : d?.online ? "online" : "offline";
       return {
         name: m.name,
         类型: m.type,
@@ -464,6 +650,20 @@ function 注册内置动作(服务端: NiganeServer): void {
         说明: m.description ?? "",
         在线: d?.online ?? false,
         子进程: d?.pid ?? null,
+        // —— 版本与更新状态 ——
+        版本: m.version ?? d?.version ?? "",
+        自动更新: m.autoUpdate ?? true,
+        外部: !是内置模块(m),
+        状态,
+        // 待确认（信息变化 / 版本回退）：需人工点「替换」
+        待确认: 待
+          ? { 原因: 待.原因, 旧版本: 待.旧版本, 新版本: 待.新版本, 差异: 待.差异 }
+          : null,
+        // 有新版本但未自动更新（开关关闭）：显示绿色「更新」按钮
+        待更新版本: 手动更新提示.get(m.name)?.新版本 ?? null,
+        // 被拒绝（非原位 / 重复注册 / 缺少状态查询）
+        拒绝原因: 拒 ? 拒.原因 : null,
+        拒绝详情: 拒 ? 拒.详情 : null,
       };
     });
   });
@@ -476,6 +676,7 @@ function 注册内置动作(服务端: NiganeServer): void {
       路径?: string;
       参数?: string[];
       说明?: string;
+      自动更新?: boolean;
     };
     if (!p.name) throw new Error("缺少 name");
     const 名 = p.name;
@@ -488,6 +689,15 @@ function 注册内置动作(服务端: NiganeServer): void {
     if (typeof p.启用 === "boolean" && (项.autoStart ?? false) !== p.启用) {
       变更.push(`启用 ${项.autoStart ?? false} → ${p.启用}`);
       项.autoStart = p.启用;
+    }
+    if (typeof p.自动更新 === "boolean" && (项.autoUpdate ?? true) !== p.自动更新) {
+      // 内置模块强制自动更新，不重复设置
+      if (是内置模块(项)) {
+        变更.push("内置模块自动更新不可更改");
+      } else {
+        变更.push(`自动更新 ${项.autoUpdate ?? true} → ${p.自动更新}`);
+        项.autoUpdate = p.自动更新;
+      }
     }
     if (typeof p.路径 === "string" && p.路径 !== (项.entry ?? 项.file ?? "")) {
       变更.push(`路径 ${项.entry ?? 项.file ?? ""} → ${p.路径}`);
@@ -858,6 +1068,227 @@ function 安装日志捕获(实例: 日志器): void {
  *   1) 由 capabilities 名称合成基础声明（GUI 可见、可被统一调用）；
  *   2) 用显式 capabilityDefs 覆盖/补充（可带中文指令、参数 Schema、权限等）。
  */
+/** 待人工确认的模块（信息变化/版本回退 → 暂下线，红灯） */
+const 待确认模块 = new Map<
+  string,
+  {
+    原因: "信息变化" | "版本回退";
+    旧版本: string;
+    新版本: string;
+    差异: string[];
+    上报: 上报快照;
+    能力声明?: 能力声明[];
+  }
+>();
+
+/** 被拒绝的模块（非原位 / 同路径不同名 / 缺少状态查询） */
+const 拒绝模块 = new Map<string, { 原因: string; 详情: string }>();
+
+/** 已上线但存在更新版本（用户关闭了自动更新，等待手动确认） */
+const 手动更新提示 = new Map<string, { 旧版本: string; 新版本: string }>();
+
+/**
+ * 判断一条模块配置是否为平台自带（内置）模块。
+ *
+ * 内置模块的入口位于仓库的 ``packages/modules/<name>/`` 下，随平台发布、
+ * 不参与外部版本/身份管理；其余均为外部模块。
+ */
+function 是内置模块(项: 模块描述): boolean {
+  if (项.external === false) return true;
+  if (项.external === true) return false;
+  const 入口 = 规整路径(项.entry ?? 项.file);
+  if (!入口) return false;
+  return 入口.includes("/packages/modules/") || 入口.includes("/modules/") && 入口.includes("packages/");
+}
+
+/**
+ * 探测模块是否实现 ``module.query``，结果写回配置（``queryable``）。
+ *
+ * 不依赖模块自报能力列表，因此模块无需把协议动作当作业务能力暴露；
+ * 模块若未实现该动作，下次接入时会被拒绝（避免无法校验身份/版本）。
+ */
+async function 探测可查询性(名: string): Promise<void> {
+  const 配置项 = (加载配置().modules ?? []).find((m) => m.name === 名);
+  if (!配置项) return;
+  if (是内置模块(配置项)) return;
+
+  let 可查 = false;
+  try {
+    const 结果 = await 服务端?.request(名, "module.query", {}, 2000);
+    可查 = Boolean(结果) && typeof 结果 === "object";
+  } catch {
+    可查 = false;
+  }
+
+  if (配置项.queryable === 可查) return;
+  const 当前配置 = 加载配置();
+  const 表 = 当前配置.modules ?? [];
+  const 项 = 表.find((m) => m.name === 名);
+  if (!项) return;
+  项.queryable = 可查;
+  if (保存配置({ ...当前配置, modules: 表 })) {
+    服务端?.setDescription(项);
+    if (!可查) {
+      console.warn(
+        `[主控] WARN 模块「${名}」未实现 module.query，下次接入将无法校验身份与版本。`,
+      );
+    }
+  }
+}
+
+/** 记录本次成功上线使用的版本与能力指纹（写回配置供下次比对） */
+function 记录模块快照(信息: 模块信息): void {
+  const 当前配置 = 加载配置();
+  const 表 = 当前配置.modules ?? [];
+  const 项 = 表.find((m) => m.name === 信息.name);
+  if (!项) return;
+  const 新指纹 = 能力指纹(信息.capabilityDefs as unknown as Array<Record<string, unknown>>);
+  const 新自报路径 = 信息.path ?? 信息.托管?.entry;
+  const 变了 =
+    项.version !== 信息.version ||
+    项.capabilityHash !== 新指纹 ||
+    (新自报路径 !== undefined && 项.modulePath !== 新自报路径);
+  if (!变了) return;
+  项.version = 信息.version ?? 项.version;
+  if (新指纹) 项.capabilityHash = 新指纹;
+  if (新自报路径) 项.modulePath = 新自报路径;
+  if (保存配置({ ...当前配置, modules: 表 })) {
+    服务端?.setDescription(项);
+  }
+}
+
+/** 查同路径但不同名的已注册模块 */
+function 找同路径模块(名: string, 上报路径: string | undefined): 模块描述 | undefined {
+  if (!上报路径) return undefined;
+  const 目标 = 规整路径(上报路径);
+  return (加载配置().modules ?? []).find(
+    (m) => m.name !== 名 && 规整路径(m.modulePath ?? m.entry ?? m.file) === 目标,
+  );
+}
+
+/**
+ * 握手门禁：在服务端完成注册**之前**判定本次接入是否允许。
+ *
+ * 被拒绝的模块不会进入注册表，不会汚染能力注册表，并被记录以供
+ * 管理界面展示（状态灯标红 + 警告/错误说明）。
+ */
+function 校验接入(信息: 模块信息): { 允许: boolean; 理由?: string } {
+  const 名 = 信息.name;
+  const 配置项 = (加载配置().modules ?? []).find((m) => m.name === 名);
+  if (!配置项) {
+    // 无注册记录的模块：首次注册直接放行（后续由 registered 事件写入快照）
+    return { 允许: true };
+  }
+  // 内置（进程内）模块不参与外部身份管理：版本随平台发布，无路径可辨
+  if (是内置模块(配置项)) return { 允许: true };
+
+  // 原位比较以模块自报路径优先：entry 可能是解释器（如 python.exe），
+  // 模块自报的 path 才是模块本体（如 example.py）
+  const 上报路径 = 信息.path ?? 信息.托管?.entry;
+  const 上报: 上报快照 = {
+    name: 名,
+    version: 信息.version,
+    path: 上报路径,
+    capabilityHash: 能力指纹(信息.capabilityDefs as unknown as Array<Record<string, unknown>>),
+  };
+
+  // 同路径不同名 → 拒绝（含重复注册保护）
+  const 同路径 = 找同路径模块(名, 上报路径);  if (同路径) {
+    const 详情 =
+      `模块「${名}」上报路径 ${上报路径} 已被已注册模块「${同路径.name}」占用。` +
+      `已拒绝本次接入，请确认是否重复注册或先移除旧模块。`;
+    console.warn(`[主控] WARN 重复注册：${详情}`);
+    拒绝模块.set(名, { 原因: "同路径不同名", 详情 });
+    服务端?.broadcast("module.rejected", { 模块: 名, 原因: "同路径不同名", 详情, 级别: "warning" });
+    return { 允许: false, 理由: 详情 };
+  }
+
+  // 是否确认实现 module.query（首次上线时探测并写入配置）
+  const 支持查询 = 配置项.queryable === true;
+
+  const 判定 = 判定重新接入(
+    {
+      name: 配置项.name,
+      version: 配置项.version,
+      path: 配置项.modulePath ?? 配置项.entry ?? 配置项.file,
+      capabilityHash: 配置项.capabilityHash,
+      autoUpdate: 配置项.autoUpdate,
+      builtin: 是内置模块(配置项),
+    },
+    上报,
+    支持查询,
+  );
+
+  switch (判定.类型) {
+    case "first":
+    case "online":
+    case "auto-update": {
+      if (判定.类型 === "auto-update") {
+        console.log(
+          `[主控] 模块「${名}」检测到新版本 ${判定.旧版本} → ${判定.新版本}，已按自动更新策略接受。`,
+        );
+      }
+      拒绝模块.delete(名);
+      待确认模块.delete(名);
+      return { 允许: true };
+    }
+
+    case "manual-update": {
+      // 版本更新但用户关闭了自动更新 → 暂不下线，只提示可手动更新
+      手动更新提示.set(名, { 旧版本: 判定.旧版本, 新版本: 判定.新版本 });
+      拒绝模块.delete(名);
+      待确认模块.delete(名);
+      console.log(
+        `[主控] 模块「${名}」有新版本 ${判定.旧版本} → ${判定.新版本}，` +
+          `自动更新已关闭，等待手动确认。`,
+      );
+      服务端?.broadcast("module.updateAvailable", {
+        模块: 名,
+        旧版本: 判定.旧版本,
+        新版本: 判定.新版本,
+      });
+      return { 允许: true };
+    }
+
+    case "replace": {
+      待确认模块.set(名, {
+        原因: 判定.原因,
+        旧版本: 判定.旧版本,
+        新版本: 判定.新版本,
+        差异: 判定.差异,
+        上报,
+        能力声明: 信息.capabilityDefs,
+      });
+      手动更新提示.delete(名);
+      const 详情 =
+        `模块「${名}」上报信息与已注册不一致（${判定.差异.join("；")}），已暂下线。` +
+        `请在模块管理中选择是否按其新信息更新。`;
+      console.error(`[主控] ERROR ${详情}`);
+      服务端?.broadcast("module.held", {
+        模块: 名,
+        原因: 判定.原因,
+        旧版本: 判定.旧版本,
+        新版本: 判定.新版本,
+        差异: 判定.差异,
+        级别: "error",
+      });
+      return { 允许: false, 理由: 详情 };
+    }
+
+    case "reject": {
+      console.warn(`[主控] WARN ${判定.详情}`);
+      拒绝模块.set(名, { 原因: 判定.原因, 详情: 判定.详情 });
+      服务端?.broadcast("module.rejected", {
+        模块: 名,
+        原因: 判定.原因,
+        详情: 判定.详情,
+        级别: "warning",
+      });
+      return { 允许: false, 理由: 判定.详情 };
+    }
+  }
+}
+
 /**
  * 处理外部模块的托管申请（握手时上报）。
  *

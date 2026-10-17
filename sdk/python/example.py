@@ -162,15 +162,34 @@ CLIENT.on_event("capability.changed", on_capability_changed)
 CLIENT.on_event("registry.conflict", on_registry_conflict)
 
 
-# ===== 5. Demo: call a platform capability =====
+# ===== 5. Demo: query the platform =====
 
 async def demo_call_platform() -> None:
     await asyncio.sleep(3)
     try:
-        names = await CLIENT.request("kugua-main", "nigane.modules.names", {})
-        log.info("called nigane.modules.names ok: %s", names)
+        names = await CLIENT.list_modules()
+        log.info("online modules on the platform: %s", names)
     except Exception as err:
-        log.warning("call failed: %s", err)
+        log.warning("list_modules failed: %s", err)
+
+    try:
+        # Ask the platform for its own status/version (new in SDK 0.2).
+        info = await CLIENT.platform_info()
+        log.info("platform info: %s", info)
+    except Exception as err:
+        log.warning("platform_info failed: %s", err)
+
+
+def on_platform_startup(params: dict, message: dict) -> None:
+    """Optional: the platform announces itself once it is ready."""
+    log.info(
+        "platform started: v%s (protocol %s)",
+        params.get("版本"),
+        params.get("协议"),
+    )
+
+
+CLIENT.on_event("system.startup", on_platform_startup)
 
 
 async def main() -> None:

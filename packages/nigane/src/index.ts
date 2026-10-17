@@ -102,6 +102,18 @@ export interface 模块描述 {
   args?: string[];
   /** 工作目录（可选，缺省为主控 cwd）；由外部模块自报托管时使用 */
   cwd?: string;
+  /** 上次注册时使用的版本号（用于比对升降级） */
+  version?: string;
+  /** 上次注册时的能力声明指纹（用于检测指令/能力变化） */
+  capabilityHash?: string;
+  /** 是否自动更新（外部模块可配；内置模块强制为 true 且不可关闭） */
+  autoUpdate?: boolean;
+  /** 是否为外部接入模块（非内置） */
+  external?: boolean;
+  /** 是否已确认实现 module.query（首次上线后由平台探测写入） */
+  queryable?: boolean;
+  /** 外部模块自报的模块本体物理路径（与 entry 可不同，例如 python.exe + script.py） */
+  modulePath?: string;
 }
 
 /** 模块运行时详细信息（注册配置 + 状态） */
@@ -117,6 +129,10 @@ export interface 模块详情 extends 模块信息 {
   description?: string;
   entry?: string;
   file?: string;
+  /** 是否已注册（配置里存在） */
+  registered?: boolean;
+  /** 是否支持状态查询（实现了 module.query）；false 时会被判为离线 */
+  queryable?: boolean;
 }
 
 /** 模块握手信息 */
@@ -132,6 +148,10 @@ export interface 模块信息 {
    * 以用户编辑过的配置为准，不会被上报值覆盖。
    */
   托管?: 托管申请;
+  /** 模块自报的物理路径（用于判定是否「原位」） */
+  path?: string;
+  /** 模块自报的实例标识（可选；例如进程启动 ID，用于区分同路径的不同接入） */
+  instance?: string;
 }
 
 /** 外部模块自报的托管启动信息 */
@@ -162,6 +182,8 @@ type 内置处理器 = (
 export class NiganeServer extends EventEmitter {
   private wss?: WebSocketServer;
   private 注册表 = new Map<string, { socket: WebSocket; info: 模块信息 }>();
+  /** 握手校验钩子：返回不允许则拒绝接入（用于身份/版本/路径校验） */
+  握手校验?: (信息: 模块信息) => { 允许: boolean; 理由?: string };
   private 连接名 = new Map<WebSocket, string>();
   private 描述表 = new Map<string, 模块描述>();
   private 内置处理器表 = new Map<string, 内置处理器>();
@@ -397,6 +419,28 @@ export class NiganeServer extends EventEmitter {
       socket.close(1002, "认证失败");
       return;
     }
+    // 握手校验钩子：宿主可在此拒绝不符预期的接入（身份/版本/路径校验）
+    if (this.握手校验) {
+      let 结论: { 允许: boolean; 理由?: string } = { 允许: true };
+      try {
+        结论 = this.握手校验(参数 as 模块信息);
+      } catch (err) {
+        结论 = { 允许: false, 理由: `握手校验异常：${String(err)}` };
+      }
+      if (!结论.允许) {
+        const 理由 = 结论.理由 ?? "接入被拒绝";
+        this.回复错误(socket, 消息, 错误码.未注册, 理由);
+        // 发完错误再关，给对方留出读到理由的机会
+        setTimeout(() => {
+          try {
+            socket.close(1008, 理由.slice(0, 120));
+          } catch {
+            // ignore
+          }
+        }, 50);
+        return;
+      }
+    }
     // 顶号：若旧连接存在则先关闭旧的，再以新连接替换
     if (this.注册表.has(名)) {
       const 旧 = this.注册表.get(名)!;
@@ -415,6 +459,8 @@ export class NiganeServer extends EventEmitter {
         version: 参数.version,
         capabilities: 参数.capabilities,
         capabilityDefs: 参数.capabilityDefs,
+        path: 参数.path,
+        instance: 参数.instance,
         托管: 参数.托管,
       },
     });
@@ -435,6 +481,8 @@ export class NiganeServer extends EventEmitter {
       version: 参数.version,
       capabilities: 参数.capabilities,
       capabilityDefs: 参数.capabilityDefs,
+      path: 参数.path,
+      instance: 参数.instance,
       托管: 参数.托管,
     } satisfies 模块信息);
   }

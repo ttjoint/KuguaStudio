@@ -2982,3 +2982,109 @@ body {
   color: #f87171;
   opacity: 1;
 }
+
+/* ===== 模块管理：状态灯 / 动作按钮 / 滑动开关 ===== */
+.mod-light {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  background: #6b7280;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.mod-light.on { background: #4ade80; box-shadow: 0 0 6px #4ade80aa; }
+.mod-light.off { background: #6b7280; }
+.mod-light.blocked { background: #ef4444; box-shadow: 0 0 6px #ef4444aa; }
+
+.mod-version {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.mod-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.2;
+  transition: filter 0.15s;
+}
+.mod-btn:hover { filter: brightness(1.12); }
+.mod-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.mod-btn .mod-ver {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  opacity: 0.92;
+}
+
+/* 刷新：蓝底，循环箭头 */
+.mod-btn-refresh { background: #2563eb; }
+/* 更新：绿底 */
+.mod-btn-update { background: #16a34a; }
+/* 替换：黄底 */
+.mod-btn-replace { background: #ca8a04; }
+/* 移除：红底，垃圾桶 */
+.mod-btn-remove { background: #dc2626; padding: 5px 8px; }
+
+.mod-alert {
+  font-size: 12px;
+  border-radius: 5px;
+  padding: 6px 9px;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.mod-alert.err { background: rgba(239, 68, 68, 0.14); color: #fca5a5; border-left: 3px solid #ef4444; }
+.mod-alert.warn { background: rgba(202, 138, 4, 0.14); color: #fcd34d; border-left: 3px solid #ca8a04; }
+
+/* 滑动开关 */
+.mod-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+.mod-switch input { display: none; }
+.mod-switch-track {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  background: #4b5563;
+  transition: background 0.18s;
+  flex: 0 0 auto;
+}
+.mod-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s;
+}
+.mod-switch input:checked + .mod-switch-track { background: #16a34a; }
+.mod-switch input:checked + .mod-switch-track .mod-switch-knob { transform: translateX(16px); }
+.mod-switch input:disabled + .mod-switch-track { opacity: 0.45; }
+.mod-switch-label { opacity: 0.8; }
+
+.mod-details { margin-top: 4px; }
+.mod-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.6;
+  padding: 2px 0;
+  outline: none;
+}
+.mod-details > summary:hover { opacity: 0.9; }

@@ -126,11 +126,24 @@ client.on_event("capability.changed", lambda p, m: print(p))
 
 | action | 触发时机 |
 |---|---|
+| `system.startup` | **平台已就绪**（含 `版本` / `协议`） |
 | `system.shutdown` | **平台即将退出**（重要，见第五节） |
 | `capability.changed` | 能力注册表变化 |
 | `registry.changed` | 模块上下线 |
 | `registry.conflict` | 你的托管配置与平台已有配置冲突（见 4.1） |
+| `module.rejected` | 某模块接入被拒绝（原因/详情） |
+| `module.held` | 某模块暂下线等待人工确认 |
 | `plugins.changed` | 插件目录变化 |
+
+### 3.5 查询平台状态
+
+```python
+info = await client.platform_info()
+print(info)   # {'在线': True, '平台': '苦瓜工作室', '版本': '0.9.0', '协议': '0.2', ...}
+
+names = await client.list_modules()
+print(names)  # ['webui', 'ai', 'mkc', ...]
+```
 
 ---
 
@@ -208,6 +221,33 @@ client.on_event("registry.conflict", lambda p, m: print("配置冲突：", p))
 | `KUGUA_HOSTED` | 固定 `1`，表示「由平台拉起」 |
 
 （Python SDK 默认就从这个端口/令牌读取，托管启动无需额外配置。）
+
+### 4.2 版本与身份：让平台认得「还是你」
+
+SDK 会在握手中自动上报身份三要素：
+
+| 字段 | 来源 | 作用 |
+|---|---|---|
+| `name` | `NiganeClient(name=...)` | 身份主键 |
+| `version` | `NiganeClient(version=...)` | 判定升级 / 回退 |
+| `path` | 自动取 `sys.argv[0]` 的绝对路径（可 `path=` 覆盖） | 判定「原位」 |
+
+平台根据这三者决定你的接入如何处理：
+
+| 你的情况 | 平台反应 |
+|---|---|
+| 首次接入 | 直接上线 |
+| 版本变高（路径不变） | **自动更新**（内置模块强制开；外部模块可在管理页关闭） |
+| 版本变高但关了自动更新 | 上线并提示「有新版本」，管理页出现绿色「更新」按钮 |
+| 版本相同但能力声明变了 | **暂下线**、标红、报错；需人手动点「替换」 |
+| 版本变低（回退） | 同上，需手动点「替换」 |
+| 路径变了（同名但不同位置） | **拒绝接入**；必须先移除旧注册 |
+
+**所以升级时只需改 `version=`**：路径不变的情况下，改版本号重启就能自动生效。
+迁移目录时要先在管理页移除旧模块。
+
+SDK 已默认实现平台必需的 `module.query`（状态查询），无需业务代码关心。
+平台首次让你上线后会探测一次并存下结果；以后「刷新」按钮与重连校验都靠它。
 
 ---
 

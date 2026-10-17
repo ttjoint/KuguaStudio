@@ -1,7 +1,12 @@
 import { 市场条目 } from "./01-types";
 import { 添加消息 } from "./03-preview";
-import { 刷新插件市场, 刷新本地插件, 刷新模块列表, 刷新统计, 操作插件 } from "./06-shell";
+import { 刷新插件市场, 刷新本地插件, 刷新模块列表, 刷新统计, 操作插件, 显示确认对话框 } from "./06-shell";
 import { 切换视图, 视图映射 } from "./11-tabs";
+
+/** 全局提示：模块卡片上的局部提示位不可用时退回消息区 */
+function 提示全局(文本: string, 错 = false): void {
+  添加消息(文本, 错 ? "error" : "system");
+}
 
 // ===== 插件自带 UI 页（动态标签 + iframe） =====
 export async function 加载插件页面(): Promise<void> {
@@ -115,7 +120,8 @@ document.getElementById("settings-shutdown")?.addEventListener("click", () => {
 });
 
 
-// ===== 模块管理：查看 / 编辑托管配置 =====
+
+// ===== 模块管理：版本 / 更新 / 替换 / 移除 =====
 
 interface 模块配置条目 {
   name: string;
@@ -126,6 +132,16 @@ interface 模块配置条目 {
   说明: string;
   在线: boolean;
   子进程: number | null;
+  版本: string;
+  自动更新: boolean;
+  外部: boolean;
+  /** online | offline | blocked（blocked = 待确认或被拒绝，红灯） */
+  状态: "online" | "offline" | "blocked";
+  待确认: { 原因: string; 旧版本: string; 新版本: string; 差异: string[] } | null;
+  拒绝原因: string | null;
+  拒绝详情: string | null;
+  /** 上报的新版本（未采纳前仅用于展示「更新」按钮） */
+  待更新版本?: string | null;
 }
 
 /** 转义 HTML（本文件局部使用，避免依赖其它 part） */
@@ -137,8 +153,47 @@ function 转义(文本: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * 决定模块卡片上显示哪些动作按钮。
+ *
+ * | 情形 | 按钮 |
+ * |---|---|
+ * | 被拒绝（非原位/重复注册） | 只能移除 |
+ * | 待确认（信息变化/版本回退/同版本信息变） | 替换（黄，旧→新）+ 移除 |
+ * | 有新版本且未开自动更新 | 更新（绿，旧→新）+ 移除 |
+ * | 其余 | 只显示移除 |
+ *
+ * 「更新」与「替换」互斥，最多只出现一个。
+ */
+function 渲染动作按钮(m: 模块配置条目): string {
+  const 移除 = `<button class="mod-btn mod-btn-remove" data-act="remove" title="移除（取消注册）">&#x1F5D1;</button>`;
+
+  if (m.拒绝原因) return 移除;
+
+  if (m.待确认) {
+    const { 旧版本, 新版本 } = m.待确认;
+    return `
+      <button class="mod-btn mod-btn-replace" data-act="apply" title="按该模块上报的新信息替换">
+        替换 <span class="mod-ver">${转义(旧版本)} &rarr; ${转义(新版本)}</span>
+      </button>
+      ${移除}`;
+  }
+
+  if (m.待更新版本 && m.待更新版本 !== m.版本) {
+    return `
+      <button class="mod-btn mod-btn-update" data-act="apply" title="更新到上报的新版本">
+        更新 <span class="mod-ver">${转义(m.版本)} &rarr; ${转义(m.待更新版本)}</span>
+      </button>
+      ${移除}`;
+  }
+
+  return 移除;
+}
+
 /** 渲染模块管理列表 */
-export async function 刷新模块配置(容器: HTMLElement | null = document.getElementById("settings-module-list")): Promise<void> {
+export async function 刷新模块配置(
+  容器: HTMLElement | null = document.getElementById("settings-module-list"),
+): Promise<void> {
   if (!容器) return;
   let 列表: 模块配置条目[] = [];
   try {
@@ -153,41 +208,65 @@ export async function 刷新模块配置(容器: HTMLElement | null = document.g
   }
   容器.innerHTML = 列表
     .map((m, i) => {
-      const 状态 = m.在线
-        ? `<span class="mod-badge on">在线${m.子进程 ? ` · pid ${m.子进程}` : ""}</span>`
-        : `<span class="mod-badge off">离线</span>`;
-      const 托管 = m.启用
-        ? `<span class="mod-badge managed">随平台启动</span>`
-        : `<span class="mod-badge temp">仅手动</span>`;
+      const 灯 = m.状态 === "online" ? "on" : m.状态 === "blocked" ? "blocked" : "off";
+      const 状态文本 = m.状态 === "online" ? "在线" : m.状态 === "blocked" ? "异常" : "离线";
+      const pid = m.在线 && m.子进程 ? ` · pid ${m.子进程}` : "";
+      const 版本文本 = m.版本 ? `v${转义(m.版本)}` : "v?";
+      const 拒绝 = m.拒绝原因
+        ? `<div class="mod-alert err">拒绝接入（${转义(m.拒绝原因)}）：${转义(m.拒绝详情 ?? "")}</div>`
+        : "";
+      const 待确认 = m.待确认
+        ? `<div class="mod-alert warn">待确认（${转义(m.待确认.原因)}）：${转义(m.待确认.差异.join("；"))}</div>`
+        : "";
+      // 内置模块强制自动更新：开关置灰且固定勾选
+      const 内置 = !m.外部;
       return `
-      <div class="mod-item" data-index="${i}">
+      <div class="mod-item" data-index="${i}" data-name="${转义(m.name)}">
         <div class="mod-row mod-row-head">
-          <span class="mod-name">${转义(m.name)}</span>
-          <span class="mod-tags">${状态}${托管}<span class="mod-badge type">${转义(m.类型)}</span></span>
-        </div>
-        <div class="mod-row">
-          <label class="mod-label">托管启动</label>
-          <input type="checkbox" class="mod-input-enable" ${m.启用 ? "checked" : ""} ${m.类型 === "library" ? "disabled" : ""}>
-          <span class="mod-hint">勾选后下次启动平台时一并拉起</span>
-        </div>
-        <div class="mod-row">
-          <label class="mod-label">路径</label>
-          <input type="text" class="mod-input-path" value="${转义(m.路径)}" placeholder="可执行文件或脚本的物理路径">
-        </div>
-        <div class="mod-row">
-          <label class="mod-label">参数</label>
-          <input type="text" class="mod-input-args" value="${转义(m.参数.join(" "))}" placeholder="空格分隔，例如 script.py --hosted">
-        </div>
-        <div class="mod-row">
-          <label class="mod-label">说明</label>
-          <input type="text" class="mod-input-desc" value="${转义(m.说明)}">
+          <span class="mod-name">
+            <span class="mod-light ${灯}" title="${状态文本}"></span>
+            ${转义(m.name)}
+            <span class="mod-version">${版本文本}</span>
+          </span>
+          <span class="mod-tags">
+            <span class="mod-badge ${灯 === "on" ? "on" : "off"}">${状态文本}${pid}</span>
+            <span class="mod-badge type">${转义(m.类型)}</span>
+          </span>
         </div>
         <div class="mod-row mod-row-actions">
-          <button class="tb-btn small mod-save">保存</button>
-          <button class="tb-btn small mod-start" ${m.类型 === "library" ? "disabled" : ""}>启动</button>
-          <button class="tb-btn small mod-stop" ${m.类型 === "library" || !m.子进程 ? "disabled" : ""}>停止</button>
-          <span class="mod-msg"></span>
+          <button class="mod-btn mod-btn-refresh" data-act="refresh" title="向模块查询最新状态">&#x21BB;</button>
+          ${渲染动作按钮(m)}
+          <label class="mod-switch" title="是否启用（下次启动平台时一并拉起）">
+            <input type="checkbox" class="mod-input-enable" ${m.启用 ? "checked" : ""} ${内置 ? "disabled" : ""}>
+            <span class="mod-switch-track"><span class="mod-switch-knob"></span></span>
+            <span class="mod-switch-label">启用</span>
+          </label>
+          <label class="mod-switch" title="自动更新：检测到新版本时随平台重启自动更新">
+            <input type="checkbox" class="mod-input-autoupdate" ${m.自动更新 || 内置 ? "checked" : ""} ${内置 ? "disabled" : ""}>
+            <span class="mod-switch-track"><span class="mod-switch-knob"></span></span>
+            <span class="mod-switch-label">自动更新</span>
+          </label>
         </div>
+        ${拒绝}${待确认}
+        <details class="mod-details">
+          <summary>配置</summary>
+          <div class="mod-row">
+            <label class="mod-label">路径</label>
+            <input type="text" class="mod-input-path" value="${转义(m.路径)}" placeholder="可执行文件或脚本的物理路径">
+          </div>
+          <div class="mod-row">
+            <label class="mod-label">参数</label>
+            <input type="text" class="mod-input-args" value="${转义(m.参数.join(" "))}" placeholder="空格分隔，例如 script.py --hosted">
+          </div>
+          <div class="mod-row">
+            <label class="mod-label">说明</label>
+            <input type="text" class="mod-input-desc" value="${转义(m.说明)}">
+          </div>
+          <div class="mod-row mod-row-actions">
+            <button class="tb-btn small mod-save">保存</button>
+            <span class="mod-msg"></span>
+          </div>
+        </details>
       </div>`;
     })
     .join("");
@@ -202,22 +281,116 @@ export function 绑定模块管理事件(): void {
     void 刷新模块配置();
   });
 
+  const 提示 = (项: HTMLElement, 文本: string, 错 = false): void => {
+    const 位 = 项.querySelector<HTMLElement>(".mod-msg");
+    if (位) {
+      位.textContent = 文本;
+      位.classList.toggle("err", 错);
+      setTimeout(() => {
+        位.textContent = "";
+        位.classList.remove("err");
+      }, 4000);
+      return;
+    }
+    // 「配置」折叠块收起时，回退到全局提示
+    提示全局(文本, 错);
+  };
+
+  容器.addEventListener("change", (ev) => {
+    const 目标 = ev.target as HTMLInputElement;
+    const 项 = 目标.closest<HTMLElement>(".mod-item");
+    if (!项) return;
+    const 名 = 项.dataset.name ?? "";
+
+    if (目标.classList.contains("mod-input-enable")) {
+      void (async () => {
+        try {
+          await window.kugua.request("nigane", "nigane.registry.config.set", { name: 名, 启用: 目标.checked });
+          提示全局(`${名}：已${目标.checked ? "启用" : "停用"}随平台启动`);
+          await 刷新模块配置();
+        } catch (err) {
+          提示全局(`保存失败：${String(err)}`, true);
+          目标.checked = !目标.checked;
+        }
+      })();
+      return;
+    }
+
+    if (目标.classList.contains("mod-input-autoupdate")) {
+      void (async () => {
+        try {
+          await window.kugua.request("nigane", "nigane.registry.config.set", {
+            name: 名,
+            自动更新: 目标.checked,
+          });
+          提示全局(`${名}：自动更新已${目标.checked ? "开启" : "关闭"}`);
+          await 刷新模块配置();
+        } catch (err) {
+          提示全局(`保存失败：${String(err)}`, true);
+          目标.checked = !目标.checked;
+        }
+      })();
+    }
+  });
+
   容器.addEventListener("click", (ev) => {
     const 目标 = ev.target as HTMLElement;
     const 项 = 目标.closest<HTMLElement>(".mod-item");
     if (!项) return;
-    const 名 = 项.querySelector<HTMLElement>(".mod-name")?.textContent ?? "";
-    const 提示位 = 项.querySelector<HTMLElement>(".mod-msg");
+    const 名 = 项.dataset.name ?? "";
+    const 按钮 = 目标.closest<HTMLButtonElement>("[data-act]");
+    const 动作 = 按钮?.dataset.act;
 
-    const 提示 = (文本: string, 错 = false): void => {
-      if (!提示位) return;
-      提示位.textContent = 文本;
-      提示位.classList.toggle("err", 错);
-      setTimeout(() => {
-        提示位.textContent = "";
-        提示位.classList.remove("err");
-      }, 4000);
-    };
+    if (动作 === "refresh") {
+      按钮?.setAttribute("disabled", "true");
+      void (async () => {
+        try {
+          const r = (await window.kugua.request("nigane", "nigane.registry.query", { name: 名 })) as {
+            在线: boolean;
+            状态: string;
+            原因?: string;
+          };
+          提示(项, r.在线 ? `状态：${r.状态}` : `离线：${r.原因 ?? ""}`, !r.在线);
+        } catch (err) {
+          提示(项, `刷新失败：${String(err)}`, true);
+        } finally {
+          按钮?.removeAttribute("disabled");
+          await 刷新模块配置();
+        }
+      })();
+      return;
+    }
+
+    if (动作 === "apply") {
+      按钮?.setAttribute("disabled", "true");
+      void (async () => {
+        try {
+          await window.kugua.request("nigane", "nigane.registry.apply", { name: 名 });
+          提示全局(`${名}：已按其上报信息更新`);
+          await 刷新模块配置();
+        } catch (err) {
+          提示(项, `更新失败：${String(err)}`, true);
+          按钮?.removeAttribute("disabled");
+        }
+      })();
+      return;
+    }
+
+    if (动作 === "remove") {
+      显示确认对话框(`确定移除模块「${名}」？将取消其注册，下次启动平台不再拉起。`, (ok: boolean) => {
+        if (!ok) return;
+        void (async () => {
+          try {
+            await window.kugua.request("nigane", "nigane.registry.remove", { name: 名 });
+            提示全局(`已移除模块：${名}`);
+            await 刷新模块配置();
+          } catch (err) {
+            提示(项, `移除失败：${String(err)}`, true);
+          }
+        })();
+      });
+      return;
+    }
 
     if (目标.classList.contains("mod-save")) {
       const 启用 = 项.querySelector<HTMLInputElement>(".mod-input-enable")?.checked ?? false;
@@ -235,41 +408,11 @@ export function 绑定模块管理事件(): void {
             参数,
             说明,
           })) as { 更新: boolean; 变更?: string[] };
-          提示(结果.更新 ? `已保存：${(结果.变更 ?? []).join("；")}` : "无变更");
+          提示(项, 结果.更新 ? `已保存：${(结果.变更 ?? []).join("；")}` : "无变更");
           await 刷新模块配置();
         } catch (err) {
-          提示(`保存失败：${String(err)}`, true);
+          提示(项, `保存失败：${String(err)}`, true);
         } finally {
-          目标.removeAttribute("disabled");
-        }
-      })();
-      return;
-    }
-
-    if (目标.classList.contains("mod-start")) {
-      目标.setAttribute("disabled", "true");
-      void (async () => {
-        try {
-          await window.kugua.request("nigane", "nigane.registry.start", { name: 名 });
-          提示("已请求启动");
-          setTimeout(() => void 刷新模块配置(), 1200);
-        } catch (err) {
-          提示(`启动失败：${String(err)}`, true);
-          目标.removeAttribute("disabled");
-        }
-      })();
-      return;
-    }
-
-    if (目标.classList.contains("mod-stop")) {
-      目标.setAttribute("disabled", "true");
-      void (async () => {
-        try {
-          await window.kugua.request("nigane", "nigane.registry.stop", { name: 名 });
-          提示("已请求停止");
-          setTimeout(() => void 刷新模块配置(), 800);
-        } catch (err) {
-          提示(`停止失败：${String(err)}`, true);
           目标.removeAttribute("disabled");
         }
       })();

@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import sys
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional
@@ -102,11 +104,10 @@ class NiganeClient:
         managed_entry: str | None = None,
         managed_args: Optional[list[str]] = None,
         managed_cwd: str | None = None,
+        path: str | None = None,
         request_timeout: float = 10.0,
         max_retries: int = 5,
     ) -> None:
-        import os
-
         self.name = name
         self.host = host
         self.port = port or int(os.environ.get("KUGUA_PORT", "24601"))
@@ -115,6 +116,11 @@ class NiganeClient:
         self.capabilities = capabilities or []
         self.request_timeout = request_timeout
         self.max_retries = max_retries
+
+        # Physical path reported to the platform. Used to decide whether a
+        # reconnect comes from the same place (in-place) or somewhere else.
+        # Defaults to the running script's absolute path.
+        self.path = path or os.path.abspath(sys.argv[0] if sys.argv else "")
 
         # Managed-startup request (protocol field ``托管``).
         # Only sent when explicitly enabled, so plain clients stay unchanged.
@@ -132,6 +138,34 @@ class NiganeClient:
         self._failures = 0
         # Set by you when the platform broadcast system.shutdown
         self.shutdown_requested = False
+
+        # Protocol actions every module MUST implement, otherwise the platform
+        # treats it as offline (red status light).
+        self.register("module.query", self._handle_query)
+        self.register("module.shutdown", self._handle_shutdown)
+
+    # ---------- required protocol actions ----------
+
+    def _handle_query(self, params: Dict[str, Any], message: Dict[str, Any]) -> Dict[str, Any]:
+        """Reply to the platform's status query with our current identity.
+
+        This is what the platform's refresh button asks for. Returning the
+        correct name/version/path is what lets an offline module come back
+        online (status light turns green again).
+        """
+        return {
+            "name": self.name,
+            "version": self.version,
+            "path": self.path,
+            "capabilityDefs": self.capabilities,
+            "托管": self._managed_payload(),
+        }
+
+    def _handle_shutdown(self, params: Dict[str, Any], message: Dict[str, Any]) -> Dict[str, Any]:
+        """The platform asks us to unregister / exit. Honour it politely."""
+        self.shutdown_requested = True
+        asyncio.get_event_loop().call_soon(self.stop)
+        return {"ack": True}
 
     # ---------- registration ----------
 
@@ -168,6 +202,19 @@ class NiganeClient:
             return await asyncio.wait_for(future, timeout or self.request_timeout)
         finally:
             self._pending.pop(message["id"], None)
+
+    async def platform_info(self) -> Dict[str, Any]:
+        """Query the platform's online status and version (``nigane.platform.info``).
+
+        Returns a dict with ``在线``/``版本``/``协议``/``启动时间``/``运行秒数``/
+        ``模块数``.
+        """
+        return await self.request("kugua-main", "nigane.platform.info", {})
+
+    async def list_modules(self) -> list:
+        """List other modules currently online on the platform."""
+        result = await self.request("kugua-main", "nigane.modules.names", {})
+        return result if isinstance(result, list) else []
 
     async def broadcast(self, action: str, params: Any = None) -> None:
         """Broadcast an event to all other online modules."""
@@ -245,6 +292,7 @@ class NiganeClient:
             hello: Dict[str, Any] = {
                 "name": self.name,
                 "version": self.version,
+                "path": self.path,
                 "capabilityDefs": self.capabilities,
             }
             if self.token:
@@ -270,8 +318,46 @@ class NiganeClient:
                 self._failures = 0
                 log.info("connected to %s", self.url)
 
+                # Notify the platform that this module has started (optional
+                # on the platform side, but it keeps both sides in sync).
+                try:
+                    await ws.send(
+                        json.dumps(
+                            make_envelope(
+                                "event",
+                                self.name,
+                                action="module.startup",
+                                params={
+                                    "name": self.name,
+                                    "version": self.version,
+                                    "path": self.path,
+                                    "pid": os.getpid(),
+                                },
+                            ),
+                            ensure_ascii=False,
+                        )
+                    )
+                except Exception:
+                    pass
+
                 await receiver
             finally:
+                # Tell the platform we are going away before the socket drops.
+                if self._ws is not None and self._handshaked.is_set():
+                    try:
+                        await self._ws.send(
+                            json.dumps(
+                                make_envelope(
+                                    "event",
+                                    self.name,
+                                    action="module.shutdown",
+                                    params={"name": self.name, "version": self.version},
+                                ),
+                                ensure_ascii=False,
+                            )
+                        )
+                    except Exception:
+                        pass
                 heartbeat.cancel()
                 receiver.cancel()
                 self._ws = None
