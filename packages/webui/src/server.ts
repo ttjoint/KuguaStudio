@@ -626,8 +626,16 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
       const 指定超时 = typeof p.timeoutMs === "number" ? Math.min(Math.max(p.timeoutMs, 1000), 600000) : undefined;
       const 长任务目标 = target === "image" || target === "avatar" || target === "av" || target === "music";
       const 超时毫秒 = 指定超时 ?? (长任务目标 ? 120000 : 10000);
-      const 结果 = await 苦音客户端.request(target, action, p.params, 超时毫秒);
-      发送JSON(res, 200, 结果);
+      try {
+        const 结果 = await 苦音客户端.request(target, action, p.params, 超时毫秒);
+        发送JSON(res, 200, 结果);
+      } catch (err) {
+        // 业务失败（模块未启动、未配置、下游报错）不是传输层故障，用 200 表达。
+        // 用 5xx 的话浏览器会把每一条都当控制台错误，而「没配 OpenWebUI」
+        // 这样的正常状态会把真正的问题埋在红字里。客户端看到 __kuguaError 会抛错，
+        // 行为与真错误完全一致。
+        发送JSON(res, 200, { __kuguaError: err instanceof Error ? err.message : String(err) });
+      }
       return;
     }
     if (req.method === "POST" && 路径 === "/api/broadcast") {

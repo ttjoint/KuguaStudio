@@ -106,15 +106,50 @@ function 合并手工条目(现有配置, 发现列表) {
   return [...发现列表, ...手工];
 }
 
-/** 更新 kugua.config.json 的 modules 数组（保留其它字段顺序与内容） */
+/**
+ * 运行时写入却不在包清单里的字段。
+ *
+ * `version` / `capabilityHash` 是模块**首次注册时**由主控写到配置里的，
+ * 用于下次接入的身份门禁（版本回退、能力指纹变化 → 暂下线）。
+ * 它们不属于包的功能声明，却必须跨重启存活。
+ *
+ * 早期这里直接整体替换 modules[]，每次跑同步都把它们抹掉，
+ * 结果是身份校验静默失效——不报错，只是再也不拦任何东西。
+ */
+const 运行时字段 = ["version", "capabilityHash"];
+
+/**
+ * 写回时保持原文件的行尾风格。
+ *
+ * 仓库在 Windows 下检出为 CRLF，而 `JSON.stringify` 只产 LF。
+ * 早期这里直接拼 `"\n"`，导致「内容完全相同但字节不同」——
+ * `--check` 永远报不一致，而跑一次同步又没任何实质变更。
+ */
+function 保持行尾(文本, 原文本) {
+  return 原文本.includes("\r\n") ? 文本.replace(/\n/g, "\r\n") : 文本;
+}
+
+/** 生成配置：保留已有条目的运行时字段，其余以包清单为准 */
 function 生成配置(原文本, 新模块列表) {
   const 对象 = JSON.parse(原文本);
-  对象.modules = 新模块列表;
-  return JSON.stringify(对象, null, 2) + "\n";
+  const 已有表 = new Map(
+    (对象.modules ?? []).filter((m) => m && m.name).map((m) => [m.name, m]),
+  );
+  对象.modules = 新模块列表.map((新项) => {
+    const 旧项 = 已有表.get(新项.name);
+    if (!旧项) return 新项;
+    // 字段顺序稳定：先包声明字段，再运行时字段
+    const 合并 = { ...新项 };
+    for (const 字段 of 运行时字段) {
+      if (旧项[字段] !== undefined) 合并[字段] = 旧项[字段];
+    }
+    return 合并;
+  });
+  return 保持行尾(JSON.stringify(对象, null, 2) + "\n", 原文本);
 }
 
 /** 生成根 package.json 中每个模块的 start 脚本（<名>: node <entry>） */
-function 生成启动脚本(原包, 模块列表) {  const 脚本 = { ...原包.scripts };
+function 生成启动脚本(原包, 原包文本, 模块列表) {  const 脚本 = { ...原包.scripts };
   // 先清除旧的模块脚本（值为 node packages/modules/... 的项）
   for (const [k, v] of Object.entries(脚本)) {
     if (typeof v === "string" && /^node packages\/modules\/[^/]+\/dist\/index\.js$/.test(v)) {
@@ -125,7 +160,7 @@ function 生成启动脚本(原包, 模块列表) {  const 脚本 = { ...原包.
     if (m.type !== "process" || !m.entry) continue;
     脚本[m.name] = `node ${m.entry}`;
   }
-  return JSON.stringify({ ...原包, scripts: 脚本 }, null, 2) + "\n";
+  return 保持行尾(JSON.stringify({ ...原包, scripts: 脚本 }, null, 2) + "\n", 原包文本);
 }
 
 function 主() {
@@ -137,7 +172,7 @@ function 主() {
   const 新配置文本 = 生成配置(原配置文本, 模块列表);
 
   const 原根包文本 = readFileSync(根包路径, "utf8");
-  const 新根包文本 = 生成启动脚本(JSON.parse(原根包文本), 模块列表);
+  const 新根包文本 = 生成启动脚本(JSON.parse(原根包文本), 原根包文本, 模块列表);
 
   const 配置变化 = 原配置文本 !== 新配置文本;
   const 根包变化 = 原根包文本 !== 新根包文本;

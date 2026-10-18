@@ -53,7 +53,25 @@ export async function 请求<T = unknown>(路径: string, 体?: unknown): Promis
     }
     throw new Error(信息 || `请求失败 ${响应.status}`);
   }
-  return (文本 ? JSON.parse(文本) : null) as T;
+
+  // —— 业务失败：HTTP 200 + 明确的错误字段 ——
+  //
+  // 为什不直接用 4xx/5xx：浏览器会把**每一个**非 2xx 响应都记成控制台错误，
+  // 而「某个模块没启动」「没配 OpenWebUI」这类事是**正常状态**，不是故障。
+  // 用状态码表达它们，结果是用户一打开 AI 页就满屏红字，真正的问题反而看不见。
+  //
+  // 所以约定：传输层出错（路由错、读体失败、服务内部异常）才用 5xx；
+  // 请求已到达平台、平台给出了否定答复的，用 200 + error 表示。
+  // 对调用方而言两者行为一致：都是抛错。
+  let 解析结果: unknown = null;
+  try {
+    解析结果 = 文本 ? JSON.parse(文本) : null;
+  } catch {
+    return (文本 as unknown) as T;
+  }
+  const 业务错误 = (解析结果 as { __kuguaError?: string } | null)?.__kuguaError;
+  if (typeof 业务错误 === "string" && 业务错误) throw new Error(业务错误);
+  return 解析结果 as T;
 }
 
 export interface 文件对话框选项 {
