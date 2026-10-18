@@ -25,8 +25,11 @@ if (-not $Node) {
   throw "未找到 node，请确认已安装并加入 PATH"
 }
 
-$env:KUGUA_WEBUI_PORT = "$Port"
-$Action = New-ScheduledTaskAction -Execute $Node -Argument "`"$Server`" --no-open" -WorkingDirectory $Root
+# 端口必须通过 -PassThru 之外的显式方式交给任务。
+# 原来写的 $env:KUGUA_WEBUI_PORT = "$Port" 只影响**当前这个 PowerShell 进程**，
+# 不会传进计划任务，导致 -Port 参数装了也白装——任务永远读配置文件里的端口。
+# 这里把端口作为 Node 的显式参数传下去，任务定义里看得见、也改得动。
+$Action = New-ScheduledTaskAction -Execute $Node -Argument "`"$Server`" --port $Port --no-open" -WorkingDirectory $Root
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
 $Settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `

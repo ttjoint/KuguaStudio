@@ -163,6 +163,8 @@ data/mkg.db
 data/mkg.db-shm
 data/mkg.db-wal
 data/audit.db
+# 从子目录启动时曾把审计库写到这里；cwd 已归一，但不留后患
+packages/data/
 data/audit.db-shm
 data/audit.db-wal
 data/library/*

@@ -1,5 +1,13 @@
 @echo off
 setlocal enabledelayedexpansion
+REM -- Console code page --
+REM Node and the platform speak UTF-8, but a Chinese Windows console defaults to
+REM code page 936 (GBK), so Chinese log output becomes mojibake. Switch to 65001
+REM and remember the previous page so it can be restored on EVERY exit path.
+REM chcp is process-wide and setlocal does NOT roll it back; without the restore
+REM the user's own cmd window would keep UTF-8 after this script ends.
+for /f "tokens=2 delims=:" %%c in ('chcp') do set "OLDCP=%%c"
+set "OLDCP=!OLDCP: =!"
 chcp 65001 >nul
 cd /d %~dp0
 
@@ -26,7 +34,7 @@ where node >nul 2>nul
 if %errorlevel% neq 0 (
     echo [ERROR] Node.js not found. Please install from https://nodejs.org/
     pause
-    exit /b 1
+    goto :done_fail
 )
 
 REM -- Build on first run --
@@ -36,7 +44,7 @@ if not exist "packages\webui\dist\server.js" (
     if %errorlevel% neq 0 (
         echo [ERROR] Build failed.
         pause
-        exit /b 1
+        goto :done_fail
     )
 )
 
@@ -79,7 +87,7 @@ REM    So running start.bat again brings the existing window to the front
 REM    instead of piling up extra windows.
 if defined DESKTOP_EXE (
     start "" "!DESKTOP_EXE!"
-    exit /b 0
+    goto :done
 )
 echo [INFO] webui.gui is "desktop" but the desktop shell is not built yet.
 echo        Build it with: node packages\desktop\scripts\build.mjs
@@ -101,10 +109,25 @@ if !errorlevel! equ 0 (
     REM again would pile up duplicate tabs (one per double-clicked start.bat).
     echo [INFO] Studio is already running on port !WEBUI_PORT!.
     echo        Switch to the existing browser tab, or open http://127.0.0.1:!WEBUI_PORT!/ manually.
-    exit /b 0
+    goto :done
 )
 
 echo [INFO] Starting the WebUI in the default browser...
 powershell -NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -Command "Set-Location '%~dp0'; $p = Start-Process 'node' -ArgumentList '\"%~dp0packages\webui\dist\server.js\"' -WorkingDirectory '%~dp0' -WindowStyle Hidden -PassThru; $p.Id | Out-File -Encoding ascii '.kugua.pid'"
 
-exit /b 0
+goto :done
+
+REM -- Exit paths --
+REM Restore the original console code page before leaving. Kept at the end so
+REM every goto above is still a forward jump within the same batch block.
+:done_fail
+set "RC=1"
+goto :done_restore
+:done
+set "RC=0"
+
+:done_restore
+REM 65001 was forced above; put the user's console back the way we found it.
+if defined OLDCP if not "!OLDCP!"=="" chcp !OLDCP! >nul 2>nul
+REM RC must be captured BEFORE endlocal: after it, %RC% no longer expands.
+endlocal & exit /b !RC!

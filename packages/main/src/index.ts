@@ -10,7 +10,8 @@
  */
 
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { resolve as pathResolve } from "node:path";
+import { dirname, resolve as pathResolve, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as 创建探测服务器 } from "node:net";
 import {
@@ -87,6 +88,40 @@ function 加载配置(): 主控配置 {
   }
 }
 
+/**
+ * 把工作目录归一化到仓库根。
+ *
+ * 主控里到处用 process.cwd() 解析配置、模块入口、库文件、data 目录。
+ * 由 WebUI 拉起时 cwd 一定是仓库根，但**直接运行主控**（外部接入、调试、
+ * 第三方脚本、开机任务）时 cwd 是你当时所在的目录——于是配置找不到、模块
+ * 入口拼成不存在的路径，表现是一堆莫名其妙的"文件不存在"。
+ *
+ * dist/index.js → packages/main/dist → 仓库根，与 cwd 无关。
+ *
+ * 注意：KUGUA_CONFIG / KUGUA_CONFIG_LOCAL 若给的是**相对路径**，必须先按
+ * 调用者原本的 cwd 解析成绝对路径，否则 chdir 之后指向就变了——那是用户
+ * 自己的意图，不能被我们悄悄改写。
+ */
+function 归一工作目录(): void {
+  const 原cwd = process.cwd();
+  for (const 键 of ["KUGUA_CONFIG", "KUGUA_CONFIG_LOCAL"] as const) {
+    const 值 = process.env[键];
+    if (值 && !isAbsolute(值)) process.env[键] = pathResolve(原cwd, 值);
+  }
+  try {
+    // ESM 里没有 __dirname（用了会抛 ReferenceError，而它一旦被 catch 吞掉，
+    // 整个归一化就静默失效）。用 import.meta.url 反推本文件位置，
+    // 再上溯到仓库根：dist/index.js → packages/main/dist → 仓库根。
+    const 本文件 = fileURLToPath(import.meta.url);
+    const 根 = pathResolve(dirname(本文件), "..", "..", "..");
+    if (原cwd !== 根) process.chdir(根);
+  } catch (err) {
+    // 切换失败不致命，但**必须说出来**：静默失败会让后面所有相对路径
+    // 都基于错误的目录解析，表现成一堆莫名其妙的"文件不存在"。
+    console.warn(`[主控] 无法切换工作目录到仓库根：${String(err)}`);
+  }
+}
+归一工作目录();
 /** 配置文件路径 */
 function 配置路径(): string {
   return process.env.KUGUA_CONFIG
@@ -1171,7 +1206,18 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
       }
     });
     proc.on("exit", (code, sig) => {
-      console.log(`[主控] 子进程退出：${描述.name}（code=${code ?? "?"}，sig=${sig ?? "-"}）`);
+      // 级别要能区分两种情况：
+      //   启动阶段就失败 → 由下面的 reject 报 error，这里不必重复
+      //   跑起来之后崩掉 → 这才是真问题（模块永久离线，且不会自动重启），用 warn
+      //   正常退出（code 0，如平台关闭）→ info
+      const 已启动过 = 已决议;
+      const 崩溃 = 已启动过 && code !== 0 && code !== null;
+      const 行 = `[主控] 子进程退出：${描述.name}（code=${code ?? "?"}，sig=${sig ?? "-"}）`;
+      if (崩溃) {
+        console.warn(`${行} —— 模块运行期异常退出，已离线，需要手动重启平台或该模块`);
+      } else {
+        console.log(行);
+      }
       记录.registered = false;
       子进程表.delete(描述.name);
       服务端?.removeListener("registered", 注册监听);

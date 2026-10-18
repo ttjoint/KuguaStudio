@@ -82,7 +82,32 @@ function 加载配置(): 配置 {
 const 配置 = 加载配置();
 const 主控host = 配置.host ?? "127.0.0.1";
 const 主控port = 配置.port ?? 24601;
-const WebUI端口 = Number(process.env.KUGUA_WEBUI_PORT ?? 配置.webui?.port ?? 24600);
+/**
+ * 读取 `--port 8080` / `--port=8080` 形式的命令行端口。
+ *
+ * 为什么需要它：登录计划任务里的参数是本脚本写死进任务定义的，
+ * 用环境变量传不进任务（那只是安装脚本自己进程的环境）。命令行参数
+ * 能在 `schtasks /Query` 里直接看到，出问题好排查。
+ */
+function 命令行端口(): number | undefined {
+  const 参数 = process.argv.slice(2);
+  for (let i = 0; i < 参数.length; i++) {
+    const a = 参数[i];
+    let 值: string | undefined;
+    if (a === "--port") 值 = 参数[i + 1];
+    else if (a.startsWith("--port=")) 值 = a.slice("--port=".length);
+    if (值 !== undefined) {
+      const n = Number(值);
+      // 非法端口直接忽略而不是静默用 0（0 会让系统随便分一个，更难察觉）
+      if (Number.isInteger(n) && n > 0 && n < 65536) return n;
+      console.warn(`[WebUI] 忽略无效的 --port 值：${值}`);
+      return undefined;
+    }
+  }
+  return undefined;
+}
+const 端口覆盖 = 命令行端口();
+const WebUI端口 = Number(端口覆盖 ?? process.env.KUGUA_WEBUI_PORT ?? 配置.webui?.port ?? 24600);
 const 自动打开 = process.argv.includes("--no-open") ? false : 配置.webui?.open !== false;
 
 let 主控进程: ChildProcess | null = null;
@@ -159,12 +184,30 @@ function 主控端口被占用(port: number): Promise<boolean> {
 }
 
 
-function 启动主控(): Promise<void> {
+/**
+ * 仓库根目录：从本文件位置推，**不依赖 cwd**。
+ *
+ * 原来用 process.cwd() 定位主控脚本，导致从子目录或任意目录启动时拼出
+ * 不存在的路径。更糟的是它只打一行警告就继续——用户得到一个能打开但
+ * 什么都不能做的界面，而且它已经把全局锁抢走了，正常启动反而被拒。
+ *
+ * dist/server.js → packages/webui/dist → packages/webui → packages → 仓库根
+ */
+const 仓库根 = resolve(__dirname, "..", "..", "..");
+
+/**
+ * 启动主控子进程。resolve(true) = 主控确实就绪；resolve(false) = 没起来。
+ *
+ * 后者必须让调用方看清楚：以前无论成败都 resolve，WebUI 照常对外服务，
+ * 用户打开界面能看到一切，只是所有操作都失败。**半启动比不启动更难查**。
+ */
+function 启动主控(): Promise<boolean> {
   return new Promise((res) => {
-    const 主控脚本 = resolve(process.cwd(), "packages/main/dist/index.js");
+    const 主控脚本 = join(仓库根, "packages", "main", "dist", "index.js");
     if (!existsSync(主控脚本)) {
-      console.error(`[WebUI] 未找到主控脚本：${主控脚本}，请先 npm run build`);
-      res();
+      console.error(`[WebUI] 未找到主控脚本：${主控脚本}，请先运行 npm run build`);
+      // 主控脚本都没有，界面起来也没意义——不要占着锁装成启动成功
+      res(false);
       return;
     }
     // KUGUA_LOCK_HELD=1：告诉子主控「锁已由本 WebUI 持有」，同一实例不重复抢锁
@@ -173,20 +216,31 @@ function 启动主控(): Promise<void> {
     // 控制台窗口——主控会一直运行，那个黑框也就一直挂在桌面上（表现为"点重启
     // 之后多了个关不掉的黑窗口"）。stdio 用 pipe 而不是 ignore，是因为下面要
     // 读它的输出判断就绪，所以隐藏窗口只能靠这个标志，不能靠 detach。
-    const proc = spawn("node", [主控脚本], {
+    // 用 process.execPath 而不是 "node"：开机计划任务、托盘拉起、从 IDE
+    // 启动等场景下 PATH 未必包含 node，或者 "node" 指向一个 shim。
+    // 当前进程能跑，说明这个绝对路径一定可用。
+    const proc = spawn(process.execPath, [主控脚本], {
       stdio: "pipe",
-      cwd: process.cwd(),
+      cwd: 仓库根,
       env: { ...process.env, KUGUA_LOCK_HELD: "1" },
       windowsHide: true,
     });
     主控进程 = proc;
+    let 已就绪 = false;
     proc.stdout?.on("data", (data: Buffer) => {
       const text = data.toString();
       console.log("[主控]", text.trim());
-      if (text.includes("苦音服务端已启动")) res();
+      if (!已就绪 && text.includes("苦音服务端已启动")) {
+        已就绪 = true;
+        res(true);
+      }
     });
     proc.stderr?.on("data", (data: Buffer) => console.error("[主控]", data.toString().trim()));
-    proc.on("error", () => res());
+    proc.on("error", (err) => {
+      console.error(`[主控] 无法启动：${err.message}`);
+      主控进程 = null;
+      res(false);
+    });
     // 主控启动失败（如端口被其他程序占用）→ 不要假装成功，直接退出并释放锁
     proc.on("exit", (码) => {
       主控进程 = null;
@@ -195,9 +249,14 @@ function 启动主控(): Promise<void> {
         释放实例锁();
         process.exit(码);
       }
-      res();
+      // 主控**主动退出**且非 0：已经 process.exit，走不到这里
+      res(false);
     });
-    setTimeout(res, 3000);
+    // 3 秒兜底：主控没打印就绪标识但进程还活着（输出被缓冲、启动慢）。
+    // 这种情况按「没就绪」处理——宁可报错让用户重试，也不要放一个空壳出去。
+    setTimeout(() => {
+      if (!已就绪) res(false);
+    }, 3000);
   });
 }
 
@@ -719,7 +778,20 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
 
 async function 主流程(): Promise<void> {
   // —— 单实例守卫（只看全局锁，与端口无关）：已有实例则直接退出，绝不杀已有实例 ——
-  const 守卫 = 单实例守卫();
+  //
+  // 唯一的例外是「重启」：/api/restart 会先 spawn 新实例、再释放锁、最后才 exit。
+  // 新实例若抢在旧实例退出前跑到这里，就会读到「旧实例还活着」而自己退出——
+  // 结果是一次重启把平台彻底搞没了，用户只看到页面断开、毫无提示。
+  // 所以重启出来的实例要短暂等待锁，而不是立刻放弃。
+  const 重启接管 = process.env.KUGUA_RESTART_TAKEOVER === "1";
+  let 守卫 = 单实例守卫();
+  if (守卫.已有 && 重启接管) {
+    for (let 第 = 0; 第 < 40 && 守卫.已有; 第++) {
+      await new Promise<void>((r) => setTimeout(r, 250));
+      守卫 = 单实例守卫();
+    }
+    if (!守卫.已有) console.log("[WebUI] 已接管上一个实例，继续启动。");
+  }
   if (守卫.已有) {
     console.log(
       `[WebUI] 检测到已有苦瓜工作室实例在运行（pid=${守卫.信息?.pid}），本实例退出。\n` +
@@ -758,7 +830,17 @@ async function 主流程(): Promise<void> {
   释放实例锁 = 释放锁;
   process.on("exit", 释放锁);
 
-  await 启动主控();
+  // 主控没起来就不要继续：界面能打开、按钮全失灵，而且锁已被占住，
+  // 用户再启动一次只会被告知「已有实例在运行」——彻底卡死。
+  if (!(await 启动主控())) {
+    console.error(
+      '[WebUI] 主控未能启动，平台不可用，已释放实例锁。\n' +
+        '        常见原因：packages/main/dist/index.js 不存在（请运行 npm run build）、' +
+        '主控端口被占用（kugua.config.json 的 port）。',
+    );
+    释放锁();
+    process.exit(1);
+  }
   await 连接苦音();
 
   const 服务 = createServer((req, res) => {
@@ -1003,8 +1085,11 @@ async function 重启平台(): Promise<void> {
   if (入口) {
     try {
       const 子 = spawn(process.execPath, [入口, ...参数], {
-        cwd: process.cwd(),
-        env: process.env,
+        // 重启用的 cwd 也要跟着文件位置走，不能依赖当前 cwd
+        cwd: 仓库根,
+        // KUGUA_RESTART_TAKEOVER：新实例允许短暂等待旧实例释放锁。
+        // 旧实例退出与锁释放之间必然有窗口期，不等就可能自己放弃。
+        env: { ...process.env, KUGUA_RESTART_TAKEOVER: "1" },
         detached: true,
         stdio: "ignore",
         windowsHide: true,
@@ -1012,6 +1097,8 @@ async function 重启平台(): Promise<void> {
       子.unref();
     } catch (err) {
       console.error("[WebUI] 重启时启动新实例失败：", err);
+      // 新实例没起来就别走了，否则平台直接消失
+      return;
     }
   }
   // 释放实例锁后退出（新实例才能接管）
