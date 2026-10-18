@@ -25,7 +25,7 @@ import { 归一全部能力 } from "./capability-normalize.js";
 import type { 配置声明 } from "@kugua/nigane";
 import { 审计日志, type 审计过滤 } from "@kugua/audit";
 import { 日志器, type 日志级别 } from "@kugua/logger";
-import { 抢占全局单例锁, 读取单实例锁, 全局单例锁路径 } from "@kugua/paths";
+import { 抢占全局单例锁, 读取单实例锁, 全局单例锁路径, 数据根 } from "@kugua/paths";
 import {
   判定重新接入,
   能力指纹,
@@ -262,11 +262,15 @@ async function 启动(): Promise<void> {
   服务端 = new NiganeServer(配置);
 
   // —— 审计日志 ——
-  审计 = new 审计日志(process.env.KUGUA_AUDIT_DB ?? pathResolve(process.cwd(), "data/audit.db"));
+  // 默认路径必须跟着 数据根() 走。原来直接写 <cwd>/data/audit.db，
+  // 于是设了 KUGUA_DATA_DIR 的实例（测试、便携版、多开调试）数据目录已经改到别处，
+  // 审计库却还往仓库的 data/ 里写——多个实例混在同一个库里，
+  // 而且"隔离运行"实际上没有隔离。
+  审计 = new 审计日志(process.env.KUGUA_AUDIT_DB ?? pathResolve(数据根(), "audit.db"));
 
   // —— 日志：环形缓冲 + 限流落盘；捕获控制台输出（含各模块）——
   日志器实例 = new 日志器({
-    文件: process.env.KUGUA_LOG_FILE ?? pathResolve(process.cwd(), "data/logs/main.log"),
+    文件: process.env.KUGUA_LOG_FILE ?? pathResolve(数据根(), "logs/main.log"),
     容量: 4000,
     落盘间隔毫秒: 2000,
   });
@@ -1136,6 +1140,25 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
       windowsHide: true,
     }) as ChildProcess;
     const 记录: 子进程记录 = { proc, name: 描述.name, registered: false };
+    // 防重复：子进程表按模块名存，直接 set 会**覆盖**上一条记录。
+    // 覆盖后旧进程就再也没人管了——退出时不关、崩溃时不知道，变成孤儿。
+    //
+    // 调用方（registry.start / 动态检测 / 升级重启）大多有 has() 检查，
+    // 但那是「检查完再启动」的异步窗口；而且 25 个模块是 Promise.allSettled
+    // 并发拉起的，用户手改配置写出重名条目时，两个同名模块会同时走到这里。
+    // 这里再兜一层：先收掉旧的，保证表里只有一个进程。
+    const 旧记录 = 子进程表.get(描述.name);
+    if (旧记录 && 旧记录.proc !== proc && 旧记录.proc.exitCode === null) {
+      console.warn(
+        `[主控] 模块「${描述.name}」存在未退出的旧进程（pid=${旧记录.proc.pid ?? "?"}），先终止它再启动新的。` +
+          "（检查 kugua.config.json 里是否有重名条目）",
+      );
+      try {
+        旧记录.proc.kill("SIGTERM");
+      } catch {
+        /* 已经退了 */
+      }
+    }
     子进程表.set(描述.name, 记录);
 
     let 已决议 = false;

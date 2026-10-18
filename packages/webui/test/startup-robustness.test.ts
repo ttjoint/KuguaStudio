@@ -215,6 +215,39 @@ describe.runIf(已构建)("启动健壮性", () => {
     35000,
   );
   it(
+    "WebUI 从任意目录启动也能找对配置、插件、桌面端（不依赖 cwd）",
+    async () => {
+      // 回归点：server.ts 里 6 处 process.cwd() —— 配置、插件目录、模块 UI 目录、
+      // 桌面端 exe、数据目录、托盘 -Root。从子目录启动时它们全部指错地方，
+      // 而且大多是**静默降级**：插件"消失"、模块页打不开、莫名回落浏览器模式、
+      // 托盘不出现。用户看不出是路径错了，只觉得功能坏了。
+      const 环境 = await 造环境();
+      所有目录.add(环境.目录);
+      const p = spawn(process.execPath, [join(仓库根, "packages", "webui", "dist", "server.js")], {
+        cwd: tmpdir(),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          KUGUA_CONFIG: 环境.配置,
+          KUGUA_DATA_DIR: join(环境.目录, "data"),
+          KUGUA_GLOBAL_LOCK: 环境.锁,
+          KUGUA_NO_OPEN: "1",
+        },
+      });
+      所有子进程.add(p);
+      const 输出 = 收集(p);
+
+      const 截止 = Date.now() + 20000;
+      while (Date.now() < 截止 && !输出().includes("苦音服务端已启动")) await sleep(300);
+      // 关键：不能出现「主控未能启动」这类路径错误
+      expect(输出()).not.toMatch(/找不到主控|MODULE_NOT_FOUND|ENOENT/);
+      expect(输出()).toContain("苦音服务端已启动");
+    },
+    30000,
+  );
+
+  it(
     "直接运行主控时也不依赖 cwd（外部接入 / 调试 / 脚本）",
     async () => {
       // 回归点：主控里到处用 process.cwd() 解析配置、模块入口、data 目录。

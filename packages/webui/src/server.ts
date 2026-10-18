@@ -67,10 +67,20 @@ interface 配置 {
   };
 }
 
+/**
+ * 仓库根：server.js 在 packages/webui/dist/，上溯三级即仓库根。
+ *
+ * 用 __dirname 而不是 process.cwd()——WebUI 也可能被从任意目录拉起
+ * （脚本、快捷方式、开机任务），cwd 一旦不是仓库根，配置、插件目录、
+ * 桌面端 exe、数据目录、托盘 -Root **全部**指错地方，而且大多是静默降级：
+ * 插件"消失"、模块页打不开、莫名回落浏览器模式、托盘不出现。
+ */
+const 仓库根 = resolve(__dirname, "..", "..", "..");
 function 加载配置(): 配置 {
+  // 相对路径按「调用者的 cwd」解析（那是用户意图），没给就找仓库根下的配置。
   const 路径 = process.env.KUGUA_CONFIG
     ? resolve(process.cwd(), process.env.KUGUA_CONFIG)
-    : resolve(process.cwd(), "kugua.config.json");
+    : join(仓库根, "kugua.config.json");
   if (!existsSync(路径)) return {};
   try {
     return JSON.parse(readFileSync(路径, "utf-8")) as 配置;
@@ -193,7 +203,7 @@ function 主控端口被占用(port: number): Promise<boolean> {
  *
  * dist/server.js → packages/webui/dist → packages/webui → packages → 仓库根
  */
-const 仓库根 = resolve(__dirname, "..", "..", "..");
+/* 仓库根的定义已提前到文件前部（加载配置要用） */
 
 /**
  * 启动主控子进程。resolve(true) = 主控确实就绪；resolve(false) = 没起来。
@@ -324,7 +334,7 @@ async function 连接苦音(): Promise<void> {
 
 /** 插件根目录 */
 function 插件根(): string {
-  return resolve(process.cwd(), 配置.plugins?.dir ?? "plugins");
+  return resolve(仓库根, 配置.plugins?.dir ?? "plugins");
 }
 
 /** 读取插件 manifest 中的 ui 声明 */
@@ -424,7 +434,7 @@ async function 解析模块UI根(名: string): Promise<string | null> {
     }>;
     const 项 = 详情.find((d) => d.name === 名);
     if (!项?.entry) return null;
-    const 根 = dirname(resolve(process.cwd(), 项.entry));
+    const 根 = dirname(resolve(仓库根, 项.entry));
     if (!existsSync(根)) return null;
     模块UI根缓存.set(名, 根);
     return 根;
@@ -941,8 +951,8 @@ function 打开浏览器(url: string): void {
  */
 function 桌面端路径(): string {
   const 候选 = [
-    resolve(process.cwd(), "packages", "desktop", "src-tauri", "target", "release", "kugua-desktop.exe"),
-    resolve(process.cwd(), "packages", "desktop", "src-tauri", "target", "debug", "kugua-desktop.exe"),
+    join(仓库根, "packages", "desktop", "src-tauri", "target", "release", "kugua-desktop.exe"),
+    join(仓库根, "packages", "desktop", "src-tauri", "target", "debug", "kugua-desktop.exe"),
   ];
   for (const 路径 of 候选) if (existsSync(路径)) return 路径;
   return "";
@@ -955,7 +965,7 @@ function 启动托盘(url: string): void {
   const 脚本 = resolve(__dirname, "..", "tray.ps1");
   if (!existsSync(脚本)) return;
   const 图标 = resolve(__dirname, "assets", "icon.jpg");
-  const 数据目录 = process.env.KUGUA_DATA_DIR || join(process.cwd(), "data");
+  const 数据目录 = process.env.KUGUA_DATA_DIR || join(仓库根, "data");
   const 日志 = join(数据目录, "tray.log");
   try {
     mkdirSync(数据目录, { recursive: true });
@@ -978,7 +988,7 @@ function 启动托盘(url: string): void {
         "-ServerPid",
         String(process.pid),
         "-Root",
-        process.cwd(),
+        仓库根,
         "-IconPath",
         图标,
         "-LogPath",
