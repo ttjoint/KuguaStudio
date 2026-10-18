@@ -102,6 +102,6 @@ if !errorlevel! equ 0 (
 )
 
 echo [INFO] Starting the WebUI in the default browser...
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Set-Location '%~dp0'; Start-Process 'node' -ArgumentList 'packages\webui\dist\server.js' -WindowStyle Hidden"
+powershell -NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -Command "Set-Location '%~dp0'; $p = Start-Process 'node' -ArgumentList 'packages\webui\dist\server.js' -WindowStyle Hidden -PassThru; $p.Id | Out-File -Encoding ascii '.kugua.pid'"
 
 exit /b 0

@@ -93,6 +93,48 @@ function 显示待刷新提示(): void {
   }, 300);
 }
 
+/**
+ * 显示"平台已退出/正在重启"的提示。
+ *
+ * 与断线横幅的区别在于语气和后续行为：断线横幅说的是"可能出问题了，正在重连"，
+ * 这里发生的是**用户自己要求的正常退出**，所以不该吓唬人，也不该暗示会恢复。
+ *
+ * @param 文案   显示的文字
+ * @param 是终态  true = 平台真的没了（页面已失效）；false = 只是重启，会恢复
+ */
+function 显示退出提示(文案: string, 是终态: boolean): void {
+  if (!横幅) return;
+  横幅.style.pointerEvents = "none";
+  横幅.style.cursor = "default";
+  横幅.onclick = null;
+  横幅.style.background = 是终态 ? "#475569" : "#a16207";
+  横幅.style.color = "#fff";
+  横幅.textContent = 文案;
+  横幅.title = "";
+  横幅.style.display = "";
+  document.body.style.paddingTop = "30px";
+}
+
+
+/**
+ * 桌面端：主动关掉本窗口（网页端无操作）。
+ *
+ * 用 `quit_app` 而不是 `window.close()`：WebView2 里 `window.close()` 只在
+ * 由脚本打开时才被允许，普通窗口调它会被静默忽略。`quit_app` 是本应用自己的
+ * invoke 命令，行为可控——且它的语义正是"只关 GUI，不动后端"，此刻后端
+ * 已经自己退了，不会重复杀。
+ */
+function 关闭桌面窗口(): void {
+  const 全局 = (window as unknown as { __TAURI__?: Tauri全局API }).__TAURI__;
+  if (!全局?.core?.invoke) return; // 浏览器环境：什么都不做
+  window.setTimeout(() => {
+    void 全局.core.invoke("quit_app").catch(() => undefined);
+  }, 1200);
+}
+
+/** 后端是否已主动通知退出（区分"正常退出"与"意外断线"） */
+let 平台已退出 = false;
+
 function 建立连接(): void {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -119,6 +161,24 @@ function 建立连接(): void {
           /* 忽略单个回调异常 */
         }
       });
+    } else if (消息.type === "platform_exit") {
+      // 后端主动告知要退出（或重启）。这是**正常退出**，不是意外断线，
+      // 所以不该走"断线横幅 + 无限重连"那套——那会让用户以为出错了。
+      //
+      // 收到后立刻停掉重连定时器，避免进程已经没了还在傻等、每 1.5 秒重试一次。
+      const 是重启 = (消息 as { reason?: string }).reason === "restart";
+      平台已退出 = true;
+      if (是重启) {
+        显示退出提示("平台正在重启，请稍候…（重启完成后页面会自动重连）", false);
+      } else {
+        显示退出提示("平台已退出。此页面已失效，关闭即可。", true);
+        // 桌面端：后端既然已经退出，这扇窗就没有意义了，自己关掉。
+        // 网页端没有这个能力（浏览器不允许标签自我关闭），所以只留提示。
+        //
+        // 留一点延迟让提示先渲染出来——否则窗口直接消失，用户会以为
+        // "点了退出之后程序崩溃了"，而不是"它按我说的退出了"。
+        关闭桌面窗口();
+      }
     } else if (消息.type === "ready") {
       已就绪 = true;
       设置后台连通(true);
@@ -135,6 +195,8 @@ function 建立连接(): void {
   };
   ws.onclose = () => {
     已就绪 = false;
+    // 后端主动说了"我要退出"：这是预期内的事，不再重连，也不显示断线横幅
+    if (平台已退出) return;
     // 关闸：断线期间不再发任何请求。后端已经没了，发出去只会在各自的超时里
     // 逐个失败，用户看到的是"点了没反应，过一会儿弹一堆错"。
     设置后台连通(false);

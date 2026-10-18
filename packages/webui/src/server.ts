@@ -840,12 +840,15 @@ function 启动托盘(url: string): void {
   try {
     mkdirSync(数据目录, { recursive: true });
     const fd = openSync(日志, "a");
+    // 用 RemoteSigned 而非 Bypass：本地脚本在 RemoteSigned 下本来就允许执行，
+    // 而 Bypass 是恶意脚本绕策略的典型特征，会显著提高杀软误报率
+    // （本项目的"托盘 + 开机启动计划任务 + 强制结束进程"组合本身已经很像木马）。
     const p = spawn(
       "powershell",
       [
         "-NoProfile",
         "-ExecutionPolicy",
-        "Bypass",
+        "RemoteSigned",
         "-WindowStyle",
         "Hidden",
         "-File",
@@ -901,7 +904,34 @@ async function 请求主控关闭(): Promise<void> {
 }
 
 /** 平台整体退出：先让主控优雅关闭（广播 system.shutdown），再退出自身 */
+/**
+ * 广播「平台正在主动退出」给所有已连接的页面。
+ *
+ * 为什么要主动发：桌面端（Tauri 壳）在页面之外还有个进程监护逻辑，
+ * 它只能通过探测端口发现后端没了——那意味着用户点了「退出平台」之后，
+ * 桌面窗口还要**空等十来秒**才自己关掉，期间界面已经连不上了，
+ * 看起来就是"点了退出，然后卡住失联"。
+ *
+ * 主动推一条消息，桌面端就能立刻收工。Web 网页端收到这个也一样处理
+ * （显示"平台已退出"），比干等超时体验好。
+ *
+ * 注意：必须是**尽力而为**——发不出去（页面已断、缓冲满）不能阻塞退出流程，
+ * 所以整段包在 try 里，且不等回执。
+ */
+function 广播平台退出(原因: "shutdown" | "restart"): void {
+  const 消息 = JSON.stringify({ type: "platform_exit", reason: 原因 });
+  for (const 端 of 订阅者) {
+    try {
+      if (端.readyState === 1) 端.send(消息);
+    } catch {
+      /* 单个连接失败不影响其它连接，也不影响退出 */
+    }
+  }
+}
+
 async function 关闭平台(码: number): Promise<void> {
+  // 先通知页面再收东西：此刻连接都还活着，消息能立刻发出
+  广播平台退出("shutdown");
   await 请求主控关闭();
   // 给主控一点时间结束托管子进程并关闭 WebSocket
   await new Promise<void>((resolve) => setTimeout(resolve, 1200));
@@ -915,6 +945,9 @@ async function 关闭平台(码: number): Promise<void> {
 
 async function 重启平台(): Promise<void> {
   console.log("[WebUI] 正在重启平台……");
+  // 重启也告知一声：桌面端据此**不要**退出（只是短暂失联），
+  // 从而和"退出平台"明确区分开
+  广播平台退出("restart");
   const 入口 = process.argv[1];
   const 参数 = process.argv.slice(2);
   // 关闭主控（主控会广播 system.shutdown 并结束所有子模块）

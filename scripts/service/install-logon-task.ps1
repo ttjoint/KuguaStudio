@@ -3,9 +3,9 @@
   无需第三方服务包装器；任务在用户登录后隐藏启动 WebUI（由 WebUI 托管主控与模块）。
 
   用法（管理员或当前用户均可）：
-    powershell -ExecutionPolicy Bypass -File scripts\service\install-logon-task.ps1
+    powershell -ExecutionPolicy RemoteSigned -File scripts\service\install-logon-task.ps1
   自定义任务名：
-    powershell -ExecutionPolicy Bypass -File scripts\service\install-logon-task.ps1 -TaskName KuguaStudio
+    powershell -ExecutionPolicy RemoteSigned -File scripts\service\install-logon-task.ps1 -TaskName KuguaStudio
 #>
 param(
   [string]$TaskName = "KuguaStudio",

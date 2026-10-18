@@ -72,7 +72,7 @@ try {
       } else {
         $脚本 = Join-Path $Root "scripts\service\install-logon-task.ps1"
         if (Test-Path $脚本) {
-          & powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $脚本 | Out-Null
+          & powershell -NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -File $脚本 | Out-Null
           $开机.Checked = 任务存在
           写日志 "已设置开机启动：$($开机.Checked)"
         } else {
@@ -85,7 +85,9 @@ try {
   $退出 = New-Object System.Windows.Forms.MenuItem("退出")
   $退出.add_Click({
     try {
-      if ($ServerPid -gt 0) { taskkill /PID $ServerPid /T /F | Out-Null }
+      # 用 Stop-Process 而非 taskkill /F：前者是 PowerShell 原生 cmdlet，
+      # 在杀软规则里比"外部命令 + 强制结束"温和得多
+      if ($ServerPid -gt 0) { Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue }
     } catch { 写日志 "退出失败：$_" }
     $notify.Visible = $false
     $notify.Dispose()
