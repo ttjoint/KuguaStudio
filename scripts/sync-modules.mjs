@@ -13,8 +13,8 @@
  *   }
  *
  * 用法：
- *   node tools/sync-modules.mjs           # 同步 kugua.config.json 的 modules[] 与根 start 脚本
- *   node tools/sync-modules.mjs --check   # 仅校验是否一致（不一致则非零退出，供 CI 用）
+ *   node scripts/sync-modules.mjs           # 同步 kugua.config.json 的 modules[] 与根 start 脚本
+ *   node scripts/sync-modules.mjs --check   # 仅校验是否一致（不一致则非零退出，供 CI 用）
  *
  * 这样新增/删除模块只需：建包 + 写 kugua 字段 + `npm install`，其余自动生成。
  */
@@ -153,7 +153,7 @@ function 主() {
       console.error("[sync-modules] 发现不一致：");
       if (配置变化) console.error("  - kugua.config.json 的 modules[] 需重新生成");
       if (根包变化) console.error("  - package.json 的模块 start 脚本需重新生成");
-      console.error("  请运行：node tools/sync-modules.mjs");
+      console.error("  请运行：node scripts/sync-modules.mjs");
       process.exit(1);
     }
     console.log(`[sync-modules] 一致（${模块列表.length} 个模块）`);
