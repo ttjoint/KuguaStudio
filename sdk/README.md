@@ -359,6 +359,67 @@ custom page for voice audition and quick synthesis.
 
 ---
 
+### 4.5 Live widgets (numbers, gauges, sparklines on the main screen)
+
+A form is for settings. A widget is for **live data** the user wants to see
+at a glance: CPU load, queue depth, today's token spend.
+
+Declare them in your plugin manifest under `widgets`:
+
+```json
+{
+  "name": "sysmon",
+  "version": "0.1.0",
+  "entry": "index.js",
+  "widgets": [
+    { "id": "cpu", "type": "gauge", "title": "CPU",
+      "unit": "%", "max": 100, "prominence": "primary",
+      "warn": 70, "danger": 90, "stale": 15 },
+    { "id": "net.down", "type": "sparkline", "title": "Download",
+      "unit": " MB/s", "decimals": 2, "points": 60, "prominence": "normal" }
+  ]
+}
+```
+
+Then push values from your own sampling loop:
+
+```js
+ctx.broadcast("widget.data", { id: "cpu", value: 42.5 });
+```
+
+Three types only: `number`, `gauge`, `sparkline`.
+
+#### What you declare, and what you do not
+
+| You decide | The platform decides |
+|---|---|
+| What is shown inside the block | Where it goes (top / side / status bar) |
+| How often to sample | What shape it takes (card / bar / slim) |
+| How important it is (`prominence`) | Size, how many per row, narrow-screen stacking |
+| Which blocks belong together (`group`) | Drag-and-drop and persistence |
+
+`prominence` is `primary` / `normal` / `secondary`, default `normal`.
+It expresses relative importance, **not position** — your plugin may run
+against a completely different frontend that has no idea what "top" means.
+At most 2 `primary` widgets per plugin; extras are downgraded with a warning.
+
+#### Rules that protect the user
+
+- **Push, do not let the platform poll.** The sampling interval, retries and
+  backoff are your business.
+- **Rate limit is 20 pushes/sec per plugin.** Excess is **dropped, not queued** —
+  stale data has no value and a queue only makes the display lag further.
+- **`stale` (default 30s, min 5)** — after this long without a push the widget
+  greys out and shows "no data". This is not optional decoration: if your plugin
+  dies and the last frame keeps showing, the user believes it is live.
+- **Declare nothing the platform cannot actually produce.** If you can read
+  network counters on Linux but not on Windows, do not declare the widget on
+  Windows. Showing a fake `0 MB/s` is worse than showing nothing.
+
+Widgets are unregistered automatically when the plugin is uninstalled.
+
+---
+
 ## 五、生命周期：平台退出时会发生什么
 
 平台区分两类模块，**退出行为完全不同**：

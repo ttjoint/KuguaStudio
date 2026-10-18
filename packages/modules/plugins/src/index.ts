@@ -56,6 +56,8 @@ export function 启动插件运行时(
   加载器: 插件加载器;
   /** 把插件清单里的配置声明上报给主控（供配置页使用） */
   注册声明: () => Promise<void>;
+  /** 把插件清单里的小组件声明上报给主控（供主界面渲染） */
+  注册小组件: () => Promise<void>;
   关闭: () => Promise<void>;
 } {
   const 插件目录 = 配置.插件目录;
@@ -94,7 +96,17 @@ export function 启动插件运行时(
   const 宿主工厂 = (插件名: string): 插件宿主 => ({
     日志: 创建日志器(`[插件:${插件名}]`),
     请求: (目标, 动作, 参数, 超时毫秒) => 客户端.request(目标, 动作, 参数, 超时毫秒 ?? 10000),
-    广播: (动作, 参数) => 客户端.sendEvent(动作, 参数),
+    广播: (动作, 参数) => {
+      // 小组件数据必须带上真实来源。
+      // 插件发出的所有事件信封 `from` 都是 `plugins`（它们在同一个进程里共用
+      // 同一个连接），因此主界面无法从信封判断是谁推的，只能由这里注入。
+      // 注入在此处而不是插件侧：插件能自己填就能冒充别的插件。
+      if (动作 === "widget.data" && 参数 && typeof 参数 === "object") {
+        客户端.sendEvent(动作, { ...(参数 as Record<string, unknown>), 来源: 插件名 });
+        return;
+      }
+      客户端.sendEvent(动作, 参数);
+    },
     订阅: 订阅总线,
     配置: async () => {
       try {
@@ -138,6 +150,52 @@ export function 启动插件运行时(
       } catch (err) {
         日志.警告(`注册插件配置声明失败（${记录.name}）：${String(err)}`);
       }
+    }
+  };
+
+  /**
+   * 把插件清单里声明的小组件转给主控。
+   *
+   * 与配置声明同理，用 `nigane.widgets.declare` 代报——发送者是 plugins，
+   * 但声明归属于具体插件，所以显式传 `name`。
+   *
+   * 失败不影响插件本身：小组件只是展示，跑不起来也不该拖垮插件。
+   */
+  const 注册插件小组件 = async (): Promise<void> => {
+    for (const 记录 of 加载器.列表()) {
+      const 声明 = 记录.元数据.widgets;
+      if (!声明) continue;
+      try {
+         await 客户端.request("nigane", "nigane.widgets.declare", { name: 记录.name, widgets: 声明 }, 5000);
+      } catch (err) {
+        日志.警告(`注册插件小组件失败（${记录.name}）：${String(err)}`);
+      }
+    }
+  };
+
+  /**
+   * 单个插件的小组件声明变了（安装/重载）就重报一次。
+   *
+   * 不报则主控还拿着旧声明——插件升级删了某个组件，界面上它会
+   * 一直以「无数据」的状态挂着。
+   */
+  const 同步小组件 = async (插件名: string, 声明: unknown): Promise<void> => {
+    try {
+      if (声明) {
+        await 客户端.request("nigane", "nigane.widgets.declare", { name: 插件名, widgets: 声明 }, 5000);
+      } else {
+        await 客户端.request("nigane", "nigane.widgets.unregister", { name: 插件名 }, 5000);
+      }
+    } catch (err) {
+      日志.警告(`同步插件小组件失败（${插件名}）：${String(err)}`);
+    }
+  };
+
+  const 注销插件小组件 = async (插件名: string): Promise<void> => {
+    try {
+      await 客户端.request("nigane", "nigane.widgets.unregister", { name: 插件名 }, 5000);
+    } catch (err) {
+      日志.警告(`注销插件小组件失败（${插件名}）：${String(err)}`);
     }
   };
 
@@ -301,6 +359,7 @@ export function 启动插件运行时(
     const { name } = (params ?? {}) as { name?: string };
     if (!name) throw new Error("缺少 name");
     const 记录 = await 加载器.重载(name);
+    await 同步小组件(name, 记录.元数据.widgets);
     return 记录转对象(记录);
   });
 
@@ -318,6 +377,7 @@ export function 启动插件运行时(
     await 安装依赖(目标目录, 配置.npmTimeoutMs ?? 300000);
     const 记录 = await 加载器.加载(插件名);
     await 加载器.启用(插件名);
+    await 同步小组件(插件名, 记录.元数据.widgets);
     return 记录转对象(记录);
   });
 
@@ -333,6 +393,7 @@ export function 启动插件运行时(
     await 拉取更新(记录.目录, 配置.gitTimeoutMs ?? 120000);
     await 安装依赖(记录.目录, 配置.npmTimeoutMs ?? 300000);
     const 新记录 = await 加载器.重载(name);
+    await 同步小组件(name, 新记录.元数据.widgets);
     return { name, updated: true, from: 检查.原提交, to: 检查.新提交, ...记录转对象(新记录) };
   });
 
@@ -345,6 +406,10 @@ export function 启动插件运行时(
       throw new Error(`插件目录越界，拒绝卸载：${记录.目录}`);
     }
     await 加载器.卸载(name);
+    // 插件没了，它的小组件必须一起消失——否则界面会继续显示
+    // 一个永远不会更新的块（这正是「过期置灰」要防的情况，但
+    // 卸载时更彻底：直接不发）
+    await 注销插件小组件(name);
     删除插件目录(记录.目录);
     日志.信息(`插件已卸载：${name}`);
     return { name, removed: true };
@@ -420,6 +485,7 @@ export function 启动插件运行时(
   return {
     加载器,
     注册声明: 注册插件声明,
+    注册小组件: 注册插件小组件,
     关闭: async () => {
       日志.信息("正在关闭插件运行时……");
       if (防抖定时) clearTimeout(防抖定时);
@@ -480,5 +546,6 @@ void 启动模块({
     // 插件清单里声明的配置，上报给主控后就能在配置页里编辑。
     // 时机必须在「加载全部」之后——声明是从已加载的插件元数据里读的。
     await 运行时实例?.注册声明();
+    await 运行时实例?.注册小组件();
   },
 });

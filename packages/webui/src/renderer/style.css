@@ -3334,3 +3334,138 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ===== 小组件（插件向主界面注入的展示块） =====
+ * 布局由平台决定，插件只提供内容与显著度（docs/小组件设计.md 第四节）。
+ * 三种外形：大卡 / 横条 / 窄条；三个区域：顶部 / 侧栏 / 状态栏。
+ */
+.wg-slot {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+}
+.wg-slot.hidden {
+  display: none;
+}
+.wg-slot-top {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  flex: 0 0 auto;
+}
+.wg-slot-status {
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  padding: 4px 12px;
+  gap: 16px;
+  flex: 0 0 auto;
+  align-items: center;
+}
+.wg-slot-side {
+  border-left: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  flex-direction: column;
+  width: 220px;
+  flex: 0 0 220px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.wg {
+  --wg-line: var(--accent);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.wg.warn { --wg-line: #e0a020; border-color: #6a5220; }
+.wg.danger { --wg-line: #e05a5a; border-color: #6a2424; }
+.wg.stale { opacity: 0.45; }
+
+.wg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wg-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wg-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wg-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-bright);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wg-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* 大卡：宽一些，数字更大 */
+.wg-shape-big {
+  min-width: 150px;
+}
+.wg-shape-big .wg-value {
+  font-size: 26px;
+}
+
+/* 横条：中等宽度 */
+.wg-shape-bar {
+  min-width: 110px;
+}
+
+/* 窄条：状态栏用，一行放得下 */
+.wg-shape-slim {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: transparent;
+  border: none;
+}
+.wg-shape-slim .wg-head { flex-direction: row; }
+.wg-shape-slim .wg-value {
+  font-size: 12px;
+  font-weight: 500;
+}
+.wg-shape-slim .wg-spark { display: none; }
+
+/* 环形缺省 36×36，用 stroke-dasharray 表示进度（比 Canvas 省事且清晰） */
+.wg-gauge { display: flex; align-items: center; gap: 8px; }
+.wg-ring { width: 36px; height: 36px; transform: rotate(-90deg); flex: 0 0 36px; }
+.wg-ring-bg {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 3;
+}
+.wg-ring-fg {
+  fill: none;
+  stroke: var(--wg-line);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.3s ease;
+}
+
+/* 火花线 */
+.wg-spark-row { display: flex; align-items: baseline; gap: 6px; }
+.wg-spark {
+  width: 100%;
+  max-width: 240px;
+  height: 24px;
+  display: block;
+}

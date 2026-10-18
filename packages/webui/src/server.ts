@@ -29,6 +29,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { WebSocketServer, WebSocket } from "ws";
 import { NiganeClient } from "@kugua/nigane";
+import { 每秒推送上限 } from "@kugua/nigane";
+import { 推送限流 } from "./widget-throttle.js";
 import { MCP服务器 } from "@kugua/mcp";
 import type { 能力声明 } from "@kugua/capability";
 import { 获取单实例锁, 读取单实例锁, 抢占全局单例锁, 全局单例锁路径, 数据根 } from "@kugua/paths";
@@ -199,6 +201,19 @@ function 启动主控(): Promise<void> {
   });
 }
 
+/** 小组件推送限流器（每个来源独立计数） */
+const 小组件限流 = new 推送限流(每秒推送上限);
+
+/**
+ * 是否允许本次小组件推送通过。
+ *
+ * 高频推送是必然的（有人会每 100ms 推一次），而界面根本画不了那么快。
+ * 超出**丢弃而不排队**——旧数据没有价值，排队只会让显示越来越滞后。
+ */
+function 允许推送(来源: string): boolean {
+  return 小组件限流.通过(来源);
+}
+
 // ===== 苦音连接 =====
 
 function 推送(消息: unknown): void {
@@ -220,9 +235,24 @@ async function 连接苦音(): Promise<void> {
   // 主控转发的全局总线流量（含其他模块间调用，带双方与传参）
   苦音客户端.onEvent("nigane.traffic", (条目: unknown) => 推送({ type: "log", entry: 条目 }));
   // 注册表/能力/插件变更事件 → 转发给浏览器（前端据此事件驱动刷新，无需轮询）
-  for (const 动作 of ["capability.changed", "registry.changed", "plugins.changed"]) {
+  for (const 动作 of ["capability.changed", "registry.changed", "plugins.changed", "widgets.changed"]) {
     苦音客户端.onEvent(动作, (数据: unknown) => 推送({ type: "bus", action: 动作, params: 数据 }));
   }
+  // 小组件数据推送。
+  // 来源取自**载荷**而非信封：插件与 plugins 模块共用一个连接，
+  // 信封的 from 永远是 `plugins`，区分不出具体插件。载荷里的 `来源`
+  // 由 plugins 模块在转发时写入并覆盖插件的同名字段，插件无法伪造。
+  苦音客户端.onEvent("widget.data", (数据) => {
+    const p = (数据 ?? {}) as Record<string, unknown>;
+    const 来源 = String(p.来源 ?? "");
+    if (!来源) return;
+    if (!允许推送(来源)) return;
+    推送({
+      type: "bus",
+      action: "widget.data",
+      params: { 来源, id: p.id, 值: p.值 ?? p.value, 副标题: p.副标题 ?? p.subtitle },
+    });
+  });
   try {
     await 苦音客户端.connect();
     已就绪 = true;

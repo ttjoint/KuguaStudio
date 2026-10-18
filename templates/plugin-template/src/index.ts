@@ -14,6 +14,9 @@ import {
   type 消息上下文,
 } from "@kugua/plugin-sdk";
 
+/** 小组件采样定时器（卸载时必须清掉） */
+let 定时器: ReturnType<typeof setInterval> | null = null;
+
 class 模板插件 extends BasePlugin {
   async on_load(ctx: Context): Promise<void> {
     super.on_load(ctx);
@@ -55,6 +58,21 @@ class 模板插件 extends BasePlugin {
       说明: "演示模块请求",
     });
 
+    // —— 小组件：向主界面注入实时数字（声明写在 kugua-plugin.json 的 widgets 里）——
+    // 注意这里**不说放在哪**：位置、大小、形态都由平台决定。
+    // 你只负责「块里显示什么」和「多久推一次」。
+    let 问候次数 = 0;
+    let 活跃度 = 0;
+    定时器 = setInterval(() => {
+      活跃度 = Math.min(100, 活跃度 + 7);
+      ctx.广播("widget.data", { id: "hello.level", 值: 活跃度 });
+      if (活跃度 >= 100) {
+        问候次数 += 1;
+        ctx.广播("widget.data", { id: "hello.count", 值: 问候次数 });
+        活跃度 = 0;
+      }
+    }, 1500);
+
     ctx.日志.信息("模板插件 on_load 完成");
   }
 
@@ -67,6 +85,9 @@ class 模板插件 extends BasePlugin {
   }
 
   async on_unload(): Promise<void> {
+    // 必须清掉定时器：否则插件卸载后还在推数据，界面会收到「幽灵」值
+    if (定时器) clearInterval(定时器);
+    定时器 = null;
     this.上下文?.日志.信息("模板插件已卸载");
   }
 }

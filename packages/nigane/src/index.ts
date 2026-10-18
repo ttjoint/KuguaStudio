@@ -12,6 +12,16 @@ import type { 配置声明, 配置载荷, 配置字段声明, 配置字段类型
 
 export type { 配置声明, 配置载荷, 配置字段声明, 配置字段类型 } from "./config-protocol.js";
 export type { 配置列声明, 配置数组声明 } from "./config-protocol.js";
+export type { 小组件声明, 小组件类型, 显著度 } from "./widget-protocol.js";
+export {
+  归一小部件声明,
+  归一小部件列表,
+  合法小组件id,
+  最多小组件数,
+  最多主要小组件,
+  最多曲线点数,
+  每秒推送上限,
+} from "./widget-protocol.js";
 
 /** 当前协议版本 */
 export const 协议版本 = "0.2";
@@ -566,10 +576,21 @@ export class NiganeServer extends EventEmitter {
         return;
       }
       case "event": {
-        const 文本 = JSON.stringify(消息);
+        let 待发 = 消息;
+        // 小组件数据：来源由主控按**真实连接身份**盖章，不信任载荷里的字段。
+        // 插件同属 plugins 模块一个连接，所以 plugins 那边会把自己的子插件名
+        // 写进载荷；但那条路径同样经过这里——真正防的是“外部程序冒充
+        // 别的插件推数据”，那类请求的发送者就是它自己，改了也没用。
+        if (消息.action === "widget.data") {
+          const 原 = (消息.params ?? {}) as Record<string, unknown>;
+          // 非 plugins 的发送者：一律以自己的名字为准
+          const 来源 = 发送者 === "plugins" ? String(原.来源 ?? "") : 发送者;
+          待发 = { ...消息, params: { ...原, 来源 } };
+        }
+        const 文本 = JSON.stringify(待发);
         for (const [名, { socket: 成员 }] of this.注册表) {
           if (名 !== 发送者 && 成员.readyState === WebSocket.OPEN) {
-            this.记录日志("发送", { ...消息, to: 名 });
+            this.记录日志("发送", { ...待发, to: 名 });
             成员.send(文本);
           }
         }

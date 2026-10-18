@@ -1,0 +1,31 @@
+{
+  "name": "sysmon",
+  "version": "0.1.0",
+  "description": "系统监控：CPU / 内存小组件（网速仅在能读取网卡计数器时提供）",
+  "author": "kugua",
+  "entry": "index.js",
+  "widgets": [
+    {
+      "id": "cpu",
+      "type": "gauge",
+      "title": "CPU",
+      "unit": "%",
+      "max": 100,
+      "prominence": "primary",
+      "warn": 70,
+      "danger": 90,
+      "stale": 15
+    },
+    {
+      "id": "mem",
+      "type": "gauge",
+      "title": "内存",
+      "unit": "%",
+      "max": 100,
+      "prominence": "primary",
+      "warn": 80,
+      "danger": 92,
+      "stale": 15
+    }
+  ]
+}

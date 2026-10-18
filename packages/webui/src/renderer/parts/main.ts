@@ -19,3 +19,5 @@ import "./16-cmd-panel";
 import "./17-config-form";
 // 扩展统一列表（模块 + 插件合表展示）
 import "./18-extensions";
+// 小组件：插件向主界面注入的展示块（数据推送 + 自动布局）
+import "./19-widgets";

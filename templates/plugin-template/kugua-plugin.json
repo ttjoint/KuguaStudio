@@ -8,6 +8,26 @@
     "title": "模板页",
     "entry": "ui/index.html"
   },
+  "widgets": [
+    {
+      "id": "hello.count",
+      "type": "number",
+      "title": "问候次数",
+      "prominence": "secondary",
+      "stale": 30
+    },
+    {
+      "id": "hello.level",
+      "type": "gauge",
+      "title": "活跃度",
+      "unit": "%",
+      "max": 100,
+      "prominence": "normal",
+      "warn": 70,
+      "danger": 90,
+      "stale": 30
+    }
+  ],
   "配置声明": {
     "说明": "模板插件的配置示例。改动后立即生效，插件用 ctx.配置() 读取。",
     "字段": [

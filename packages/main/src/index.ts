@@ -40,6 +40,16 @@ import {
   记录声明,
   读取模块配置,
 } from "./module-config.js";
+import {
+  保存小组件配置,
+  归一配置节,
+  注册小组件,
+  注销小组件,
+  设置来源在线,
+  列出小组件,
+  列出小组件警告,
+  读取小组件配置,
+} from "./widgets.js";
 
 interface 主控配置 {
   host: string;
@@ -252,6 +262,9 @@ async function 启动(): Promise<void> {
     if (信息.托管) 处理托管申请(信息);
     // 记录配置声明（供配置页渲染，离线后仍可用）
     记录声明(信息.name, 信息.配置声明);
+    // 小组件在线状态：声明早就在注册表里了（离线时保留，界面标灰），
+    // 这里只翻转状态——不翻转的话组件永远显示「离线」。
+    设置来源在线(信息.name, true);
     // 推送当前配置：模块首次上线就拿到自己的配置，免去自行读盘
     服务端?.sendEventTo(信息.name, "module.config", 构造载荷(信息.name, "初始化", []));
     // 记录本次成功上线使用的版本与能力指纹（供下次接入时比对）
@@ -263,7 +276,12 @@ async function 启动(): Promise<void> {
     const 记录 = 子进程表.get(名);
     if (记录) 记录.registered = false;
     能力表.移除模块(名);
-    服务端?.broadcast("capability.changed", { 模块: 名, 数量: 0 });    console.log(`[主控] 模块离线：${名}`);
+    // 小组件声明保留（历史布局还要用），只标为离线——直接删会让用户的
+    // 布局配置变成孤儿，重连后还得重调。
+    设置来源在线(名, false);
+    服务端?.broadcast("capability.changed", { 模块: 名, 数量: 0 });
+    服务端?.broadcast("widgets.changed", { 来源: 名 });
+    console.log(`[主控] 模块离线：${名}`);
   });
 
   await 服务端.start();
@@ -363,8 +381,68 @@ async function 启动(): Promise<void> {
 function 注册内置动作(服务端: NiganeServer): void {
   // ===== 模块配置（声明式、双向推送） =====
 
-  /** 列出所有模块的配置声明，供 UI 渲染表单 */
+  /**
+   * 列出所有模块的配置声明，供 UI 渲染表单
+   */
   服务端.handle("nigane.moduleConfig.declarations", () => 全部声明());
+
+  // ===== 小组件（插件向主界面注入展示块） =====
+  //
+  // 职责分界：插件只说「块里显示什么」和「哪个重要」，
+  // 放哪里/多大/什么形状全由界面决定（docs/小组件设计.md 第四节）。
+
+  /**
+   * 为某个来源（插件/模块）登记小组件声明。
+   *
+   * 和 `moduleConfig.declare` 同理：插件不是独立进程，声明要由
+   * plugins 模块代报，发送者 ≠ 声明归属者，所以显式传 `name`。
+   */
+  服务端.handle("nigane.widgets.declare", (params) => {
+    const p = (params ?? {}) as { name?: string; widgets?: unknown };
+    if (!p.name) throw new Error("缺少 name");
+    const 结果 = 注册小组件(p.name, p.widgets);
+    if (结果.警告.length > 0) {
+      console.warn(`[主控] 小组件声明警告（${p.name}）：${结果.警告.join("；")}`);
+    }
+    if (结果.数量 > 0) {
+      // 声明成功就视为在线：能发声明就说明它的代码活着。
+      // 不能指望「模块上线」事件——插件与 plugins 模块共用一个连接，
+      // 上线事件的名字是 `plugins` 而不是插件名，永远对不上。
+      设置来源在线(p.name, true);
+      服务端.broadcast("widgets.changed", { 来源: p.name });
+    }
+    return 结果;
+  });
+
+  /** 注销某来源的小组件（插件卸载时） */
+  服务端.handle("nigane.widgets.unregister", (params) => {
+    const p = (params ?? {}) as { name?: string };
+    if (!p.name) throw new Error("缺少 name");
+    注销小组件(p.name);
+    服务端.broadcast("widgets.changed", { 来源: p.name });
+    return { ok: true };
+  });
+
+  /** 列出全部已注册小组件 + 当前布局 + 声明警告 */
+  服务端.handle("nigane.widgets.list", () => ({
+    小组件: 列出小组件(),
+    配置: 读取小组件配置(),
+    警告: 列出小组件警告(),
+  }));
+
+  /**
+   * 保存整套 widgets 配置节（方案增删、当前方案切换、覆盖项修改）。
+   *
+   * 整体替换而不是局部 patch：布局本来就小（几个 KB），
+   * 整体写能避免「两个字段分别 patch 却互相覆盖」那类竞态。
+   */
+  服务端.handle("nigane.widgets.config.set", (params) => {
+    const p = (params ?? {}) as { 配置?: unknown };
+    const 节 = 归一配置节(p.配置);
+    保存小组件配置(节);
+    服务端.broadcast("widgets.changed", { 来源: "" });
+    return 节;
+  });
 
   /**
    * 为**其他名字**注册配置声明。
