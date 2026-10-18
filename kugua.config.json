@@ -229,12 +229,6 @@
       "description": "语音合成（M6）：sherpa-onnx 离线 TTS / ChatTTS / Windows SAPI",
       "version": "0.2.0",
       "capabilityHash": "tts.speak||语音合成,说话;tts.status||"
-    },
-    {
-      "name": "math",
-      "type": "library",
-      "file": "bin/math.dll",
-      "description": "静态库示例（仅检测文件存在性）"
     }
   ],
   "ai": {

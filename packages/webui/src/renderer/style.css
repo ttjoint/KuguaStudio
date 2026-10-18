@@ -2937,10 +2937,64 @@ body {
 #chat-sidebar.chat-main .chat-toggle { display: none; }
 
 /* ===== 日志页 ===== */
-#logs-view .oc-page-body { overflow: auto; }
-#logs-view .debug-log { max-height: 42vh; }
+#logs-view .oc-page-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+/* 分标签：两个日志各自占满到底，不再上下对半分 */
+.logs-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+  flex: none;
+}
+.logs-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.logs-tab:hover { color: var(--text); }
+.logs-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent, #7aa2f7);
+}
+/* 条数徽标：没爬这个标签也知道另一边有没有东西 */
+.logs-tab-count {
+  min-width: 1.5em;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.2);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  text-align: center;
+}
+.logs-tab.active .logs-tab-count { background: rgba(122, 162, 247, 0.25); }
+.logs-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.logs-pane.hidden { display: none; }
+.logs-pane .oc-section-title { flex: none; }
+#logs-view .debug-log { flex: 1; max-height: none; min-height: 0; }
 .log-dir.error { background: rgba(230, 110, 110, 0.35); }
 .log-entry .log-detail { white-space: pre-wrap; word-break: break-all; }
+/* 级别配色：扫一眼就知道哪条重要 */
+.log-dir.warn { background: rgba(230, 180, 90, 0.35); }
+.log-dir.debug { opacity: 0.55; }
+.syslog-entry.warn .log-detail { color: var(--warn, #e0b45a); }
+.syslog-entry.error .log-detail { color: var(--danger, #e66e6e); }
 
 /* ===== 知识库：当前筛选摘要 ===== */
 .ex-filter-summary {

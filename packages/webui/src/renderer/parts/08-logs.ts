@@ -235,11 +235,15 @@ export function 添加日志(条目: 日志条目): void {
   }
   日志缓存.push(条目);
   if (日志缓存.length > 最大缓存) 日志缓存.shift();
-  if (!日志条目通过过滤(条目)) return;
+  if (!日志条目通过过滤(条目)) {
+    更新日志条数();
+    return;
+  }
   const div = 构建日志节点(条目);
   debug日志.appendChild(div);
   debug日志.scrollTop = debug日志.scrollHeight;
   while (debug日志.children.length > 最大缓存) debug日志.removeChild(debug日志.firstChild!);
+  更新日志条数();
 }
 
 export function 重新渲染日志(): void {
@@ -249,6 +253,7 @@ export function 重新渲染日志(): void {
     debug日志.appendChild(构建日志节点(条目));
   }
   debug日志.scrollTop = debug日志.scrollHeight;
+  更新日志条数();
 }
 
 document.getElementById("debug-clear")?.addEventListener("click", () => {
@@ -270,16 +275,33 @@ export function 转义HTML(s: string): string {
   return s.replace(/[<>&]/g, (c) => (c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&amp;"));
 }
 
+/** 系统日志级别过滤：debug 默认关掉（启动时一大批，关了才看得见真问题） */
+function 系统日志级别通过(级别: string): boolean {
+  const 框 = document.getElementById(`sysfilter-${级别}`) as HTMLInputElement | null;
+  // 没这个框的级别（未来新增的）默认放行，宁可多显示也不默默吞掉
+  return !框 || 框.checked;
+}
+
+/** 更新标签上的条数徽标——不切过去也知道另一边有没有新东西 */
+function 更新日志条数(): void {
+  const 总线数 = document.getElementById("logs-count-bus");
+  const 系统数 = document.getElementById("logs-count-sys");
+  if (总线数) 总线数.textContent = String(日志缓存.filter(日志条目通过过滤).length);
+  if (系统数) 系统数.textContent = String(系统日志缓存.filter((e) => 系统日志级别通过(e.级别)).length);
+}
+
 export function 渲染系统日志(): void {
   const 容器 = document.getElementById("syslog-list");
   if (!容器) return;
-  容器.innerHTML = 系统日志缓存
+  const 可见 = 系统日志缓存.filter((e) => 系统日志级别通过(e.级别));
+  容器.innerHTML = 可见
     .map(
       (e) =>
-        `<div class="log-entry syslog-entry"><span class="log-time">${格式化时间(e.时间)}</span><span class="log-dir ${e.级别 === "error" ? "error" : "recv"}">${e.级别}</span><span class="log-route">${转义HTML(e.模块)}</span><span class="log-detail">${转义HTML(e.消息 ?? "")}</span></div>`,
+        `<div class="log-entry syslog-entry ${e.级别 === "error" ? "error" : e.级别 === "warn" ? "warn" : ""}"><span class="log-time">${格式化时间(e.时间)}</span><span class="log-dir ${e.级别 === "error" ? "error" : e.级别 === "warn" ? "warn" : e.级别 === "debug" ? "debug" : "recv"}">${e.级别}</span><span class="log-route">${转义HTML(e.模块)}</span><span class="log-detail">${转义HTML(e.消息 ?? "")}</span></div>`,
     )
     .join("");
   容器.scrollTop = 容器.scrollHeight;
+  更新日志条数();
 }
 
 export async function 刷新系统日志(): Promise<void> {
@@ -293,6 +315,41 @@ export async function 刷新系统日志(): Promise<void> {
 }
 
 document.getElementById("syslog-refresh")?.addEventListener("click", () => void 刷新系统日志());
+
+// ===== 日志页分标签 =====
+
+/**
+ * 切换通信日志 / 系统日志。
+ *
+ * 之前两者上下堆叠，各占 42vh：两边都在实时滚动，同时盯两处根本看不过来，
+ * 而且大屏上白白浪费一半高度。分标签后一次专注一个，占满全页。
+ */
+function 切换日志页(标签: "bus" | "sys"): void {
+  for (const 名 of ["bus", "sys"] as const) {
+    const 钮 = document.getElementById(`logs-tab-${名}`);
+    const 面 = document.getElementById(`logs-pane-${名}`);
+    const 选中 = 名 === 标签;
+    钮?.classList.toggle("active", 选中);
+    钮?.setAttribute("aria-selected", String(选中));
+    面?.classList.toggle("hidden", !选中);
+  }
+  // 切过去才回去看新内容——藏在后面的标签不会自动滚到底
+  if (标签 === "sys") {
+    const 容器 = document.getElementById("syslog-list");
+    if (容器) 容器.scrollTop = 容器.scrollHeight;
+  } else {
+    debug日志.scrollTop = debug日志.scrollHeight;
+  }
+}
+
+document.querySelectorAll<HTMLElement>("[data-logs-tab]").forEach((钮) => {
+  钮.addEventListener("click", () => 切换日志页(钮.dataset.logsTab as "bus" | "sys"));
+});
+
+// 系统日志的级别筛选（通信日志的筛选在上面已有的 .debug-filter 绑定里）
+document.querySelectorAll("#logs-pane-sys .debug-filter input").forEach((cb) => {
+  cb.addEventListener("change", 渲染系统日志);
+});
 
 // 监听主进程转发的通信日志
 window.kugua.onLog((entry: unknown) => {

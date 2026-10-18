@@ -50,6 +50,8 @@ export type 模块事件处理器 = (参数: unknown, 消息: unknown) => void |
 
 /** 日志器接口（与 @kugua/logger 的 创建日志器 兼容，避免强依赖） */
 export interface 简易日志器 {
+  /** 调试细节（连接地址、内部状态）。默认不对用户展示，排查时看 */
+  调试?: (信息: string) => void;
   信息: (信息: string) => void;
   警告?: (信息: string) => void;
   错误: (信息: string) => void;
@@ -176,6 +178,11 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
 ): Promise<NiganeClient | null> {
   if (选项.仅在主模块启动 && !是主模块(选项.入口文件URL)) return null;
 
+  // 把模块里直接写的 console.* 也打上级别标记。
+  // 不包这一层的话，模块内部 `console.warn(...)` 走 stdout，主控只能当 info，
+  // 警告就变成了“一切正常”。
+  归一化控制台();
+
   const 日志 = 选项.日志 ?? 创建控制台日志(选项.name);
 
   // —— 配置：文件配置与自定义读取结果合并 ——
@@ -236,7 +243,11 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
     process.exit(选项.失败退出码 ?? 1);
   }
 
-  日志.信息(`已接入主控：${url}`);
+  // 连接成功本身不是「事件」——25 个模块启动会刷 25 条一模一样的话。
+  // 降为 debug：排查连接问题时看得到，日常不占屏。
+  // 模块想在日志里留下可辨认的一行，应在 `就绪` 里写自己的话（带模块特色）。
+  if (日志.调试) 日志.调试(`已接入主控：${url}`);
+  else 日志.信息(`已接入主控：${url}`);
 
   if (选项.就绪) {
     try {
@@ -273,11 +284,49 @@ export async function 启动模块<配置 extends 基础模块配置 = 基础模
 }
 
 /** 默认日志器：带 `[模块名]` 前缀输出到控制台 */
+let 控制台已归一 = false;
+
+/**
+ * 给模块进程里的 console.warn / console.error 加上级别标记。
+ *
+ * 为什么必须做：Node 只有 stdout/stderr 两个频道。模块里随手写的
+ * `console.warn(...)` 走 stdout，而主控把 stdout 一律当 info —— 于是
+ * **模块报了警告，日志里显示为正常信息**。排查时根本不会去看那几条。
+ *
+ * 只在被主控托管时生效；单独跑模块时保持原样。
+ */
+function 归一化控制台(): void {
+  if (控制台已归一 || process.env.KUGUA_HOSTED !== "1") return;
+  控制台已归一 = true;
+  const 标记 = (级别: string) => `\u0001kugua:${级别}\u0001`;
+  const 原始warn = console.warn.bind(console);
+  const 原始error = console.error.bind(console);
+  console.warn = (...参数: unknown[]) => 原始warn(标记("warn"), ...参数);
+  console.error = (...参数: unknown[]) => 原始error(标记("error"), ...参数);
+}
+
+/**
+ * 控制台日志器。
+ *
+ * 为什么每行前面有个 `\u0001kugua:warn\u0001`：主控把子进程的输出全部转进
+ * 自己的日志器，而 Node 只有 stdout/stderr 两个频道，不区分 console.log /
+ * warn / debug。不加标记的话，模块发的警告到了主控就变成 info——
+ * **用户看着一切正常，而我们其实报过错**。
+ *
+ * 用不可打印字符包住是为了几乎不可能与真实内容冲突（普通日志不会包含 \u0001）。
+ * 直接运行模块（不经主控）时，终端会把它显示为控制符，不影响阅读判断。
+ */
 function 创建控制台日志(名称: string): 简易日志器 {
   const 前缀 = `[${名称}]`;
+  // 只有被主控托管时才加标记（KUGUA_HOSTED 由主控 spawn 时注入）。
+  // 用户直接 `npm run xxx` 跑模块时不应看到控制字符。
+  const 托管 = process.env.KUGUA_HOSTED === "1";
+  const 标记 = (级别: string) => (托管 ? `\u0001kugua:${级别}\u0001` : "");
   return {
-    信息: (信息) => console.log(`${前缀} ${信息}`),
-    警告: (信息) => console.warn(`${前缀} ${信息}`),
-    错误: (信息) => console.error(`${前缀} ${信息}`),
+    调试: (信息) => console.log(`${标记("debug")}${前缀} ${信息}`),
+    信息: (信息) => console.log(`${标记("info")}${前缀} ${信息}`),
+    警告: (信息) => console.log(`${标记("warn")}${前缀} ${信息}`),
+    // 错误仍走 stderr，终端重定向/管道时能按流区分
+    错误: (信息) => console.error(`${标记("error")}${前缀} ${信息}`),
   };
 }

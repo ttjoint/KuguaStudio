@@ -492,5 +492,5 @@ void 启动模块({
       return { ...r, message: `相似度 ${(r.相似度 * 100).toFixed(2)}%` };
     });
   },
-  就绪: () => console.log("[图片模块] 已接入主控（ImageMagick 引擎），等待图片处理请求"),
+  就绪: () => console.debug("[图片模块] 已接入主控（ImageMagick 引擎），等待图片处理请求"),
 });

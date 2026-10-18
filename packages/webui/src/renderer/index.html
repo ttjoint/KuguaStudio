@@ -495,9 +495,22 @@
           <span class="oc-page-title">&#x1F9FE; 日志与调试</span>
         </div>
         <div class="oc-page-body">
-          <div class="oc-section">
+          <!-- 通信日志与系统日志是两种截然不同的东西：一个看「发了什么」，
+               一个看「内部怎么想」。上下堆叠时每个只能分到半屏，而且两边
+               都在实时滚动，同时盯着两处根本看不过来。改成分标签，
+               一次专注一个，占满整个页面高度。 -->
+          <div class="logs-tabs" role="tablist">
+            <button class="logs-tab active" id="logs-tab-bus" data-logs-tab="bus" role="tab" aria-selected="true">
+              通信日志<span class="logs-tab-count" id="logs-count-bus">0</span>
+            </button>
+            <button class="logs-tab" id="logs-tab-sys" data-logs-tab="sys" role="tab" aria-selected="false">
+              系统日志<span class="logs-tab-count" id="logs-count-sys">0</span>
+            </button>
+          </div>
+
+          <div class="logs-pane" id="logs-pane-bus">
             <div class="oc-section-title">
-              <span>通信日志（总线收发 / 插件调用 / 错误）</span>
+              <span>总线收发 / 插件调用 / 错误（点击条目展开明细）</span>
               <span class="oc-section-tools">
                 <label class="debug-filter"><input type="checkbox" id="filter-send" checked> 发送</label>
                 <label class="debug-filter"><input type="checkbox" id="filter-recv" checked> 接收</label>
@@ -508,10 +521,15 @@
             </div>
             <div id="debug-log" class="debug-log"></div>
           </div>
-          <div class="oc-section">
+
+          <div class="logs-pane hidden" id="logs-pane-sys">
             <div class="oc-section-title">
-              <span>系统日志（各模块 / 插件调用与报错）</span>
+              <span>各模块 / 插件的运行信息与报错</span>
               <span class="oc-section-tools">
+                <label class="debug-filter"><input type="checkbox" id="sysfilter-debug"> 调试</label>
+                <label class="debug-filter"><input type="checkbox" id="sysfilter-info" checked> 信息</label>
+                <label class="debug-filter"><input type="checkbox" id="sysfilter-warn" checked> 警告</label>
+                <label class="debug-filter"><input type="checkbox" id="sysfilter-error" checked> 错误</label>
                 <button id="syslog-refresh" class="tb-btn small">&#x21BB; 刷新</button>
               </span>
             </div>

@@ -255,8 +255,12 @@ async function 启动(): Promise<void> {
       ...(信息.capabilities ?? []),
       ...(信息.capabilityDefs ?? []).map((c) => c.名称),
     ]);
+    // 能力名全列会把一行拉到 300+ 字，把真正要紧的东西（版本、路径）挤掉。
+    // 能力清单在设置页的模块页里看得到，日志只需要「多少个」。
+    const 能力名 = [...能力名集];
+    const 能力摘要 = 能力名.length === 0 ? "无能力" : 能力名.length <= 3 ? 能力名.join("、") : `${能力名.length} 项`;
     console.log(
-      `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，路径 ${信息.path ?? "未上报"}，能力：${[...能力名集].join("、") || "无"}）`,
+      `[主控] 模块上线：${信息.name}（版本 ${信息.version ?? "未知"}，${能力摘要}${信息.path ? `，路径 ${信息.path}` : ""}）`,
     );
     // 外部模块自报托管意愿 → 首次注册写入配置；已有配置则不覆盖
     if (信息.托管) 处理托管申请(信息);
@@ -296,7 +300,7 @@ async function 启动(): Promise<void> {
   // —— 握手门禁：按身份/版本/路径决定是否允许接入 ——
   服务端.握手校验 = (信息: 模块信息) => 校验接入(信息);
   if (!配置.token) {
-    console.warn("[主控] 警告：未配置 token，任何本地进程均可接入，请在 kugua.config.json 中设置。");
+    console.warn("[主控] 未配置 token，任何本地进程均可接入；如需限制，请在 kugua.config.json 中设置。");
   }
 
   // —— 库型模块：检测文件存在 ——
@@ -304,13 +308,16 @@ async function 启动(): Promise<void> {
     if (m.type === "library" && m.file) {
       const ok = existsSync(pathResolve(process.cwd(), m.file));
       库文件状态.set(m.name, ok);
-      console.log(`[主控] 库模块 ${m.name}：${ok ? "就绪" : "未找到文件：" + m.file}`);
+      // 库文件不在是**配置错误**，不是正常状态——用 warn，不要混在 info 里
+      if (ok) console.debug(`[主控] 库模块 ${m.name}：就绪`);
+      else console.warn(`[主控] 库模块 ${m.name}：未找到文件 ${m.file}（配置中存在但文件缺失）`);
     }
   }
 
   // —— 进程型模块：并行启动 autoStart=true 的项（不互相阻塞，注册即视为就绪） ——
   const 启动列表 = (配置.modules ?? []).filter((m) => m.type === "process" && m.autoStart);
-  console.log(`[主控] 自动启动模块（${启动列表.length} 项）`);
+  // 后面每条「模块上线」会逐个报，这条只是提前告诉总数；降为 debug。
+  console.debug(`[主控] 自动启动模块（${启动列表.length} 项）`);
   const 启动结果 = await Promise.allSettled(启动列表.map((m) => 启动模块(m)));
   启动结果.forEach((r, i) => {
     if (r.status === "rejected") {
@@ -1118,12 +1125,38 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
     proc.stdout?.on("data", (buf: Buffer) => {
       const 文本 = buf.toString();
       for (const 行 of 文本.split("\n").filter((s) => s.trim())) {
+        // 子进程的 stdout 混杂着 debug/info/warn 三种输出，全当 info 会
+        // **把警告降级成信息**——模块报了问题，用户却看不出异常。
+        // 所以约定一个级别前缀（见 module-kit 的控制台日志器），这里还原。
+        const 匹配 = /^\u0001(kugua:(debug|info|warn|error))\u0001([\s\S]*)$/.exec(行);
+        if (匹配) {
+          const 级别 = 匹配[2] as 日志级别;
+          const 内容 = 匹配[3];
+          if (级别 === "warn") console.warn(`[${描述.name}]`, 内容);
+          else if (级别 === "error") console.error(`[${描述.name}]`, 内容);
+          else if (级别 === "debug") console.debug(`[${描述.name}]`, 内容);
+          else console.log(`[${描述.name}]`, 内容);
+          continue;
+        }
         console.log(`[${描述.name}]`, 行);
       }
     });
     proc.stderr?.on("data", (buf: Buffer) => {
       const 文本 = buf.toString();
       for (const 行 of 文本.split("\n").filter((s) => s.trim())) {
+        // stderr 不一定是错误：很多运行时和库拿它当第二输出流用。
+        // 所以也尊重前缀；无前缀时保留原来的「归为 error」行为——
+        // 经 stderr 且不声明的，大概率真是错误。
+        const 匹配 = /^\u0001(kugua:(debug|info|warn|error))\u0001([\s\S]*)$/.exec(行);
+        if (匹配) {
+          const 级别 = 匹配[2] as 日志级别;
+          const 内容 = 匹配[3];
+          if (级别 === "warn") console.warn(`[${描述.name}]`, 内容);
+          else if (级别 === "debug") console.debug(`[${描述.name}]`, 内容);
+          else if (级别 === "info") console.log(`[${描述.name}]`, 内容);
+          else console.error(`[${描述.name}:err]`, 内容);
+          continue;
+        }
         console.error(`[${描述.name}:err]`, 行);
       }
     });
@@ -1249,6 +1282,7 @@ function 安装日志捕获(实例: 日志器): void {
   const 原始log = console.log.bind(console);
   const 原始warn = console.warn.bind(console);
   const 原始error = console.error.bind(console);
+  const 原始debug = console.debug.bind(console);
   const 包裹 = (级别: 日志级别, 原始: (...参数: unknown[]) => void) =>
     (...参数: unknown[]): void => {
       const 文本 = 参数.map(安全字符串).join(" ");
@@ -1259,6 +1293,9 @@ function 安装日志捕获(实例: 日志器): void {
   console.log = 包裹("info", 原始log);
   console.warn = 包裹("warn", 原始warn);
   console.error = 包裹("error", 原始error);
+  // 不接 debug 的话，模块用 console.debug 写的诊断信息会直接消失——
+  // 「隐蔽的日志比没有日志更难查」，宁可多一条 debug。
+  console.debug = 包裹("debug", 原始debug);
 }
 
 /** 主控侧能力调用器：把能力调用路由到模块 */const 主控调用器 = {
@@ -1335,7 +1372,7 @@ async function 探测可查询性(名: string): Promise<void> {
     服务端?.setDescription(项);
     if (!可查) {
       console.warn(
-        `[主控] WARN 模块「${名}」未实现 module.query，下次接入将无法校验身份与版本。`,
+        `[主控] 模块「${名}」未实现 module.query，下次接入将无法校验身份与版本。`,
       );
     }
   }
@@ -1468,7 +1505,7 @@ function 校验接入(信息: 模块信息): { 允许: boolean; 理由?: string 
       const 详情 =
         `模块「${名}」上报信息与已注册不一致（${判定.差异.join("；")}），已暂下线。` +
         `请在模块管理中选择是否按其新信息更新。`;
-      console.error(`[主控] ERROR ${详情}`);
+      console.error(`[主控] ${详情}`);
       服务端?.broadcast("module.held", {
         模块: 名,
         原因: 判定.原因,
@@ -1481,7 +1518,7 @@ function 校验接入(信息: 模块信息): { 允许: boolean; 理由?: string 
     }
 
     case "reject": {
-      console.warn(`[主控] WARN ${判定.详情}`);
+      console.warn(`[主控] ${判定.详情}`);
       拒绝模块.set(名, { 原因: 判定.原因, 详情: 判定.详情 });
       服务端?.broadcast("module.rejected", {
         模块: 名,
@@ -1610,7 +1647,7 @@ function 汇总能力(信息: 模块信息): void {
   const { 合法: 显式, 问题 } = 归一全部能力(信息.capabilityDefs);
   for (const { 声明, 原因 } of 问题) {
     console.warn(
-      `[主控] 警告：模块「${信息.name}」上报的能力声明被忽略（${原因}）：` +
+      `[主控] 模块「${信息.name}」上报的能力声明被忽略（${原因}）：` +
         JSON.stringify(声明).slice(0, 200),
     );
   }
@@ -1622,7 +1659,7 @@ function 汇总能力(信息: 模块信息): void {
         能力表.注册({ ...声明, 模块: 声明.模块 || 信息.name });
       } catch (err) {
         // 单条能力声明不合法不应拖垮整个平台
-        console.warn(`[主控] 警告：模块「${信息.name}」的能力「${名称}」注册失败：${String(err)}`);
+        console.warn(`[主控] 模块「${信息.name}」的能力「${名称}」注册失败：${String(err)}`);
       }
     } else {
       // 跳过与模块同名的自标识（如 capabilities: ["webui"]）
@@ -1635,9 +1672,9 @@ function 汇总能力(信息: 模块信息): void {
       });
     }
   }
-  if (显式.size === 0 && (信息.capabilities ?? []).length > 0) {
-    console.log(`[主控] 能力汇总：${信息.name} 声明 ${名称集.size} 项（无显式元数据）`);
-  }
+  // 这里曾经有一条「能力汇总：X 声明 N 项（无显式元数据）」。
+  // 它紧跟在「模块上线」后面，而上线日志已经把能力名全列了，纯重复。
+  // 模块启动的 25 条噪音里它占了 25 份。
 }
 
 启动().catch((err) => {

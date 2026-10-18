@@ -207,6 +207,30 @@ export interface 托管申请 {
   description?: string;
 }
 
+/** 通信日志单条载荷的字符上限。超过则换成摘要，不存全量。 */
+const 载荷字符上限 = 8000;
+
+/**
+ * 剪裁过大的载荷。
+ *
+ * 通信日志是环形缓冲（1000 条），全量保留大 payload（比如 base64 图片、
+ * 万行 JSON）会让它占几百 MB。前端虽然会在**显示**时截断，但内存里的
+ * 那一份还在——而日志的本职是「看出发生了什么」，不是「还原完整数据」。
+ *
+ * 保留开头一段 + 大小说明，足够判断是哪个参数出了问题。
+ */
+function 剪裁载荷(值: unknown): unknown {
+  if (值 === undefined || 值 === null) return 值;
+  let 文本: string;
+  try {
+    文本 = JSON.stringify(值) ?? "";
+  } catch {
+    return "（不可序列化）";
+  }
+  if (文本.length <= 载荷字符上限) return 值;
+  return `（载荷过大，共 ${文本.length} 字符，仅保留开头）${文本.slice(0, 载荷字符上限)}`;
+}
+
 /**
  * 主控服务端：维护模块注册表并路由消息。
  * 事件：
@@ -247,6 +271,11 @@ export class NiganeServer extends EventEmitter {
 
   constructor(private 选项: 服务端选项) {
     super();
+    // 启动时每个模块都会挂一个短命的 "registered" 监听（等到自家上线就撤）。
+    // 模块是**并发**启动的，它们同时存在，很容易瞬时超 10 个——这并非泄漏，
+    // 而是临时并发。默认上限下会刷一条 MaxListenersExceededWarning，
+    // 而“真的漏了监听器”恰恰靠这条警告发现，不能让它变成常态噪声。
+    this.setMaxListeners(64);
   }
 
   /** 启动监听 */
@@ -423,8 +452,20 @@ export class NiganeServer extends EventEmitter {
     });
   }
 
-  /** 记录一条通信日志（主控视角），入环形缓冲并以 "log" 事件发出；含 params/data 明细。 */
+  /**
+   * 记录一条通信日志（主控视角），入环形缓冲并以 "log" 事件发出；含 params/data 明细。
+   *
+   * 两类消息不记：
+   *  - **ping/pong 心跳**：每 30s 一轮、模块数 × 2，几分钟就把 1000 条环形缓冲冲光，
+   *    真出了问题时翻不到出事前的上下文。
+   *  - **widget.data**：小组件 1.5s 推一次，CPU/内存 × 模块数，同上。
+   *
+   * 两者共同点：**周期性且量极大**。通信日志的用途是查“刚才那个调用发了什么”，
+   * 被周期流量冲掉就完全失去意义了。
+   */
   private 记录日志(方向: "发送" | "接收" | "超时", 消息: 信封): void {
+    if (消息.type === "ping" || 消息.type === "pong") return;
+    if (消息.type === "event" && 消息.action === "widget.data") return;
     const 条目 = {
       时间: Date.now(),
       方向,
@@ -436,8 +477,8 @@ export class NiganeServer extends EventEmitter {
       echo: 消息.echo,
       code: 消息.code,
       message: 消息.message,
-      params: 消息.params,
-      data: 消息.data,
+      params: 剪裁载荷(消息.params),
+      data: 剪裁载荷(消息.data),
     };
     this.通信日志.push(条目);
     if (this.通信日志.length > this.通信日志容量) {
