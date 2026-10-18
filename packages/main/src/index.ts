@@ -399,11 +399,20 @@ async function 启动(): Promise<void> {
         console.warn(`[主控] 终止 ${name} 失败：${String(err)}`);
       }
     }
-    // 3) 兜底：再等 2 秒后强制 kill
+    // 3) 兜底：再等 2 秒后强制 kill 仍然活着的
+    //
+    // 这里**不能**用 proc.killed 判断：它是「是否调用过 kill()」的标记，
+    // 调用后立刻变 true，跟进程有没有真的退出无关。上一步刚发过 SIGTERM，
+    // 所以 killed 全是 true，兜底会被整体跳过——等于没有兜底。
+    //
+    // Windows 上 SIGTERM 被 Node 直接映射成硬杀，所以平时看不出问题；
+    // Linux/macOS 上 SIGTERM 是可以被忽略的，模块一旦卡住就会带着它退出。
+    // 正确判据是 exitCode / signalCode 仍为 null（进程还活着）。
     const 等待 = new Promise<void>((resolve) => setTimeout(resolve, 2000));
     await 等待;
     for (const [name, 记录] of 子进程表) {
-      if (!记录.proc.killed) {
+      if (记录.proc.exitCode === null && 记录.proc.signalCode === null) {
+        console.warn(`[主控] 子进程 ${name}（pid=${记录.proc.pid ?? "?"}）未在 2 秒内退出，强制结束`);
         try {
           记录.proc.kill("SIGKILL");
         } catch {

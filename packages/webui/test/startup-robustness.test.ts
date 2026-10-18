@@ -19,6 +19,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { NiganeClient } from "@kugua/nigane";
 
 const 仓库根 = resolve(__dirname, "..", "..", "..");
 const WebUI脚本 = join(仓库根, "packages", "webui", "dist", "server.js");
@@ -278,6 +279,43 @@ describe.runIf(已构建)("启动健壮性", () => {
       expect(输出()).not.toMatch(/入口不存在|ENOENT/);
     },
     30000,
+  );
+});
+
+describe.runIf(已构建)("外部程序收到的退出通知", () => {
+  it(
+    "走 /api/shutdown 时外部程序能收到 system.shutdown",
+    async () => {
+      // 托盘「退出」原来是 Stop-Process -Force 强杀，主控来不及广播
+      // system.shutdown。托管模块被强杀会自己退，所以表面看没事——
+      // 但运行中接入的**外部程序**不受平台托管，只能靠这条消息决定要不要退，
+      // 收不到就成了没人管的僵尸进程。而且同一个「退出」动作，
+      // 托盘和设置页按钮结果还不一样。
+      const env = await 造环境();
+      所有目录.add(env.目录);
+      const p = 起WebUI(env);
+      const 输出 = 收集(p);
+
+      const ok = await 等待可访问(env.WebUI端口, 20000);
+      if (!ok) return; // 环境没起来，跳过（其余用例会报）
+
+      // 用平台自己的客户端冒一个外部程序（比手搓 WebSocket 稳，
+      // 省得握手字段写错还以为是产品问题）
+      const 收到: string[] = [];
+      const 外部 = new NiganeClient({ url: 'ws://127.0.0.1:' + env.主控端口, name: '外部程序', token: '' });
+      外部.on('shutdown', () => 收到.push('system.shutdown'));
+      await 外部.connect();
+      await sleep(300);
+
+      await fetch('http://127.0.0.1:' + env.WebUI端口 + '/api/shutdown', { method: 'POST' }).catch(
+        () => undefined,
+      );
+
+      for (let i = 0; i < 40 && 收到.length === 0; i++) await sleep(200);
+      try { 外部.close(); } catch { /* 已断 */ }
+      expect(收到).toContain('system.shutdown');
+    },
+    45000,
   );
 });
 

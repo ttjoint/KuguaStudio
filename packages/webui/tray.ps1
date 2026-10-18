@@ -85,9 +85,33 @@ try {
   $退出 = New-Object System.Windows.Forms.MenuItem("退出")
   $退出.add_Click({
     try {
-      # 用 Stop-Process 而非 taskkill /F：前者是 PowerShell 原生 cmdlet，
-      # 在杀软规则里比"外部命令 + 强制结束"温和得多
-      if ($ServerPid -gt 0) { Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue }
+      # 必须走 /api/shutdown，**不能**直接 Stop-Process -Force。
+      #
+      # 强杀会让主控来不及广播 system.shutdown：
+      #   - 运行中接入的外部程序收不到退出通知（它们不受平台托管，
+      #     只能靠这条消息决定要不要退）
+      #   - 审计与日志来不及落盘
+      # 这和设置页「退出平台」按钮的行为不一致——同一个动作两个结果。
+      #
+      # 先请求优雅关闭，等它自己退；超时或失败才回退强杀。
+      $done = $false
+      try {
+        $null = Invoke-WebRequest -Uri "$Url/api/shutdown" -Method POST -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+        $done = $true
+        写日志 "已请求优雅退出"
+      } catch { 写日志 "优雅退出请求失败：$_"; }
+
+      if ($done -and $ServerPid -gt 0) {
+        # 最多等 10 秒，让主控广播完并收掉托管模块
+        for ($i = 0; $i -lt 40; $i++) {
+          Start-Sleep -Milliseconds 250
+          if (-not (Get-Process -Id $ServerPid -ErrorAction SilentlyContinue)) { break }
+        }
+      }
+      # 兜底：还在就强杀（用 Stop-Process 而非 taskkill /F，杀软更温和）
+      if ($ServerPid -gt 0) {
+        Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue
+      }
     } catch { 写日志 "退出失败：$_" }
     $notify.Visible = $false
     $notify.Dispose()
