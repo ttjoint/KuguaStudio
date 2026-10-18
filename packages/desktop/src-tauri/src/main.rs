@@ -14,7 +14,7 @@ use std::{
     net::TcpStream,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -26,7 +26,7 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 /// 持有 `Child` 的意义是不让句柄被提前 drop，同时壳进程若异常死亡，
 /// Job Object（见 `绑定作业对象`）会由系统连带收走这棵进程树。
 #[allow(dead_code)]
-struct 侧车状态(Mutex<Option<Child>>);
+struct 侧车状态(Arc<Mutex<Option<Child>>>);
 
 /// 默认 WebUI 端口。与 kugua.config.json 的 webui.port 保持一致。
 const 默认端口: u16 = 24600;
@@ -269,6 +269,128 @@ fn quit_app(应用: tauri::AppHandle) {
 }
 
 
+
+/// 闪屏页的 data URI。
+///
+/// 用 `include_str!` 把 HTML 编进二进制，再用 data URI 加载——这样闪屏不依赖
+/// 任何外部文件或自定义协议，壳被单独拷走也能用。
+///
+/// 只做最小的转义：`#` 和 `%` 在 data URI 里会被当分隔符/转义符，必须处理。
+fn 闪屏页地址() -> String {
+    let 页 = include_str!("../../splash.html");
+    let 转义后 = 页.replace('%', "%25").replace('#', "%23");
+    format!("data:text/html;charset=utf-8,{转义后}")
+}
+
+/// 让闪屏窗口推进到某个阶段（调用页面里注入的 `window.__splash.阶段`）。
+///
+/// 用 eval 而不是 IPC：闪屏页是纯静态的，没必要为它拉起整套 Tauri 通信；
+/// 而且 eval 在这里是**壳 -> 自己加载的页面**，不涉及任何外部输入。
+fn 推进闪屏(应用: &tauri::AppHandle, 阶段: &str) {
+    if let Some(屏) = 应用.get_webview_window("splash") {
+        let _ = 屏.eval(&format!(
+            "window.__splash && window.__splash.阶段({});",
+            字符串字面量(阶段)
+        ));
+    }
+}
+
+/// 让闪屏淡出（主界面已经画好了）。
+fn 闪屏淡出(应用: &tauri::AppHandle) {
+    if let Some(屏) = 应用.get_webview_window("splash") {
+        // 先推进到"完成"再淡出，让进度条走到 100%
+        let _ = 屏.eval(
+            "window.__splash && window.__splash.阶段('完成');",
+        );
+        let 屏2 = 屏.clone();
+        // 等淡出动画走完再销毁窗口，否则会"啪"地消失
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(430));
+            let _ = 屏2.eval("window.__splash && window.__splash.淡出(0);");
+            std::thread::sleep(Duration::from_millis(120));
+            let _ = 屏2.close();
+        });
+    }
+}
+
+/// 把一段文本转成安全的 JS 字符串字面量（加引号、转义）。
+fn 字符串字面量(s: &str) -> String {
+    let mut 输出 = String::with_capacity(s.len() + 2);
+    输出.push('"');
+    for 字 in s.chars() {
+        match 字 {
+            '"' => 输出.push_str("\\\""),
+            '\\' => 输出.push_str("\\\\"),
+            '\n' => 输出.push_str("\\n"),
+            '\r' => 输出.push_str("\\r"),
+            '\t' => 输出.push_str("\\t"),
+            // 防止内容里出现 </script> 之类把上下文提前闭合
+            '<' => 输出.push_str("\\u003c"),
+            _ => 输出.push(字),
+        }
+    }
+    输出.push('"');
+    输出
+}
+
+/// 建主窗口。
+///
+/// 后端已经能应答了才调它——主窗口一加载就是正确内容。
+/// 窗口创建必须在主线程，调用方负责用 `run_on_main_thread` 排队。
+fn 建主窗口(应用: &tauri::AppHandle, 地址: &str) -> Result<tauri::WebviewWindow, String> {
+    let 窗 = WebviewWindowBuilder::new(
+        应用,
+        "main",
+        WebviewUrl::External(
+            地址.parse::<tauri::Url>()
+                .map_err(|e| e.to_string())?,
+        ),
+    )
+        .title("苦瓜工作室")
+        // 去掉系统标题栏：页面顶栏已经自绘了一套（含拖拽区与最小化/最大化/
+        // 关闭），再叠一层 Windows 原生标题栏就是两排一模一样的按钮。
+        .decorations(false)
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(900.0, 600.0)
+        .center()
+        // 先隐藏：等页面首帧渲染完自己调 show_window 显示。
+        // 那时屏幕上出现的第一个画面就已经是完整界面，没有白屏。
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // 超时兜底：页面若加载失败就没人调 show_window，窗口永远不出现，
+    // 而闪屏会一直在旁边转圈。8 秒后强制收场。
+    兜底显示(应用, 8);
+    Ok(窗)
+}
+
+/// 后端起不来时，把闪屏换成可读的诊断信息。
+///
+/// 不新开窗口：那样闪屏会先消失再出现新窗口，视觉上跳一下。
+/// 直接改当前这扇窗的内容和尺寸，用户看到的是"球变成了一段说明"。
+fn 显示闪屏诊断(应用: &tauri::AppHandle, 根: Option<&Path>, 地址: &str) {
+    let 诊断 = 诊断页(根, 地址);
+    if let Some(屏) = 应用.get_webview_window("splash") {
+        let _ = 屏.eval(&format!(
+            "document.body.style.background='#1e1e1e';\
+             document.body.style.color='#dcdcdc';\
+             document.body.style.font='13.5px system-ui';\
+             document.body.style.padding='1.8rem';\
+             document.body.style.whiteSpace='pre-wrap';\
+             document.body.style.overflow='auto';\
+             document.body.style.lineHeight='1.7';\
+             var s=document.getElementById('舞台'); if(s) s.style.display='none';\
+             var d=document.createElement('div'); d.textContent={};\
+             document.body.appendChild(d);",
+            字符串字面量(&诊断)
+        ));
+        let _ = 屏.set_size(tauri::LogicalSize::new(720.0, 480.0));
+        let _ = 屏.set_resizable(true);
+        let _ = 屏.set_always_on_top(false);
+    }
+}
+
 /// 若窗口在若干秒内仍不可见，强制显示它。
 ///
 /// 配合 `show_window` 使用：正常路径是页面首帧后自己报"我好了"，
@@ -286,6 +408,8 @@ fn 兜底显示(应用: &tauri::AppHandle, 秒: u64) {
             }
             eprintln!("[桌面端] 页面未在 {秒} 秒内报告就绪，强制显示窗口");
             let _ = 窗.show();
+            // 闪屏若还挂着就一起撤掉，否则它会一直浮在界面上层
+            闪屏淡出(&句柄);
         }
     });
 }
@@ -302,9 +426,17 @@ fn 兜底显示(应用: &tauri::AppHandle, 秒: u64) {
 /// 保证窗口最终一定会出现（宁可白屏，也不能变成"程序启动了但没窗口"）。
 #[tauri::command]
 fn show_window(窗口: tauri::Window) -> Result<(), String> {
-    // 先 minimize/restore 一轮不是必要的，直接 show 即可；focus 让它在多窗口
-    // 环境下（比如同时开着浏览器版）跑到前面。
+    // 主窗口在这一刻才第一次出现在屏幕上——此刻它里面已经是画好的界面了
+    // （页面用双层 rAF 确保至少完整绘制过一帧才调本命令）。
+    //
+    // 交接顺序很重要：先把主窗口摆出来（此时闪屏还在它上面、且是置顶的），
+    // 再让闪屏淡出。如果反过来先撤闪屏，中间会闪一下桌面。
     窗口.show().map_err(|e| e.to_string())?;
+
+    // 闪屏淡出（异步，不阻塞本命令返回）
+    let 应用 = 窗口.app_handle().clone();
+    闪屏淡出(&应用);
+
     窗口.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -462,20 +594,20 @@ fn main() {
     };
 
     let 根 = 找仓库根();
-    let mut 侧车: Option<Child> = None;
 
-    match &根 {
-        Some(目录) => match 启动侧车(目录, 默认端口) {
-            Ok(子) => 侧车 = 子,
-            Err(错误) => eprintln!("[桌面端] {错误}"),
-        },
-        None => eprintln!("[桌面端] 未定位到仓库根（缺少 packages/webui/dist/server.js）"),
-    }
-
-    let 就绪 = 等端口(默认端口, Duration::from_secs(60));
+    // 侧车启动与端口等待从主线程挪到了 setup 里的后台线程。
+    //
+    // 原来这段是同步阻塞在 main 里的（最长 60 秒），期间**窗口一个都没有**，
+    // 用户双击后看到的是"什么也没发生"。现在闪屏先出现，这些耗时操作在后台跑，
+    // 进度通过 splash 的进度条反馈出来。
+    //
+    // 侧车句柄仍要进 `侧车状态` 供全程持有（Job Object 兜底），所以用
+    // Arc<Mutex<Option<Child>>> 在后台线程与状态之间共享。
+    let 侧车句柄: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
+    let 侧车写入 = 侧车句柄.clone();
 
     let 应用 = tauri::Builder::default()
-        .manage(侧车状态(Mutex::new(侧车)))
+        .manage(侧车状态(侧车句柄))
         .invoke_handler(tauri::generate_handler![
             quit_app,
             show_window,
@@ -492,8 +624,15 @@ fn main() {
         //
         // 注意：这里**不要**调 app_handle().exit()——它会在关闭流程中重入事件循环，
         // 导致窗口卡在「已请求关闭但未销毁」的状态（WebView 已退，窗口句柄仍在）。
-        .on_window_event(|_窗口, 事件| {
+        .on_window_event(|窗口, 事件| {
             if let tauri::WindowEvent::CloseRequested { .. } = 事件 {
+                // 只有**主窗口**关闭才结束整个 GUI。
+                //
+                // 闪屏（"splash"）在交接完成后会被主动关闭，那一下不能当成
+                // 用户关窗——否则闪屏一消失，刚显示出来的主界面会跟着没掉。
+                if 窗口.label() != "main" {
+                    return;
+                }
                 // 用 process::exit 而非 app_handle().exit()：后者要重入事件循环排队，
                 // 而此刻正处于关闭流程中，实测会把进程卡成「WebView 已退、窗口句柄仍在」
                 // 的僵尸。侧车不在退出路径上，直接结束进程是安全的。
@@ -503,47 +642,74 @@ fn main() {
         .setup(move |应用句柄| {
             let 地址 = format!("http://127.0.0.1:{默认端口}");
 
-            if 就绪 {
-                WebviewWindowBuilder::new(应用句柄, "main", WebviewUrl::External(地址.parse()?))
-                    .title("苦瓜工作室")
-                    // 去掉系统标题栏：页面顶栏已经自绘了一套（含拖拽区与
-                    // 最小化/最大化/关闭），再叠一层 Windows 原生标题栏就会出现
-                    // 两排一模一样的按钮，既重复又浪费垂直空间。
-                    // 自绘标题栏的拖拽依赖 CSS 的 `app-region: drag`，见 style.css。
-                    .decorations(false)
-                    .inner_size(1440.0, 900.0)
-                    .min_inner_size(900.0, 600.0)
-                    .center()
-                    // 先隐藏，等页面首帧渲染完由它调 show_window 显示，
-                    // 避免"先白一下再出界面"。见 show_window 的说明。
-                    .visible(false)
-                    .build()?;
-                // 超时兜底：页面若加载失败（或注入脚本没跑起来），没人会调
-                // show_window，窗口就永远不出现——那是比白屏更糟的故障。
-                // 这里在 8 秒后强制显示，宁可白屏也要让用户看到东西。
-                兜底显示(&应用句柄.handle().clone(), 8);
-            } else {
-                // 侧车没起来：显示一段可读的诊断页，而不是白屏
-                let 诊断 = 诊断页(根.as_deref(), &地址);
-                let 数据 = 诊断
-                    .replace('\\', "\\\\")
-                    .replace('`', "\\`")
-                    .replace('$', "\\$");
-                let html = format!(
-                    "data:text/html;charset=utf-8,{}",
-                    urlencoding(&format!(
-                        "<html><body style=\"font-family:system-ui;padding:2rem;line-height:1.7\">{}</body></html>",
-                        数据.replace('\n', "<br>")
-                    ))
-                );
-                WebviewWindowBuilder::new(应用句柄, "main", WebviewUrl::External(html.parse()?))
-                    .title("苦瓜工作室 - 启动失败")
-                    .decorations(false)
-                    .inner_size(900.0, 600.0)
-                    .center()
-                    .visible(true)
-                    .build()?;
-            }
+            // ── 1. 闪屏：先亮出来，用户立刻有反馈 ──
+            //
+            // 独立窗口（透明 / 无边框 / 置顶 / 不进任务栏）。透明是关键：
+            // 它在桌面上看起来就是一个悬着的发光球，而不是"又一个窗口"。
+            let _闪屏 = WebviewWindowBuilder::new(
+                应用句柄,
+                "splash",
+                WebviewUrl::External(闪屏页地址().parse()?),
+            )
+            .title("苦瓜工作室")
+            .inner_size(420.0, 300.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .resizable(false)
+            .center()
+            .skip_taskbar(true)
+            .shadow(false)
+            .visible(true)
+            .build()?;
+
+            // ── 2. 后台线程：启动侧车 + 等端口，就绪后才建主窗口 ──
+            //
+            // 主窗口**不在这里建**。原因：它加载的是 http://127.0.0.1:端口，
+            // 后端此刻还没起来，提前建出来的只会是"连接被拒绝"错误页，而且
+            // 不会自己恢复——补救方式只剩重载，而重载的时机又和页面自身生命周期
+            // 打架（eval 可能落在导航过程中被丢弃）。等后端真能应答了再建，
+            // 一次就加载出正确内容。
+            let 应用后台 = 应用句柄.handle().clone();
+            let 根后台 = 根.clone();
+            let 地址后台 = 地址.clone();
+            std::thread::spawn(move || {
+                let mut 侧车: Option<Child> = None;
+                match &根后台 {
+                    Some(目录) => match 启动侧车(目录, 默认端口) {
+                        Ok(子) => 侧车 = 子,
+                        Err(错误) => eprintln!("[桌面端] {错误}"),
+                    },
+                    None => {
+                        eprintln!("[桌面端] 未定位到仓库根（缺少 packages/webui/dist/server.js）")
+                    }
+                }
+                // 句柄立刻进共享状态：Job Object 兜底从此全程有效
+                if let Ok(mut 锁) = 侧车写入.lock() {
+                    *锁 = 侧车;
+                }
+
+                if 等端口(默认端口, Duration::from_secs(60)) {
+                    推进闪屏(&应用后台, "主控就绪");
+
+                    // 窗口创建必须在主线程（Tauri 要求），排队过去。
+                    let 应建 = 应用后台.clone();
+                    let 址 = 地址后台.clone();
+                    if let Err(错误) = 应用后台.run_on_main_thread(move || {
+                        if let Err(错) = 建主窗口(&应建, &址) {
+                            eprintln!("[桌面端] 建主窗口失败：{错}");
+                            推进闪屏(&应建, "失败");
+                        }
+                    }) {
+                        eprintln!("[桌面端] 无法排队建窗口：{错误}");
+                    }
+                } else {
+                    // 后端起不来：把闪屏换成诊断信息，别让用户对着一个转圈的球
+                    // 干等 60 秒还不知道发生了什么。
+                    显示闪屏诊断(&应用后台, 根后台.as_deref(), &地址后台);
+                }
+            });
+
             // 后端退出时连带关掉桌面窗口（Web 网页端不处理，只显示断线提示）
             启动后端监视(默认端口);
             Ok(())
@@ -554,8 +720,15 @@ fn main() {
     // 窗口全关 → 允许退出（Tauri 在某些平台不会自动退出）
     应用.run(|应用句柄, 事件| {
         if let RunEvent::ExitRequested { api, .. } = &事件 {
-            // 没有窗口了就该退出；保持默认行为
-            let _ = api;
+            // 只要主窗口还在，就不能因为「暂时没有窗口了」而退出。
+            //
+            // 典型场景：闪屏关闭的瞬间，主窗口刚建好但还没完全就位，
+            // 窗口计数短暂归零，Tauri 就会报 ExitRequested。
+            // 这里主动拦下来；真正退出的路径是主窗口的 CloseRequested
+            // 或后端监视器判定后端已死。
+            if 应用句柄.get_webview_window("main").is_some() {
+                api.prevent_exit();
+            }
         }
         if let RunEvent::Exit = 事件 {
             // 同样不收侧车：见上面 CloseRequested 的说明。
@@ -591,16 +764,4 @@ fn 诊断页(根: Option<&Path>, 地址: &str) -> String {
     行.join("\n")
 }
 
-/// 极简 percent-encoding，仅用于把诊断页塞进 data: URL
-fn urlencoding(文本: &str) -> String {
-    let mut 出 = String::with_capacity(文本.len() * 3);
-    for 字节 in 文本.as_bytes() {
-        match 字节 {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                出.push(*字节 as char)
-            }
-            _ => 出.push_str(&format!("%{字节:02X}")),
-        }
-    }
-    出
-}
+

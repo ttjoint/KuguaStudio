@@ -15,6 +15,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "quit-app",
+    "show-window",
     "minimize-window",
     "toggle-maximize",
     "is-maximized"

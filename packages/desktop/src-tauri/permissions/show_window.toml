@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "show-window"
+description = "允许前端在页面首帧绘制完成后请求显示主窗口（避免启动白屏）"
+commands.allow = ["show_window"]

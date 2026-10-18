@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>苦瓜工作室 · 启动中</title>
+<style>
+  /* ── 闪屏设计说明 ──────────────────────────────────────────────
+   *
+   * 窗口本身是**透明无边框**的，所以这里不需要背景色，只有球体本身可见。
+   * 这样它在桌面上看起来就是一个悬着的圆球，而不是"又一个窗口"。
+   *
+   * 三段状态由 Rust 侧通过 window.__splash.阶段() 推进，不自己跑动画计时：
+   *   连接中 → 主控就绪 → 界面就绪 → 淡出
+   * 进度条做的是"渐近逼近"而不是匀速跑满——匀速条和后端真实进度脱节，
+   * 用户看到的会是"条满了但界面还没出来"，比没有进度条更让人焦虑。
+   */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    overflow: hidden;
+    /* 透明窗口里点击不应穿透到桌面 —— 由 Rust 侧 transparent 处理，
+       这里只需保证自身区域可交互 */
+    -webkit-user-select: none; user-select: none;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+
+  .舞台 {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 22px;
+    /* 整块淡入，避免窗口刚出现时硬闪 */
+    opacity: 0;
+    transition: opacity .45s ease;
+  }
+  .舞台.显示 { opacity: 1; }
+  .舞台.退场 { opacity: 0; transition: opacity .4s ease; }
+
+  /* ── 发光球 ── */
+  .球 {
+    position: relative;
+    width: 108px; height: 108px;
+    border-radius: 50%;
+    /* 苦瓜黄 (#ffc107) → 暖橙，呼应主界面配色 */
+    background:
+      radial-gradient(circle at 34% 30%, #fff3c4 0%, #ffd75e 26%, #ffb300 58%, #e08800 82%, #b35f00 100%);
+    box-shadow:
+      0 0 22px rgba(255, 193, 7, .55),
+      0 0 52px rgba(255, 170, 0, .34),
+      0 0 92px rgba(255, 150, 0, .18),
+      inset -8px -10px 22px rgba(140, 70, 0, .45),
+      inset 6px 8px 18px rgba(255, 255, 255, .5);
+    animation: 呼吸 2.4s ease-in-out infinite;
+  }
+
+  @keyframes 呼吸 {
+    0%, 100% { transform: scale(1);     filter: brightness(1);    }
+    50%      { transform: scale(1.045); filter: brightness(1.09); }
+  }
+
+  /* 球体高光：让它看起来像有体积的球而不是一个圆盘 */
+  .球::after {
+    content: "";
+    position: absolute;
+    top: 15%; left: 22%;
+    width: 34%; height: 26%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(255,255,255,.92), rgba(255,255,255,0) 72%);
+    transform: rotate(-18deg);
+    pointer-events: none;
+  }
+
+  /* 环绕的光环，微微旋转 —— 给"正在工作"一点动态提示 */
+  .光环 {
+    position: absolute;
+    inset: -14px;
+    border-radius: 50%;
+    border: 1.5px solid transparent;
+    border-top-color: rgba(255, 214, 102, .85);
+    border-right-color: rgba(255, 214, 102, .22);
+    animation: 旋转 1.15s linear infinite;
+  }
+  @keyframes 旋转 { to { transform: rotate(360deg); } }
+
+  /* ── 文字与进度 ── */
+  .文字 {
+    color: #ffd75e;
+    font-size: 13.5px;
+    letter-spacing: .06em;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, .55);
+    min-height: 1.2em;
+    text-align: center;
+    padding: 0 16px;
+  }
+
+  .槽 {
+    width: 190px; height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .16);
+    overflow: hidden;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .3);
+  }
+  .条 {
+    width: 0%; height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ffb300, #ffe082, #ffb300);
+    background-size: 200% 100%;
+    /* 进度用 transition 平滑过去，而不是跳变 */
+    transition: width .55s cubic-bezier(.22, .61, .36, 1);
+    animation: 流光 1.5s linear infinite;
+  }
+  @keyframes 流光 {
+    from { background-position: 0% 0; }
+    to   { background-position: 200% 0; }
+  }
+
+  .副文字 {
+    color: rgba(255, 255, 255, .42);
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, .45);
+    min-height: 1.1em;
+  }
+</style>
+</head>
+<body>
+  <div class="舞台" id="舞台">
+    <div class="球">
+      <div class="光环"></div>
+    </div>
+    <div class="文字" id="文字">正在启动…</div>
+    <div class="槽"><div class="条" id="条"></div></div>
+    <div class="副文字" id="副文字"></div>
+  </div>
+
+<script>
+  // 由 Rust 侧调用推进阶段。刻意不做"自己按时间跑满"的假进度：
+  // 真实进度由主控就绪 / 界面就绪两个事件决定。
+  const 条 = document.getElementById("条");
+  const 文字 = document.getElementById("文字");
+  const 副文字 = document.getElementById("副文字");
+  const 舞台 = document.getElementById("舞台");
+
+  // 各阶段的目标进度。取值留了余量：最后一段（界面就绪）才到 100%，
+  // 前面最多到 82%，这样"条快满了"意味着真的快好了。
+  const 阶段表 = {
+    连接中: { 进度: 18, 文案: "正在启动后台服务…", 副: "正在连接主控" },
+    主控就绪: { 进度: 62, 文案: "后台服务已就绪…", 副: "正在准备界面" },
+    界面就绪: { 进度: 92, 文案: "即将完成…", 副: "正在载入主界面" },
+    完成: { 进度: 100, 文案: "准备好了", 副: "" },
+    // 后端起不来时由壳推到这一档：进度条停在原地，不再假装还在前进
+    失败: { 进度: 100, 文案: "启动失败", 副: "详见下方说明" },
+  };
+
+  let 当前 = 0;
+
+  window.__splash = {
+    /** Rust 侧推进到某个阶段 */
+    阶段(名, 附加) {
+      const 项 = 阶段表[名];
+      if (!项) return;
+      // 只增不减：阶段是单向的，倒退会让进度条来回跳
+      if (项.进度 < 当前) return;
+      当前 = 项.进度;
+      条.style.width = 项.进度 + "%";
+      文字.textContent = 项.文案;
+      副文字.textContent = 附加 || 项.副;
+      if (名 === "完成") {
+        // 圆球停转，收束视觉，准备交棒给主界面
+        document.querySelector(".光环").style.animationPlayState = "paused";
+        document.querySelector(".光环").style.opacity = "0";
+        document.querySelector(".光环").style.transition = "opacity .4s ease";
+      }
+    },
+    /** 让闪屏整体淡出（主界面已经画好了，正在它后面等着） */
+    淡出(毫秒) {
+      return new Promise((完成) => {
+        舞台.classList.add("退场");
+        setTimeout(完成, 毫秒 || 420);
+      });
+    },
+  };
+
+  // 进入动画：等一帧再挂 class，确保 transition 生效
+  requestAnimationFrame(() => requestAnimationFrame(() => 舞台.classList.add("显示")));
+  window.__splash.阶段("连接中");
+</script>
+</body>
+</html>
