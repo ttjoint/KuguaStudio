@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, watch as 监视目录 } from "node:fs";
 import { join, resolve } from "node:path";
 import { 安装进程兜底, 启动模块 } from "@kugua/module-kit";
+import { 合并小组件声明 } from "@kugua/nigane";
 import type { NiganeClient } from "@kugua/nigane";
 import { 段, 提取纯文本, type 标识, type 消息段 } from "@kugua/onebot11";
 import {
@@ -89,12 +90,39 @@ export function 启动插件运行时(
     集合.add(处理);
     return { 取消: () => 集合?.delete(处理) };
   };
+  /**
+   * 运行时补声明的小组件，按插件名存。
+   *
+   * 为什么不直接改写 `记录.元数据.widgets`：元数据是清单的忠实副本，
+   * 重载会从磁盘重新读一遍，改它等于把运行时状态混进静态声明，下次
+   * 重载就没了。单独存一份，同步时合并。
+   *
+   * 生命周期跟插件走：重载保留（插件会重新探测并重新声明），卸载清掉。
+   */
+  const 补声明表 = new Map<string, unknown[]>();
+
+  /**
+   * 把清单声明与运行时补声明合并后报给主控。
+   *
+   * 合并不是覆盖：清单里固定的 cpu/mem 和运行时才有的 gpu 应该共存。
+   * 同 id 时以补声明为准——插件自己更清楚当前能不能提供这一项。
+   */
+  const 合并声明 = (插件名: string): unknown => {
+    const 记录 = 加载器.获取(插件名);
+    return 合并小组件声明(记录?.元数据.widgets, 补声明表.get(插件名));
+  };
 
   // —— 插件宿主工厂：每个插件实例注入独立 Context（日志带插件名前缀）——
   // 注意这里是每个插件一套宿主：日志前缀、配置读取都要按插件区分，
   // 共用一个宿主会导致 A 插件读到 B 插件的配置。
   const 宿主工厂 = (插件名: string): 插件宿主 => ({
     日志: 创建日志器(`[插件:${插件名}]`),
+    声明小组件: async (声明) => {
+      // 插件发来的补声明直接进表，不绕总线——它就在本进程里，
+      // 而 `plugins.widgets.declare` 是给外部场景留的同一套语义出口。
+      补声明表.set(插件名, 声明);
+      await 同步小组件(插件名, 合并声明(插件名));
+    },
     请求: (目标, 动作, 参数, 超时毫秒) => 客户端.request(目标, 动作, 参数, 超时毫秒 ?? 10000),
     广播: (动作, 参数) => {
       // 小组件数据必须带上真实来源。
@@ -173,6 +201,7 @@ export function 启动插件运行时(
     }
   };
 
+
   /**
    * 单个插件的小组件声明变了（安装/重载）就重报一次。
    *
@@ -192,6 +221,7 @@ export function 启动插件运行时(
   };
 
   const 注销插件小组件 = async (插件名: string): Promise<void> => {
+    补声明表.delete(插件名);
     try {
       await 客户端.request("nigane", "nigane.widgets.unregister", { name: 插件名 }, 5000);
     } catch (err) {
@@ -317,6 +347,22 @@ export function 启动插件运行时(
       : null;
 
   // —— 请求动作 ——
+  /**
+   * 插件在 on_load 里补声明小组件（能力不确定时用）。
+   *
+   * 典型场景：sysmon 要采 GPU，但机器上不一定有 N 卡。清单里先声明、
+   * 取不到就不推送的做法行不通——那会让没显卡的用户看到一个永远
+   * 「无数据」的卡片，分不清是「还没采到」还是「这台机器根本没法采」。
+   */
+  客户端.onRequest("plugins.widgets.declare", async (params) => {
+    const { name, widgets } = (params ?? {}) as { name?: string; widgets?: unknown };
+    if (!name) throw new Error("缺少 name");
+    if (!Array.isArray(widgets)) throw new Error("widgets 必须是数组");
+    补声明表.set(name, widgets);
+    await 同步小组件(name, 合并声明(name));
+    return { count: widgets.length };
+  });
+
   客户端.onRequest("plugins.list", () => 加载器.列表().map(记录转对象));
 
   客户端.onRequest("plugins.refresh", async () => {
@@ -359,7 +405,7 @@ export function 启动插件运行时(
     const { name } = (params ?? {}) as { name?: string };
     if (!name) throw new Error("缺少 name");
     const 记录 = await 加载器.重载(name);
-    await 同步小组件(name, 记录.元数据.widgets);
+    await 同步小组件(name, 合并声明(name));
     return 记录转对象(记录);
   });
 
@@ -377,7 +423,7 @@ export function 启动插件运行时(
     await 安装依赖(目标目录, 配置.npmTimeoutMs ?? 300000);
     const 记录 = await 加载器.加载(插件名);
     await 加载器.启用(插件名);
-    await 同步小组件(插件名, 记录.元数据.widgets);
+    await 同步小组件(插件名, 合并声明(插件名));
     return 记录转对象(记录);
   });
 
@@ -393,7 +439,7 @@ export function 启动插件运行时(
     await 拉取更新(记录.目录, 配置.gitTimeoutMs ?? 120000);
     await 安装依赖(记录.目录, 配置.npmTimeoutMs ?? 300000);
     const 新记录 = await 加载器.重载(name);
-    await 同步小组件(name, 新记录.元数据.widgets);
+    await 同步小组件(name, 合并声明(name));
     return { name, updated: true, from: 检查.原提交, to: 检查.新提交, ...记录转对象(新记录) };
   });
 

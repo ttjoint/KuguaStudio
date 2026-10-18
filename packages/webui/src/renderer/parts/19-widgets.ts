@@ -19,22 +19,12 @@ interface 已注册小组件 extends 小组件声明 {
   键: string;
 }
 
-interface 布局覆盖 {
-  隐藏?: boolean;
-  顺序?: number;
-  外形?: "大卡" | "横条" | "窄条";
-  区域?: "顶部" | "侧栏" | "状态栏";
-}
-
-interface 布局方案 {
-  展示?: "自动" | "紧凑" | "详细" | "仅状态栏";
-  覆盖?: Record<string, 布局覆盖>;
-}
-
-interface 小组件配置节 {
-  当前方案: string;
-  方案: Record<string, 布局方案>;
-}
+// 布局决策（决定外形/区域/排序）与类型定义都在 widget-layout.ts：
+// 那是纯函数、无 DOM 依赖，可以单测；这里只负责把它们画出来。
+// 类型用 re-export 出去，调用方不必知道它住在哪个文件。
+export type { 布局覆盖, 布局方案, 小组件配置节 } from "../../widget-layout";
+import { 决定外形, 决定区域, 排序键, 取覆盖, 取展示预设 } from "../../widget-layout";
+import type { 布局覆盖, 小组件配置节 } from "../../widget-layout";
 
 interface 列表响应 {
   小组件: 已注册小组件[];
@@ -79,55 +69,6 @@ interface 槽位 {
 }
 
 let 槽位: 槽位 = { 顶部: null, 侧栏: null, 状态栏: null };
-
-/** 取某小组件在配置里的覆盖项 */
-function 取覆盖(配置: 小组件配置节 | null, 键: string): 布局覆盖 {
-  if (!配置) return {};
-  const 方案 = 配置.方案[配置.当前方案];
-  return 方案?.覆盖?.[键] ?? {};
-}
-
-/** 当前方案的形态预设 */
-function 取展示预设(配置: 小组件配置节 | null): NonNullable<布局方案["展示"]> {
-  if (!配置) return "自动";
-  return 配置.方案[配置.当前方案]?.展示 ?? "自动";
-}
-
-/**
- * 决定一个小组件的最终外形。
- *
- * 优先级：用户覆盖 > 形态预设 > 显著度。
- * 显著度只是**输入**，不是输出——这是职责分界的落点。
- */
-function 决定外形(
-  项: 已注册小组件,
-  覆盖: 布局覆盖,
-  预设: NonNullable<布局方案["展示"]>,
-): "大卡" | "横条" | "窄条" {
-  if (覆盖.外形) return 覆盖.外形;
-  if (预设 === "紧凑") return "窄条";
-  if (预设 === "详细") return "大卡";
-  if (预设 === "仅状态栏") return "窄条";
-  // 自动：按显著度
-  if (项.显著度 === "primary") return "大卡";
-  if (项.显著度 === "secondary") return "窄条";
-  return "横条";
-}
-
-/** 决定放在哪个区域（同样只受用户覆盖与显著度影响） */
-function 决定区域(项: 已注册小组件, 覆盖: 布局覆盖): "顶部" | "侧栏" | "状态栏" {
-  if (覆盖.区域) return 覆盖.区域;
-  if (项.显著度 === "primary") return "顶部";
-  if (项.显著度 === "secondary") return "状态栏";
-  return "顶部";
-}
-
-/** 排序键：用户覆盖的顺序优先，其次按显著度与标题 */
-function 排序键(项: 已注册小组件, 覆盖: 布局覆盖): number {
-  if (typeof 覆盖.顺序 === "number") return 覆盖.顺序;
-  const 显著度权重: Record<显著度, number> = { primary: 0, normal: 100, secondary: 200 };
-  return 显著度权重[项.显著度 ?? "normal"];
-}
 
 /** 转义不必要——全部走 textContent。这里只做数值格式化 */
 function 格式化值(声明: 小组件声明, 值: number): string {
@@ -362,6 +303,7 @@ function 清空(): void {
 /** 按注册表重建全部小组件 */
 function 重建(响应: 列表响应): void {
   确保槽位();
+  绑定拖拽();
   清空();
   if (过期定时 === undefined) {
     过期定时 = window.setInterval(标记过期, 3000);
@@ -388,8 +330,11 @@ function 重建(响应: 列表响应): void {
     if (列.length === 0) continue;
 
     for (const { 项, 覆盖 } of 列) {
-      const 外形 = 决定外形(项, 覆盖, 预设);
+      const 外形 = 决定外形(项, 覆盖, 预设, window.innerWidth);
       const 挂载 = 建小组件(项, 外形);
+      // 主界面可拖拽：把 draggable 挂在根节点上，拖拽逻辑见 bindDrag()
+      挂载.根.draggable = true;
+      挂载.根.title = "拖动可调整顺序";
       if (!项.在线) {
         挂载.根.classList.add("stale");
         if (挂载.值位) 挂载.值位.textContent = "离线";
@@ -398,6 +343,29 @@ function 重建(响应: 列表响应): void {
       挂载表.set(项.键, 挂载);
     }
   }
+}
+
+/**
+ * 窗口尺寸变化后的重排定时器。
+ *
+ * 拖动窗口时 resize 每秒能触发几十次，每次都重建 DOM 会掉帧。
+ * 150ms 足够让用户感觉是「跟着变的」，又远低于重建的成本。
+ * 但**不能只在结束后才动**：拖到一半看着布局乱了更难受，
+ * 所以用 trailing debounce —— 停止拖动的瞬间就到位。
+ */
+let 重排定时: number | undefined;
+/** 上一次重排时的宽度，宽度没变就不重排（高度变化不影响布局） */
+let 上次宽度 = 0;
+
+function 安排重排(): void {
+  if (window.innerWidth === 上次宽度) return;
+  if (重排定时 !== undefined) window.clearTimeout(重排定时);
+  重排定时 = window.setTimeout(() => {
+    重排定时 = undefined;
+    上次宽度 = window.innerWidth;
+    // 配置没变，只是窗口变了：用最近一次的注册表重算外形
+    if (最近列表) 重建(最近列表);
+  }, 150);
 }
 
 /** 拉取注册表并重建 */
@@ -423,6 +391,94 @@ function 收到推送(来源: string, id: string, 值: number, 副标题?: strin
   更新显示(挂载, 值, 副标题);
 }
 
+/**
+ * 主界面拖拽排序。
+ *
+ * 只改**同一个槽位内**的顺序。跨槽位拖动（顶部 → 侧栏）看起来更自由，
+ * 但会让用户误以为「拖到哪儿就固定在哪儿」，从而把自动布局当成手工排版，
+ * 换台机器/换个窗口宽度就全乱。真要在区域之间移动，设置页里选「区域」更明确。
+ *
+ * 写盘防抖 500ms：拖一次会触发一串 dragover，每个都写盘等于自己打自己。
+ * 之所以防抖而不是节流，是因为顺序以最后一次为准——中间态没有意义。
+ */
+let 拖拽中: HTMLElement | null = null;
+let 写盘定时: number | undefined;
+
+/** 收集某个槽位里的键顺序并落盘 */
+function 提交顺序(容器: HTMLElement): void {
+  if (写盘定时 !== undefined) window.clearTimeout(写盘定时);
+  写盘定时 = window.setTimeout(() => {
+    写盘定时 = undefined;
+    void (async () => {
+      try {
+        const 键序 = Array.from(容器.querySelectorAll<HTMLElement>(".wg"))
+          .map((el) => el.dataset.键 ?? "")
+          .filter(Boolean);
+        if (键序.length === 0) return;
+        // 重新拉一份配置再改：布局是整节覆盖保存的，
+        // 用本地旧副本写会把别处的改动（设置页刚改的）覆盖掉。
+        const 响应 = (await window.kugua.request("nigane", "nigane.widgets.list", {})) as 列表响应;
+        const 节 = 响应.配置;
+        if (!节) return;
+        const 方案 = 节.方案[节.当前方案] ?? { 覆盖: {} };
+        const 旧覆盖 = 方案.覆盖 ?? {};
+        const 新覆盖: Record<string, 布局覆盖> = { ...旧覆盖 };
+        键序.forEach((键, i) => {
+          新覆盖[键] = { ...(新覆盖[键] ?? {}), 顺序: i };
+        });
+        await window.kugua.request("nigane", "nigane.widgets.config.set", {
+          配置: { ...节, 方案: { ...节.方案, [节.当前方案]: { ...方案, 覆盖: 新覆盖 } } },
+        });
+      } catch {
+        // 落盘失败不打断使用：界面顺序已经变了，下次刷新会回到服务端的顺序。
+        // 这里不打 console 噪声——拖拽时用户正看着界面，弹提示更烦。
+      }
+    })();
+  }, 500);
+}
+
+/** 给所有槽位绑定拖拽（只绑一次） */
+// 按容器元素记录，而不是一个全局布尔：
+// 首次调用时 #workspace 可能还没挂进 DOM，确保槽位() 会直接返回，
+// 若那时就置 true，之后槽位建好了也永远不会再绑——拖拽从此静默失效。
+const 已绑容器 = new WeakSet<HTMLElement>();
+
+function 绑定拖拽(): void {
+  for (const 名 of ["顶部", "侧栏", "状态栏"] as const) {
+    const 容器 = 取槽位(名);
+    if (!容器 || 已绑容器.has(容器)) continue;
+    已绑容器.add(容器);
+
+    // dragstart 只记是谁被拖了，不改 DOM——拖动过程中动 DOM 会让浏览器取消拖拽
+    容器.addEventListener("dragstart", (ev) => {
+      const 目标 = (ev.target as HTMLElement).closest<HTMLElement>(".wg");
+      if (!目标) return;
+      拖拽中 = 目标;
+      目标.classList.add("wg-dragging");
+      // Firefox 不设 dataTransfer 就不会真正开始拖拽
+      ev.dataTransfer?.setData("text/plain", 目标.dataset.键 ?? "");
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+    });
+
+    容器.addEventListener("dragend", () => {
+      拖拽中?.classList.remove("wg-dragging");
+      拖拽中 = null;
+      提交顺序(容器);
+    });
+
+    容器.addEventListener("dragover", (ev) => {
+      if (!拖拽中) return;
+      ev.preventDefault();
+      const 目标 = (ev.target as HTMLElement).closest<HTMLElement>(".wg");
+      if (!目标 || 目标 === 拖拽中) return;
+      // 按指针位置决定插在目标前面还是后面，否则永远只能往前拖
+      const 框 = 目标.getBoundingClientRect();
+      const 后半 = ev.clientY > 框.top + 框.height / 2 || ev.clientX > 框.left + 框.width / 2;
+      容器.insertBefore(拖拽中, 后半 ? 目标.nextSibling : 目标);
+    });
+  }
+}
+
 /** 初始化：订阅总线 + 首次拉取 */
 export function 初始化小组件(): void {
   window.kugua.onBus((action: string, params: unknown) => {
@@ -443,5 +499,7 @@ export function 初始化小组件(): void {
       收到推送(来源, String(p.id ?? ""), Number(p.值 ?? p.value), p.副标题);
     }
   });
+  window.addEventListener("resize", 安排重排);
+  绑定拖拽();
   void 刷新小组件();
 }

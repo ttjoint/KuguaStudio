@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  合并小组件声明,
   归一小部件声明,
   归一小部件列表,
   合法小组件id,
@@ -156,5 +157,50 @@ describe("列表归一的限制", () => {
   it("跨插件分组：显式分组覆盖默认", () => {
     const r = 归一小部件列表([{ id: "gpu", 类型: "number", 标题: "GPU", 分组: "sysmon.系统" }], "other");
     expect(r.声明[0].分组).toBe("sysmon.系统");
+  });
+});
+
+describe("合并小组件声明（清单 + 运行时补声明）", () => {
+  it("没有补声明时原样返回清单", () => {
+    const 静态 = [{ id: "cpu" }];
+    expect(合并小组件声明(静态, undefined)).toBe(静态);
+    expect(合并小组件声明(静态, [])).toBe(静态);
+  });
+
+  it("补声明追加在清单之后，不覆盖无关项", () => {
+    // sysmon 的典型场景：清单里固定 cpu/mem，运行时探到显卡才补 gpu
+    const 结果 = 合并小组件声明([{ id: "cpu" }, { id: "mem" }], [{ id: "gpu" }]) as Array<{
+      id: string;
+    }>;
+    expect(结果.map((x) => x.id)).toEqual(["cpu", "mem", "gpu"]);
+  });
+
+  it("同 id 时以补声明为准", () => {
+    // 插件自己更清楚当前能不能提供这一项
+    const 结果 = 合并小组件声明([{ id: "cpu", title: "旧" }], [
+      { id: "cpu", title: "新" },
+    ]) as Array<{ id: string; title: string }>;
+    expect(结果).toHaveLength(1);
+    expect(结果[0].title).toBe("新");
+  });
+
+  it("清单不是数组时当成空（第一次补声明就是从无到有）", () => {
+    expect(合并小组件声明(undefined, [{ id: "gpu" }])).toEqual([{ id: "gpu" }]);
+    expect(合并小组件声明(null, [{ id: "gpu" }])).toEqual([{ id: "gpu" }]);
+  });
+
+  it("补声明不是数组时忽略，不抛错", () => {
+    const 静态 = [{ id: "cpu" }];
+    expect(合并小组件声明(静态, { id: "x" })).toBe(静态);
+    expect(合并小组件声明(静态, "abc")).toBe(静态);
+  });
+
+  it("静态项缺 id 时原样保留", () => {
+    // 不能提前吞掉：归一阶段会整条拒绝并留警告，
+    // 这里删了就变成「什么都没显示，也没任何提示」
+    const 结果 = 合并小组件声明([{ title: "没有 id" }, { id: "cpu" }], [{ id: "gpu" }]) as Array<{
+      id?: string;
+    }>;
+    expect(结果).toHaveLength(3);
   });
 });

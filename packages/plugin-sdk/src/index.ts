@@ -108,6 +108,20 @@ export interface 插件宿主 {
    * 不需要重启，也不需要自己缓存。
    */
   配置: () => Promise<Record<string, unknown>>;
+  /**
+   * 运行时补声明小组件。
+   *
+   * 静态声明写在清单的 `widgets` 里就够了。这个接口是给**能力不确定**的
+   * 插件用的：比如 sysmon 要采 GPU，但机器上不一定有 N 卡。
+   *
+   * 为什么不能「清单里先声明、取不到就不推送」：那样没有显卡的机器会看到
+   * 一个永远显示「无数据」的卡片。用户分不清是「还没采到」还是
+   * 「这台机器根本没法采」。**取不到就不声明**才是对的。
+   *
+   * 补声明**追加**在清单声明之后，id 冲突时以补声明为准（插件自己更清楚
+   * 当前能不能提供）。卸载时随插件一起注销，不需要手动清理。
+   */
+  声明小组件: (声明: unknown[]) => Promise<void>;
 }
 
 /** 简易日志器（缺省落到控制台） */
@@ -154,6 +168,20 @@ export function 创建宿主(
         return 配置缓存 ?? {};
       }
     },
+      声明小组件: async (声明) => {
+      if (!插件名) return;
+      try {
+        await 客户端.request(
+          "plugins",
+          "plugins.widgets.declare",
+          { name: 插件名, widgets: 声明 },
+          5000,
+        );
+      } catch (err) {
+        // 补声明失败不该拖垮插件：小组件只是展示，主功能照常跑
+        日志.警告(`补声明小组件失败（${插件名}）：${String(err)}`);
+      }
+    },
     订阅: (动作, 处理) => {
       let 集合 = 事件表.get(动作);
       if (!集合) {
@@ -190,6 +218,7 @@ export class Context implements 插件宿主 {
   readonly 广播: 插件宿主["广播"];
   readonly 订阅: 插件宿主["订阅"];
   readonly 配置: 插件宿主["配置"];
+  readonly 声明小组件: 插件宿主["声明小组件"];
 
   constructor(宿主: 插件宿主) {
     this.日志 = 宿主.日志;
@@ -197,6 +226,7 @@ export class Context implements 插件宿主 {
     this.广播 = 宿主.广播;
     this.订阅 = 宿主.订阅;
     this.配置 = 宿主.配置;
+    this.声明小组件 = 宿主.声明小组件;
   }
 }
 

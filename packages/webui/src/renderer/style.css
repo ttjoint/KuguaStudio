@@ -3406,6 +3406,9 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   border-bottom: 1px solid var(--border);
   background: var(--bg-sidebar);
   flex: 0 0 auto;
+  /* 不写 align-items 时 flex 默认 stretch，小组件会被拉满顶部条的高度，
+    看起来像一列竖着的长条。大卡本来就靠内容撑高，必须显式钉住。 */
+  align-items: flex-start;
 }
 .wg-slot-status {
   border-top: 1px solid var(--border);
@@ -3435,6 +3438,9 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  /* 侧栏是 column 方向，不钉住的话组件会被横向拉满整条；
+    顶部/状态栏已由槽位的 align-items 管住，这里兜侧栏这一侧。 */
+  align-self: flex-start;
 }
 .wg.warn { --wg-line: #e0a020; border-color: #6a5220; }
 .wg.danger { --wg-line: #e05a5a; border-color: #6a2424; }
@@ -3522,4 +3528,133 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   max-width: 240px;
   height: 24px;
   display: block;
+}
+
+/* ===== 仪表盘布局设置页（19b） ===== */
+
+.wg-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wg-layout-plans {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wg-layout-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 6px;
+}
+
+.wg-layout-msg {
+  font-size: 12px;
+  color: var(--accent);
+  min-width: 60px;
+}
+.wg-layout-msg.err {
+  color: #e05a5a;
+}
+
+.wg-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.wg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-input);
+}
+.wg-row:last-child {
+  border-bottom: none;
+}
+.wg-row-hidden {
+  opacity: 0.5;
+}
+
+.wg-row-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.wg-row-title {
+  font-size: 13px;
+  color: var(--text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wg-row-src {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wg-row-offline {
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  align-self: flex-start;
+}
+
+.wg-row-select {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.wg-row-order {
+  display: flex;
+  gap: 4px;
+}
+
+.wg-orphan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+/* 主界面拖拽中的视觉反馈 */
+.wg[draggable="true"] {
+  cursor: grab;
+}
+.wg.wg-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* 窄窗口下顶部条不再塞满：大卡由 JS 降级，这里只保证不溢出 */
+@media (max-width: 480px) {
+  .wg-slot {
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .wg-slot-side {
+    width: 160px;
+    flex: 0 0 160px;
+  }
 }

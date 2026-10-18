@@ -190,3 +190,27 @@ export function 归一小部件列表(
 
   return { 声明: 结果, 警告 };
 }
+
+/**
+ * 合并「清单声明」与「运行时补声明」。
+ *
+ * 运行时补声明是给**能力不确定**的插件用的：sysmon 要采 GPU，但机器上不一定
+ * 有 N 卡。清单里先声明、取不到就不推送的做法行不通——那会让没显卡的用户
+ * 看到一个永远「无数据」的卡片，分不清是「还没采到」还是「这台机器根本没法采」。
+ *
+ * 合并不是覆盖：清单里固定的 cpu/mem 和运行时才有的 gpu 应该共存。
+ * 同 id 时以补声明为准——插件自己更清楚当前能不能提供这一项。
+ *
+ * 放在协议层而不是 plugins 模块的闭包里，是为了能单测。判断「哪些该留、哪些该被
+ * 替换」看着简单，但 id 缺失、类型不符、补声明非数组这些情况都要有确定的处理。
+ */
+export function 合并小组件声明(静态: unknown, 补: unknown): unknown {
+  const 补列 = Array.isArray(补) ? 补 : [];
+  if (补列.length === 0) return 静态;
+  const 静态列 = Array.isArray(静态) ? 静态 : [];
+  const 取id = (项: unknown): string => String((项 as { id?: unknown })?.id ?? "");
+  const 补id集 = new Set(补列.map(取id).filter(Boolean));
+  // 没 id 的静态项无法判断是否该被替换，原样保留——
+  // 归一阶段会把它们整条拒掉，这里不该提前吞掉，否则警告也一起没了。
+  return [...静态列.filter((项) => !补id集.has(取id(项))), ...补列];
+}

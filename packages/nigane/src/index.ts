@@ -14,6 +14,7 @@ export type { 配置声明, 配置载荷, 配置字段声明, 配置字段类型
 export type { 配置列声明, 配置数组声明 } from "./config-protocol.js";
 export type { 小组件声明, 小组件类型, 显著度 } from "./widget-protocol.js";
 export {
+  合并小组件声明,
   归一小部件声明,
   归一小部件列表,
   合法小组件id,
