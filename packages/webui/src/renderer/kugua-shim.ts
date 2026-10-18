@@ -18,11 +18,35 @@ function 是桌面壳(): boolean {
   return typeof (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== "undefined";
 }
 
+/**
+ * 桌面壳：页面真正画出第一帧后再让窗口现身。
+ *
+ * 窗口在 Rust 侧创建时是隐藏的。若一开始就可见，用户会先看到一片白——
+ * WebView2 从建好窗口到真正渲染出页面有几百毫秒空档，那段时间窗口里是空的。
+ *
+ * 为什么用两层 `requestAnimationFrame` 而不是 `DOMContentLoaded`：
+ * 后者只保证 DOM 解析完，**此时还没绘制**。双层 rAF 表示"浏览器至少已经
+ * 完整画过一帧"，此刻调 show_window，窗口出现在屏幕上时内容就已经在了。
+ *
+ * 浏览器环境什么都不做（本来就没有窗口可控制）。
+ */
+function 页面就绪后显示窗口(): void {
+  if (!是桌面壳()) return;
+  const 全局 = (window as unknown as { __TAURI__?: { core?: { invoke?: (命令: string) => Promise<unknown> } } }).__TAURI__;
+  if (!全局?.core?.invoke) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      // 失败不影响页面使用：Rust 侧还有超时兜底会强制显示
+      void Promise.resolve(全局.core!.invoke!("show_window")).catch(() => undefined);
+    });
+  });
+}
+
 /** 等 DOM 就绪后处理窗口控制按钮：桌面壳显示，浏览器隐藏 */
 document.addEventListener("DOMContentLoaded", () => {
   const 控件 = document.querySelector<HTMLElement>(".window-controls");
-  if (!控件) return;
-  控件.style.display = 是桌面壳() ? "" : "none";
+  if (控件) 控件.style.display = 是桌面壳() ? "" : "none";
+  页面就绪后显示窗口();
 });
 
 const 日志回调: Array<(entry: unknown) => void> = [];

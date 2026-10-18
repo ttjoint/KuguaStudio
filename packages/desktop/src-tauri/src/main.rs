@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tauri::{RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// 侧车子进程句柄。
 ///
@@ -268,6 +268,47 @@ fn quit_app(应用: tauri::AppHandle) {
     std::process::exit(0);
 }
 
+
+/// 若窗口在若干秒内仍不可见，强制显示它。
+///
+/// 配合 `show_window` 使用：正常路径是页面首帧后自己报"我好了"，
+/// 这条兜底只在页面没能报到时生效（加载失败、脚本报错、极端慢）。
+fn 兜底显示(应用: &tauri::AppHandle, 秒: u64) {
+    let 句柄 = 应用.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(秒));
+        if let Some(窗) = 句柄.get_webview_window("main") {
+            // 已经显示了就什么都不做（绝大多数情况下会走到这里）
+            if let Ok(真) = 窗.is_visible() {
+                if 真 {
+                    return;
+                }
+            }
+            eprintln!("[桌面端] 页面未在 {秒} 秒内报告就绪，强制显示窗口");
+            let _ = 窗.show();
+        }
+    });
+}
+
+/// 首帧就绪后显示主窗口。
+///
+/// 窗口创建时是**隐藏**的（`.visible(false)`），否则会先白一下再渲染出界面：
+/// WebView2 建好窗口句柄和真正画出页面之间有几百毫秒的空档，那段就是白屏。
+///
+/// 由页面在 DOM 渲染完成后调用本命令把窗口显示出来。这比"固定延迟 N 毫秒
+/// 再显示"可靠得多——延迟定短了在慢机器上照样白，定长了在快机器上白等。
+///
+/// 页面加载失败的情况下没人会调用它，所以 `建窗口` 那边还挂了一个超时兜底，
+/// 保证窗口最终一定会出现（宁可白屏，也不能变成"程序启动了但没窗口"）。
+#[tauri::command]
+fn show_window(窗口: tauri::Window) -> Result<(), String> {
+    // 先 minimize/restore 一轮不是必要的，直接 show 即可；focus 让它在多窗口
+    // 环境下（比如同时开着浏览器版）跑到前面。
+    窗口.show().map_err(|e| e.to_string())?;
+    窗口.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 最小化主窗口（同样走自定义命令，避免 capability 远程 URL 匹配问题）
 #[tauri::command]
 fn minimize_window(窗口: tauri::Window) -> Result<(), String> {
@@ -437,6 +478,7 @@ fn main() {
         .manage(侧车状态(Mutex::new(侧车)))
         .invoke_handler(tauri::generate_handler![
             quit_app,
+            show_window,
             minimize_window,
             toggle_maximize,
             is_maximized
@@ -472,8 +514,14 @@ fn main() {
                     .inner_size(1440.0, 900.0)
                     .min_inner_size(900.0, 600.0)
                     .center()
-                    .visible(true)
+                    // 先隐藏，等页面首帧渲染完由它调 show_window 显示，
+                    // 避免"先白一下再出界面"。见 show_window 的说明。
+                    .visible(false)
                     .build()?;
+                // 超时兜底：页面若加载失败（或注入脚本没跑起来），没人会调
+                // show_window，窗口就永远不出现——那是比白屏更糟的故障。
+                // 这里在 8 秒后强制显示，宁可白屏也要让用户看到东西。
+                兜底显示(&应用句柄.handle().clone(), 8);
             } else {
                 // 侧车没起来：显示一段可读的诊断页，而不是白屏
                 let 诊断 = 诊断页(根.as_deref(), &地址);
