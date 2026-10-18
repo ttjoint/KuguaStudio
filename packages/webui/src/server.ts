@@ -386,7 +386,7 @@ function 取插件页(名: string): 插件页 | null {
 
 /** 发送插件 UI 文件（防目录穿越） */
 async function 发送插件UI(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-  const 路径 = decodeURIComponent(url.pathname).replace(/^\/plugin-ui\//, "");
+  const 路径 = 安全解码路径(url.pathname).replace(/^\/plugin-ui\//, "");
   const 斜 = 路径.indexOf("/");
   const 名 = 斜 === -1 ? 路径 : 路径.slice(0, 斜);
   let 相对 = 斜 === -1 ? "" : 路径.slice(斜 + 1);
@@ -465,7 +465,7 @@ async function 列出模块页面(): Promise<模块页[]> {
 
 /** 发送模块 UI 文件（防目录穿越） */
 async function 发送模块UI(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-  const 路径 = decodeURIComponent(url.pathname).replace(/^\/module-ui\//, "");
+  const 路径 = 安全解码路径(url.pathname).replace(/^\/module-ui\//, "");
   const 斜 = 路径.indexOf("/");
   const 名 = 斜 === -1 ? 路径 : 路径.slice(0, 斜);
   let 相对 = 斜 === -1 ? "" : 路径.slice(斜 + 1);
@@ -589,9 +589,28 @@ async function 处理MCP(req: IncomingMessage, res: ServerResponse): Promise<voi
   发送JSON(res, 200, 响应);
 }
 
+/**
+ * 安全解码 URL 路径。
+ *
+ * `decodeURIComponent` 遇到裸 `%`（或截断的 `%E4`）会抛 `URIError`。
+ * 这个异常发生在 `createServer` 回调里，**没人接**，于是整个 WebUI 进程直接
+ * 以 code=1 退出——一个不需要认证的请求就能把平台打掉。而请求方完全不需要
+ * 恶意：旧书签、截断的分享链接、剪贴板里一个半截的中文链接都会变成裸 `%`。
+ *
+ * 所以解码失败时退回去用**原始路径**：它已经过 `new URL()` 处理，不会抛错，
+ * 拿它继续去找文件，找不到就是正常的 404。宁可 404，不能崩。
+ */
+function 安全解码路径(值: string): string {
+  try {
+    return decodeURIComponent(值);
+  } catch {
+    return 值;
+  }
+}
+
 /** 从 渲染根 安全解析静态文件路径，阻止目录穿越 */
 function 解析静态路径(pathname: string): string | null {
-  const 相对 = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
+  const 相对 = pathname === "/" ? "index.html" : 安全解码路径(pathname).replace(/^\/+/, "");
   const 目标 = resolve(渲染根, 相对);
   if (!目标.startsWith(渲染根)) return null;
   return 目标;
@@ -854,7 +873,16 @@ async function 主流程(): Promise<void> {
   await 连接苦音();
 
   const 服务 = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    } catch {
+      // Host 头畸形（"a b"、空串、"[[" 之类）时 new URL 会抛 TypeError。
+      // 这个回调里没人接异常 → 进程直接退出，同样是一个请求就打掉整个平台。
+      // 伪装成 Host 极其容易，所以这里必须自己收掉。
+      res.writeHead(400).end("Bad Request");
+      return;
+    }
 
     // MCP（Streamable HTTP）
     if (url.pathname === "/mcp") {
