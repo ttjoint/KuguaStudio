@@ -104,7 +104,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
         modules: [],
       }),
     );
-    const 环境 = { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 数据目录 };
+    const 环境 = { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 数据目录, KUGUA_GLOBAL_LOCK: join(临时目录, "single.lock") };
     const a = 启动(WebUI脚本, 环境);
     try {
       // 等待 A 就绪
@@ -152,7 +152,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
     const 写配置 = (模块: Array<Record<string, unknown>>) =>
       writeFileSync(配置路径, JSON.stringify({ host: "127.0.0.1", port: 主控端口, token: "", modules: 模块 }));
     写配置([{ name: "echo", type: "process", entry: "packages/modules/echo/dist/index.js", autoStart: true }]);
-    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据 });
+    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据, KUGUA_GLOBAL_LOCK: join(临时数据, "studio.lock") });
     let 客户端: Awaited<ReturnType<typeof 连接主控>> | null = null;
     try {
       await sleep(4000);
@@ -208,7 +208,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
         plugins: { dir: "./plugins" },
       }),
     );
-    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据 });
+    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据, KUGUA_GLOBAL_LOCK: join(临时数据, "studio.lock") });
     let 客户端: Awaited<ReturnType<typeof 连接主控>> | null = null;
     try {
       await sleep(4000);
@@ -244,7 +244,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
         modules: [{ name: "plugins", type: "process", entry: "packages/modules/plugins/dist/index.js", autoStart: true }],
       }),
     );
-    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据 });
+    const main = 启动(主控脚本, { KUGUA_CONFIG: 配置路径, KUGUA_DATA_DIR: 临时数据, KUGUA_GLOBAL_LOCK: join(临时数据, "studio.lock") });
     let 客户端: Awaited<ReturnType<typeof 连接主控>> | null = null;
     try {
       await sleep(5000);
@@ -320,7 +320,7 @@ describe.skipIf(!已构建)("外部程序动态接入", () => {
 
     const 主控 = 启动(主控脚本, {
       KUGUA_CONFIG: 配置路径,
-      KUGUA_GLOBAL_LOCK: join(临时目录, "studio.lock"),
+      KUGUA_GLOBAL_LOCK: join(临时目录, `lock-${主控端口}.lock`),
       KUGUA_DATA_DIR: join(临时目录, "data"),
     });
 
@@ -417,7 +417,7 @@ describe.skipIf(!已构建)("平台退出通知", () => {
 
     const 主控 = 启动(主控脚本, {
       KUGUA_CONFIG: 配置路径,
-      KUGUA_GLOBAL_LOCK: join(临时目录, "studio.lock"),
+      KUGUA_GLOBAL_LOCK: join(临时目录, `lock-${主控端口}.lock`),
       KUGUA_DATA_DIR: join(临时目录, "data"),
     });
 
@@ -557,7 +557,7 @@ setInterval(() => {}, 1000);
 
     const 主控 = 启动(主控脚本, {
       KUGUA_CONFIG: 配置路径,
-      KUGUA_GLOBAL_LOCK: join(临时目录, "studio.lock"),
+      KUGUA_GLOBAL_LOCK: join(临时目录, `lock-${主控端口}.lock`),
       KUGUA_DATA_DIR: join(临时目录, "data"),
     });
 
