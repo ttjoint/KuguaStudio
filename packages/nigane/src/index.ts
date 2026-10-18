@@ -102,6 +102,12 @@ export interface 服务端选项 {
    * 这边会一直挂着不返回，占用闭包与连接。攒多了就是「越用越卡」。
    */
   请求超时毫秒?: number;
+  /**
+   * 心跳间隔（毫秒），默认 30000。
+   *
+   * 主控卡死时 TCP 不断，只有应用层 ping/pong 能发现。测试里会调小它。
+   */
+  心跳间隔毫秒?: number;
 }
 
 /** 模块类型：process=独立进程；library=静态库/无需启动进程 */
@@ -245,6 +251,19 @@ type 内置处理器 = (
 export class NiganeServer extends EventEmitter {
   private wss?: WebSocketServer;
   private 注册表 = new Map<string, { socket: WebSocket; info: 模块信息 }>();
+  /**
+   * 心跳存活标记：socket → 本轮 ping 之后是否收到过 pong。
+   *
+   * 为什么需要它：主控**卡死**（进程还在、事件循环被阻塞、不再处理任何消息）
+   * 时 TCP 连接不会断，模块那边的 close 事件永远不触发，于是模块以为自己
+   * 一切正常，留在原地不动——平台变成「按钮点了没反应」的空壳，而且**永不
+   * 自愈**。只有主动发请求时才会 10 秒超时，用户只会以为单个功能坏了。
+   *
+   * 有了心跳，卡死的主控不会回 pong，连接被判死并主动关闭，模块收到 close
+   * 按既有约定自行退出，下次启动重新接上。
+   */
+  private 心跳存活 = new Map<WebSocket, boolean>();
+  private 心跳定时器: NodeJS.Timeout | null = null;
   /** 握手校验钩子：返回不允许则拒绝接入（用于身份/版本/路径校验） */
   握手校验?: (信息: 模块信息) => { 允许: boolean; 理由?: string };
   private 连接名 = new Map<WebSocket, string>();
@@ -283,10 +302,60 @@ export class NiganeServer extends EventEmitter {
     const host = this.选项.host ?? "127.0.0.1";
     return new Promise((resolve, reject) => {
       this.wss = new WebSocketServer({ host, port: this.选项.port });
-      this.wss.on("listening", () => resolve());
+      this.wss.on("listening", () => {
+        this.启动心跳();
+        resolve();
+      });
       this.wss.on("error", (err) => reject(err));
       this.wss.on("connection", (socket) => this.处理连接(socket));
     });
+  }
+
+  /**
+   * 心跳：每「间隔」发 ping，把上一轮还没回 pong 的连接判死并关闭。
+   *
+   * 间隔取 30 秒：够长到不会误杀忙碌的模块，够短到用户不会盯着一个死平台
+   * 等太久。判定看的是**上一轮**的标记，所以最坏约 2 个周期（60 秒）才发现，
+   * 比「永远发现不了」好得多。
+   *
+   * 不用 WebSocket 协议层的 ping 帧：那是 TCP 层探测，只能测出连接断没断，
+   * 测不出「进程活着但事件循环卡死」——而那正是这里要抓的情况。所以走应用层
+   * 消息（协议里本来就定义了 ping/pong）。
+   */
+  private 启动心跳(): void {
+    if (this.心跳定时器) return;
+    const 间隔 = this.选项.心跳间隔毫秒 ?? 30000;
+    this.心跳定时器 = setInterval(() => {
+      for (const [名, { socket }] of this.注册表) {
+        if (socket.readyState !== WebSocket.OPEN) continue;
+        if (this.心跳存活.get(socket) === false) {
+          // 上一轮发了 ping，这一轮仍没回 → 判死
+          this.emit("模块失联", { name: 名 });
+          try {
+            socket.terminate();
+          } catch {
+            try {
+              socket.close(1001, "心跳超时");
+            } catch {
+              /* 已断 */
+            }
+          }
+          continue;
+        }
+        this.心跳存活.set(socket, false);
+        try {
+          socket.send(JSON.stringify(构造信封({ type: "ping", from: "kugua-main", to: 名 })));
+        } catch {
+          /* 发不出去，下一轮会被判死 */
+        }
+      }
+      // 已断开的连接顺手清掉标记，避免这个 Map 无限增长
+      for (const socket of this.心跳存活.keys()) {
+        if (socket.readyState !== WebSocket.OPEN) this.心跳存活.delete(socket);
+      }
+    }, 间隔);
+    // 不要因为这个定时器让进程退不掉
+    if (typeof this.心跳定时器.unref === "function") this.心跳定时器.unref();
   }
 
   /** 注册或更新一条模块描述（由主控注入） */
@@ -400,6 +469,11 @@ export class NiganeServer extends EventEmitter {
 
   /** 关闭服务端：先广播 system.shutdown，再断连接；可等待若干毫秒让各模块自行处理 */
   async stop(等待毫秒 = 200): Promise<void> {
+    // 先停心跳：留着它会让进程退不掉，还会在关闭途中误判所有模块失联
+    if (this.心跳定时器) {
+      clearInterval(this.心跳定时器);
+      this.心跳定时器 = null;
+    }
     this.broadcast("system.shutdown", { time: Date.now() });
     if (等待毫秒 > 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, 等待毫秒));
@@ -414,6 +488,8 @@ export class NiganeServer extends EventEmitter {
   }
 
   private 处理连接(socket: WebSocket): void {
+    // 新连接默认算活着，第一轮 ping 之后才开始要求回 pong
+    this.心跳存活.set(socket, true);
     // 握手超时：5 秒内未 hello 则断开
     const 定时器 = setTimeout(() => {
       if (!this.连接名.has(socket)) socket.close(1002, "握手超时");
@@ -439,6 +515,7 @@ export class NiganeServer extends EventEmitter {
     });
 
     socket.on("close", () => {
+      this.心跳存活.delete(socket);
       clearTimeout(定时器);
       const 名 = this.连接名.get(socket);
       if (名) {
@@ -575,6 +652,11 @@ export class NiganeServer extends EventEmitter {
   private 路由(socket: WebSocket, 发送者: string, 消息: 信封): void {
     this.记录日志("接收", 消息);
     switch (消息.type) {
+      case "pong": {
+        // 模块回了 pong：它活着，这也说明本轮心跳通过
+        this.心跳存活.set(socket, true);
+        return;
+      }
       case "ping": {
         const pong = 构造信封({ type: "pong", from: "kugua-main", to: 发送者, echo: 消息.id });
         this.记录日志("发送", pong);
@@ -730,6 +812,13 @@ export interface 客户端选项 {
    * 仅作首次注册时的初始值；已有同名配置时以用户配置为准。
    */
   托管?: 托管申请;
+  /**
+   * 客户端心跳间隔（毫秒），默认 30000。
+   *
+   * 主控卡死时它自己发不出 ping，必须由客户端反向探测才能发现。
+   * 测试里会调小它。
+   */
+  心跳间隔毫秒?: number;
 }
 
 type 请求处理器 = (params: unknown, 消息: 信封) => unknown | Promise<unknown>;
@@ -750,6 +839,46 @@ export class NiganeClient extends EventEmitter {
   >();
   private 请求表 = new Map<string, 请求处理器>();
   private 事件表 = new Map<string, 事件处理器>();
+  /**
+   * 客户端侧心跳定时器。
+   *
+   * 主控侧虽然也发 ping，但**主控卡死时它自己就发不出来了**，所以光靠
+   * 主控单向探测救不了模块：模块会一直以为自己在线，永远不知道平台已经
+   * 不响应了。必须由客户端主动发 ping、看平台回不回 pong 才能发现。
+   *
+   * 协议本来就支持这个方向（见接入协议的 ping/pong 一节）。
+   */
+  private 心跳定时器: NodeJS.Timeout | null = null;
+
+  /** 开启客户端心跳；关闭连接或 stop 时务必清掉，否则进程退不掉 */
+  private 启动心跳(): void {
+    if (this.心跳定时器) return;
+    const 间隔 = this.选项.心跳间隔毫秒 ?? 30000;
+    this.心跳定时器 = setInterval(() => {
+      const ws = this.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        // 用 request 的通道发 ping 并等 pong：超时就说明平台不响应了
+        ws.send(JSON.stringify(构造信封({ type: "ping", from: this.选项.name, to: "kugua-main" })));
+        // 给平台一个周期的时间回话，没回就判定失联
+        setTimeout(() => {
+          if (this.ws?.readyState === WebSocket.OPEN && !this.心跳已回复) {
+            this.emit("heartbeat_timeout");
+            try {
+              this.ws.terminate();
+            } catch {
+              /* 已断 */
+            }
+          }
+        }, 间隔);
+        this.心跳已回复 = false;
+      } catch {
+        /* 发不出去 */
+      }
+    }, 间隔);
+    if (typeof this.心跳定时器.unref === "function") this.心跳定时器.unref();
+  }
+  private 心跳已回复 = true;
 
   constructor(private 选项: 客户端选项) {
     super();
@@ -817,6 +946,8 @@ export class NiganeClient extends EventEmitter {
         if (!消息) return;
         if (消息.type === "hello_ack") {
           收尾();
+          // 握手成功才开始心跳：之前发 ping 没有意义，也会干扰握手判定
+          this.启动心跳();
           resolve();
           return;
         }
@@ -835,6 +966,10 @@ export class NiganeClient extends EventEmitter {
 
       ws.on("close", () => {
         收尾();
+        if (this.心跳定时器) {
+          clearInterval(this.心跳定时器);
+          this.心跳定时器 = null;
+        }
         this.清理挂起(new Error("连接已关闭"));
         this.emit("close");
       });
@@ -942,7 +1077,19 @@ export class NiganeClient extends EventEmitter {
         }
         return;
       }
+      case "ping": {
+        // 主控的心跳。**必须回 pong**，否则主控会判定本模块失联并断开连接，
+        // 模块随即收到 close 自行退出——看起来就像"无缘无故掉线"。
+        const ws = this.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(构造信封({ type: "pong", from: this.选项.name, to: "kugua-main", echo: 消息.id })));
+        }
+        return;
+      }
       case "pong":
+        // 平台回话了：本轮心跳通过
+        this.心跳已回复 = true;
+        return;
       default:
         return;
     }

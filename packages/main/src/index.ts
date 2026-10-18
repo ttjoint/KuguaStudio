@@ -10,7 +10,7 @@
  */
 
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve as pathResolve, isAbsolute } from "node:path";
+import { dirname, resolve as pathResolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as 创建探测服务器 } from "node:net";
@@ -109,10 +109,10 @@ function 归一工作目录(): void {
     if (值 && !isAbsolute(值)) process.env[键] = pathResolve(原cwd, 值);
   }
   try {
-    // ESM 里没有 __dirname（用了会抛 ReferenceError，而它一旦被 catch 吞掉，
-    // 整个归一化就静默失效）。用 import.meta.url 反推本文件位置，
-    // 再上溯到仓库根：dist/index.js → packages/main/dist → 仓库根。
-    const 本文件 = fileURLToPath(import.meta.url);
+    // ESM 里没有 __dirname（用了会抛 ReferenceError，而它一旦被 catch 吞掉，
+    // 整个归一化就静默失效）。用 import.meta.url 反推本文件位置，
+    // 再上溯到仓库根：dist/index.js → packages/main/dist → 仓库根。
+    const 本文件 = fileURLToPath(import.meta.url);
     const 根 = pathResolve(dirname(本文件), "..", "..", "..");
     if (原cwd !== 根) process.chdir(根);
   } catch (err) {
@@ -325,6 +325,14 @@ async function 启动(): Promise<void> {
     服务端?.broadcast("capability.changed", { 模块: 名, 数量: 0 });
     服务端?.broadcast("widgets.changed", { 来源: 名 });
     console.log(`[主控] 模块离线：${名}`);
+  });
+
+  // 心跳判死：主控这边主动断开一个不再回 pong 的模块。
+  // 与 unregistered 不同——那是对方自己断的，这里是**我们还连得上但对方
+  // 已经不响应**，通常意味着模块进程卡死，值得单独记一条 warn，
+  // 否则用户只会看到"某个模块突然没了"。
+  服务端.on("模块失联", ({ name }: { name: string }) => {
+    console.warn(`[主控] 模块心跳超时，已强制断开：${name}（对方不再响应，可能已卡死）`);
   });
 
   await 服务端.start();
