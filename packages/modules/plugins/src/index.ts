@@ -191,7 +191,12 @@ export function 启动插件运行时(
    */
   const 注册插件小组件 = async (): Promise<void> => {
     for (const 记录 of 加载器.列表()) {
-      const 声明 = 记录.元数据.widgets;
+      // 必须走 `合并声明`，不能用 `记录.元数据.widgets`：
+      // 这一步在 `加载全部()` 之后跑，而插件的 on_load 已经在里面补声明过
+      // （如 sysmon 探测到 N 卡后的 GPU）。若这里只报清单里的静态声明，
+      // 补声明会被整份覆盖——表现为「日志说已启用 GPU，界面上却没有 GPU 卡」。
+      const 声明 = 合并声明(记录.name);
+      // 两处都没声明时 合并小组件声明 返回 undefined，不必上报
       if (!声明) continue;
       try {
          await 客户端.request("nigane", "nigane.widgets.declare", { name: 记录.name, widgets: 声明 }, 5000);
