@@ -166,10 +166,16 @@ function 启动主控(): Promise<void> {
       return;
     }
     // KUGUA_LOCK_HELD=1：告诉子主控「锁已由本 WebUI 持有」，同一实例不重复抢锁
+    //
+    // windowsHide: true 是必须的。Windows 上 spawn 默认会给子进程分配一个新的
+    // 控制台窗口——主控会一直运行，那个黑框也就一直挂在桌面上（表现为"点重启
+    // 之后多了个关不掉的黑窗口"）。stdio 用 pipe 而不是 ignore，是因为下面要
+    // 读它的输出判断就绪，所以隐藏窗口只能靠这个标志，不能靠 detach。
     const proc = spawn("node", [主控脚本], {
       stdio: "pipe",
       cwd: process.cwd(),
       env: { ...process.env, KUGUA_LOCK_HELD: "1" },
+      windowsHide: true,
     });
     主控进程 = proc;
     proc.stdout?.on("data", (data: Buffer) => {

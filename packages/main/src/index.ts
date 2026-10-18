@@ -1011,6 +1011,9 @@ function 启动模块(描述: 模块描述): Promise<ChildProcess | null> {
         KUGUA_TOKEN: 配置.token,
         KUGUA_HOSTED: "1",
       },
+      // Windows 上 spawn 默认给子进程新开一个控制台窗口。模块是常驻的，
+      // 不隐藏的话桌面上会随着模块数量堆出一片黑框，重启平台时还会重来一遍。
+      windowsHide: true,
     }) as ChildProcess;
     const 记录: 子进程记录 = { proc, name: 描述.name, registered: false };
     子进程表.set(描述.name, 记录);
