@@ -50,8 +50,12 @@ if not defined GUI_MODE (
 )
 
 set "DESKTOP_EXE="
-if exist "packages\desktop\src-tauri\target\release\kugua-desktop.exe" set "DESKTOP_EXE=packages\desktop\src-tauri\target\release\kugua-desktop.exe"
-if not defined DESKTOP_EXE if exist "packages\desktop\src-tauri\target\debug\kugua-desktop.exe" set "DESKTOP_EXE=packages\desktop\src-tauri\target\debug\kugua-desktop.exe"
+REM Must be an ABSOLUTE path. "start" resolves relative paths against its own
+REM working directory rather than the script's, and when start.bat is invoked via
+REM "cmd /c" that directory is not the repo root. The failure is silent: start
+REM still exits 0 and nothing appears to happen.
+if exist "%~dp0packages\desktop\src-tauri\target\release\kugua-desktop.exe" set "DESKTOP_EXE=%~dp0packages\desktop\src-tauri\target\release\kugua-desktop.exe"
+if not defined DESKTOP_EXE if exist "%~dp0packages\desktop\src-tauri\target\debug\kugua-desktop.exe" set "DESKTOP_EXE=%~dp0packages\desktop\src-tauri\target\debug\kugua-desktop.exe"
 
 REM Default: desktop when built, browser otherwise.
 if not defined GUI_MODE (
@@ -77,7 +81,6 @@ if defined DESKTOP_EXE (
     start "" "!DESKTOP_EXE!"
     exit /b 0
 )
-
 echo [INFO] webui.gui is "desktop" but the desktop shell is not built yet.
 echo        Build it with: node packages\desktop\scripts\build.mjs
 echo        Falling back to the browser for now.
@@ -102,6 +105,6 @@ if !errorlevel! equ 0 (
 )
 
 echo [INFO] Starting the WebUI in the default browser...
-powershell -NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -Command "Set-Location '%~dp0'; $p = Start-Process 'node' -ArgumentList 'packages\webui\dist\server.js' -WindowStyle Hidden -PassThru; $p.Id | Out-File -Encoding ascii '.kugua.pid'"
+powershell -NoProfile -ExecutionPolicy RemoteSigned -WindowStyle Hidden -Command "Set-Location '%~dp0'; $p = Start-Process 'node' -ArgumentList '\"%~dp0packages\webui\dist\server.js\"' -WorkingDirectory '%~dp0' -WindowStyle Hidden -PassThru; $p.Id | Out-File -Encoding ascii '.kugua.pid'"
 
 exit /b 0

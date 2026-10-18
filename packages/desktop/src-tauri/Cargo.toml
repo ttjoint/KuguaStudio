@@ -10,6 +10,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["webview-data-url"] }
+# 闪屏页用 base64 编进 data URI（直接拼原文会在换行/加号处出错）
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

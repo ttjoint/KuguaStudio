@@ -268,18 +268,20 @@ fn quit_app(应用: tauri::AppHandle) {
     std::process::exit(0);
 }
 
-
-
-/// 闪屏页的 data URI。
+/// 闪屏页的 data URI（base64）。
 ///
 /// 用 `include_str!` 把 HTML 编进二进制，再用 data URI 加载——这样闪屏不依赖
 /// 任何外部文件或自定义协议，壳被单独拷走也能用。
 ///
-/// 只做最小的转义：`#` 和 `%` 在 data URI 里会被当分隔符/转义符，必须处理。
+/// **必须 base64，不能直接拼原文。** 这个坑踩过一次：直接拼的话，HTML 里的
+/// 换行符会让 URL 解析在第一行就断掉，`+` 又会被解码成空格（CSS 里的
+/// `+` 选择器、`2.4s` 之类会全乱），结果页面是一片空白——而窗口本身
+/// 是"可见"的，透明窗口配空内容，看起来就是"闪屏压根没出现"。
 fn 闪屏页地址() -> String {
+    use base64::Engine;
     let 页 = include_str!("../../splash.html");
-    let 转义后 = 页.replace('%', "%25").replace('#', "%23");
-    format!("data:text/html;charset=utf-8,{转义后}")
+    let 编码 = base64::engine::general_purpose::STANDARD.encode(页.as_bytes());
+    format!("data:text/html;charset=utf-8;base64,{编码}")
 }
 
 /// 让闪屏窗口推进到某个阶段（调用页面里注入的 `window.__splash.阶段`）。
@@ -763,5 +765,3 @@ fn 诊断页(根: Option<&Path>, 地址: &str) -> String {
     行.push("3. 端口 24600 是否被其他程序占用".to_string());
     行.join("\n")
 }
-
-
