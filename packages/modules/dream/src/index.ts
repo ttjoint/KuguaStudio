@@ -42,9 +42,24 @@ function DreamText(keyword: string): string {
   return 结果;
 }
 
+/**
+ * 从「梦见蛇」这类原文里取出关键词。
+ *
+ * 复刻 C# 正则 `^(解梦|梦到|梦见)(.+)$`。抽出来是为了能测：
+ * 「梦见」后面带不带空格、「解梦」和「梦见」混用、前缀都没有时
+ * 整个原文都当关键词——这三条都是静默回落到别的东西。
+ */
+export function 解析关键词(文本: string): string {
+  const 干净 = (文本 ?? "").trim();
+  const m = 干净.match(/^(?:解梦|梦到|梦见)\s*(.+)$/);
+  return m ? m[1].trim() : 干净;
+}
+
 void 启动模块({
   name: "dream",
   version: "0.2.0",
+  仅在主模块启动: true,
+  入口文件URL: import.meta.url,
   能力: 能力清单,
   处理器: {
     "dream.interpret": async (params) => {
@@ -53,9 +68,7 @@ void 启动模块({
       // 复刻 C# 正则 ^(解梦|梦到|梦见)(.+)$
       let keyword = p.keyword ?? "";
       if (!keyword) {
-        const 文本 = (p.参数文本 ?? p.原文 ?? "").trim();
-        const m = 文本.match(/^(?:解梦|梦到|梦见)\s*(.+)$/);
-        keyword = m ? m[1].trim() : 文本;
+        keyword = 解析关键词(p.参数文本 ?? p.原文 ?? "");
       }
       const 解读 = DreamText(keyword);
       return { keyword, 解读 };

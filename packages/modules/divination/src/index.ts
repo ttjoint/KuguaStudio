@@ -25,7 +25,7 @@ const 能力清单: 能力声明[] = [
   },
 ];
 
-const 文王卦序: readonly string[] = [
+export const 文王卦序: readonly string[] = [
   "乾", "坤", "屯", "蒙", "需", "讼", "师", "比",
   "小畜", "履", "泰", "否", "同人", "大有", "谦", "豫",
   "随", "蛊", "临", "观", "噬嗑", "贲", "剥", "复",
@@ -36,7 +36,7 @@ const 文王卦序: readonly string[] = [
   "巽", "兑", "涣", "节", "中孚", "小过", "既济", "未济"
 ];
 
-class 蓍草卜筮 {
+export class 蓍草卜筮 {
   private 全部蓍草: number;
   private 挂出蓍草: number;
   private 揲出蓍草: number;
@@ -94,7 +94,7 @@ class 蓍草卜筮 {
   }
 }
 
-class 周易占卜 {
+export class 周易占卜 {
   private 卦辞原文: Map<string, string[]> = new Map();
   private 爻辞原文: Map<string, string[][]> = new Map();
   private 卜者: 蓍草卜筮 = new 蓍草卜筮();
@@ -299,6 +299,9 @@ async function 加载数据(): Promise<void> {
 void 启动模块({
   name: "divination",
   version: "0.2.0",
+  // 被 import 时（测试）不要连主控，直接运行时才启动。
+  仅在主模块启动: true,
+  入口文件URL: import.meta.url,
   能力: 能力清单,
   处理器: {
     "divination.zhouyi": async (params) => {

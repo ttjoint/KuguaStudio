@@ -131,7 +131,15 @@ export class ViterbiModel {
 
   /** 从文件加载模型（StartProb / TransProb / EmitProb 三段，制表符分隔） */
   LoadModel(filePath: string): boolean {
-    const 文本 = readFileSync(filePath, "utf-8").replace(/^\uFEFF/, "");
+    // 文件缺失时返回 false 而不是让 readFileSync 抛 ENOENT。
+    // 签名写的是 boolean，调用方 `if (!模型.LoadModel(...))` 也按 boolean 处理，
+    // 抛异常会让那个判断形同虚设——错误在更外层以完全无关的样子爆出来。
+    let 文本: string;
+    try {
+      文本 = readFileSync(filePath, "utf-8").replace(/^\uFEFF/, "");
+    } catch {
+      return false;
+    }
     let section = "";
     for (const raw of 文本.split(/\r?\n/)) {
       const line = raw.trim();

@@ -31,7 +31,7 @@ let 模型: ViterbiModel | null = null;
 let 已加载 = false;
 
 /** 复刻 ModNLP.GetPinyinSingle：汉字→完整拼音；字母→i/u/v 变形 */
-function 单字拼音(字符: string): string {
+export function 单字拼音(字符: string): string {
   const code = 字符.codePointAt(0) ?? 0;
   if (code >= 0x4e00 && code <= 0x9fff) {
     const index = code - 0x4e00;
@@ -47,11 +47,22 @@ function 单字拼音(字符: string): string {
   return "";
 }
 
-function 确保加载(): void {
-  if (已加载) return;
+/**
+ * 只加载拼音表，不碰 Viterbi 模型（模型文件大、训练慢）。
+ *
+ * 单独拆出来是为了能测 `单字拼音`：它只依赖拼音表，
+ * 而 `确保加载` 会顺带 LoadModel，测试里没必要背这个负担。
+ */
+export function 初始化拼音表(): void {
+  if (拼音映射.length > 0) return;
   拼音映射 = 读模块资源(import.meta.url, "pinyin_unicode.txt")
     .split(/\r?\n/)
     .map((l) => l.trim());
+}
+
+function 确保加载(): void {
+  if (已加载) return;
+  初始化拼音表();
   模型 = new ViterbiModel({ 单字拼音 });
   const 模型路径 = 模块资源(import.meta.url, "model1.txt");
   if (!模型.LoadModel(模型路径)) {
@@ -61,7 +72,7 @@ function 确保加载(): void {
 }
 
 /** 复刻 ModNLP.getPinyinFirstList：取首字母序列（非拼音字符原样保留） */
-function 拼音首字母串(input: string): string {
+export function 拼音首字母串(input: string): string {
   let output = "";
   for (const c of input) {
     const p = 单字拼音(c);
@@ -74,6 +85,9 @@ function 拼音首字母串(input: string): string {
 void 启动模块({
   name: "nlp",
   version: "0.2.0",
+  // 被 import 时（测试导入纯函数）不要连主控，直接运行时才启动。
+  仅在主模块启动: true,
+  入口文件URL: import.meta.url,
   能力: 能力清单,
   处理器: {
     "nlp.xieyin": (params) => {

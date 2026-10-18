@@ -9,7 +9,7 @@ import type { 能力声明 } from "@kugua/capability";
 import { 读模块资源 } from "@kugua/paths";
 import { DScriptFile, DValue } from "@kugua/dscript";
 
-function 人称互换(文本: string): string {
+export function 人称互换(文本: string): string {
   return 文本
     .replace(/我/g, "【W】")
     .replace(/你/g, "我")
@@ -59,9 +59,25 @@ function EatText(time: string, verb: string): string {
   return 结果;
 }
 
+/**
+ * 从「晚上喝什么」这类原文里解出时间与动词。
+ *
+ * 抽出来才能测：`^(.*)(.{1})什么$` 这条正则的行为不直观——
+ * 「什么」前面那一字是动词，前面剩下的全部是时间；匹配不上就都走默认。
+ */
+export function 解析文本(文本: string): { time: string; verb: string } | null {
+  const m = (文本 ?? "").trim().match(/^(.*)(.{1})什么$/);
+  // 返回 null 而不是默认值：调用方此时应当保留显式传入的 time/verb，
+  // 而不是被这里的默认值顶掉。
+  if (!m) return null;
+  return { time: m[1].trim() || "今天", verb: m[2] };
+}
+
 void 启动模块({
   name: "food",
   version: "0.2.0",
+  仅在主模块启动: true,
+  入口文件URL: import.meta.url,
   能力: 能力清单,
   处理器: {
     "food.recommend": async (params) => {
@@ -71,10 +87,12 @@ void 启动模块({
       let verb = p.verb ?? "吃";
       // 复刻 C# 正则 ^(.*)(.{1})什么$：如「晚上喝什么」
       const 文本 = (p.参数文本 ?? p.原文 ?? "").trim();
-      const m = 文本.match(/^(.*)(.{1})什么$/);
-      if (m) {
-        time = m[1].trim() || "今天";
-        verb = m[2];
+      // 只有真正匹配上「…什么」才覆盖；匹配不上要保留显式传入的 time/verb，
+      // 否则调用方给了 time 却被原文里的杂字顶掉。
+      const 解析 = 文本 ? 解析文本(文本) : null;
+      if (解析) {
+        time = 解析.time;
+        verb = 解析.verb;
       }
       const 推荐 = EatText(time, verb);
       return { time, verb, 推荐 };

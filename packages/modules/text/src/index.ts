@@ -25,7 +25,7 @@ interface 语料 {
 let 语料缓存: 语料 | null = null;
 
 /** 中文指令调用时，把 参数文本/原文 补齐到 文本/输入/主题/日期（不覆盖已有值）。 */
-function 规范参数(参数: unknown): unknown {
+export function 规范参数(参数: unknown): unknown {
   if (!参数 || typeof 参数 !== "object") return 参数;
   const p = { ...(参数 as Record<string, unknown>) };
   const 基准 = p.参数文本 ?? p.原文;
@@ -125,7 +125,7 @@ interface 讽刺模板 {
 }
 
 /** 从关键词列表中提取命中的关键词（按出现顺序，保持去重） */
-function 从文本找关键词(文本: string, 关键词: string[]): string[] {
+export function 从文本找关键词(文本: string, 关键词: string[]): string[] {
   const 命中索引: number[] = [];
   let i = 0;
   while (i < 文本.length) {
@@ -306,7 +306,7 @@ function 随机汉字(行数: number, 列数: number): string {
 }
 
 /* ============ 历史上的今天 ============ */
-function 中文数字转整数(输入: string): number {
+export function 中文数字转整数(输入: string): number {
   if (/^\d+$/.test(输入)) return parseInt(输入, 10);
   const 映射: Record<string, number> = {
     〇: 0, 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4,
@@ -318,8 +318,15 @@ function 中文数字转整数(输入: string): number {
   for (const 字 of 输入) {
     const 值 = 映射[字];
     if (值 === undefined) return 0;
-    if (值 === 10) {
-      临时 = 临时 === 0 ? 10 : 临时 * 10;
+    if (值 >= 10) {
+      // 十位类字符（十/廿/卅/卌）后面还可以跟个位（二十、廿五、卅二），
+      // 所以要先记成「待加」，不能直接塞进 临时——直接塞的话下一个字会
+      // 覆盖它，「廿五」会被算成 5。
+      //
+      // 十 是「乘十的倍率」，廿/卅/卌 是「已含个位的完整十位值」：
+      //   十  → 临时(2) * 10 = 20；单独一个 十 → 10
+      //   廿  → 直接用 20（前面不该再有数，有也是病句，按 20 处理）
+      临时 = 值 === 10 ? (临时 === 0 ? 10 : 临时 * 10) : 值;
       有十 = true;
     } else {
       if (有十) {
@@ -335,7 +342,7 @@ function 中文数字转整数(输入: string): number {
   return 结果 + 临时;
 }
 
-function 解析日期(输入: string): Date {
+export function 解析日期(输入: string): Date {
   const 现在 = new Date();
   switch (输入) {
     case "今天": return 现在;
@@ -348,7 +355,11 @@ function 解析日期(输入: string): Date {
   if (大前天) return new Date(现在.getTime() - (2 + 大前天[1].length) * 86400000);
   const 大后天 = 输入.match(/^(大+)(后天)$/);
   if (大后天) return new Date(现在.getTime() + (2 + 大后天[1].length) * 86400000);
-  const 月日 = 输入.match(/^(\d{1,2}|[一二三四五六七八九十]{1,2})月([一二三四五六七八九十]{1,3}|\d{1,2})(日)?$/);
+  // 日的字符集必须包含 廿/卅/卌——`中文数字转整数` 认这三个，
+  // 正则不认就会出现「三月廿五」静默回落成今天。
+  const 月日 = 输入.match(
+    /^(\d{1,2}|[一二三四五六七八九十]{1,2})月([一二三四五六七八九十廿卅卌]{1,3}|\d{1,2})(日)?$/,
+  );
   if (月日) {
     const 月 = 中文数字转整数(月日[1]);
     const 日 = 中文数字转整数(月日[2]);
@@ -385,6 +396,9 @@ function 历史上的今天(输入: string): string {
 void 启动模块({
   name: "text",
   version: "0.1.0",
+  // 被 import 时（测试导入纯函数）不要连主控，直接运行时才启动。
+  仅在主模块启动: true,
+  入口文件URL: import.meta.url,
   注册: (客户端) => {
     // 中文指令调用时，把 参数文本/原文 补齐到 文本/输入/主题/日期
     const 原始注册 = 客户端.onRequest.bind(客户端);
