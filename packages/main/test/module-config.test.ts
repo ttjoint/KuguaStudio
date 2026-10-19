@@ -461,3 +461,45 @@ describe("数组内凭据隔离", () => {
   });
 });
 
+
+describe("配置路径解析", () => {
+  const 原CONFIG = process.env.KUGUA_CONFIG;
+  const 原LOCAL = process.env.KUGUA_CONFIG_LOCAL;
+
+  afterEach(() => {
+    // 环境变量是进程级的，测完必须还原，否则会污染同进程里的其它用例
+    for (const [键, 值] of [
+      ["KUGUA_CONFIG", 原CONFIG],
+      ["KUGUA_CONFIG_LOCAL", 原LOCAL],
+    ] as const) {
+      if (值 === undefined) delete process.env[键];
+      else process.env[键] = 值;
+    }
+  });
+
+  it("KUGUA_CONFIG_LOCAL 指向哪里，本地配置就从哪里读", async () => {
+    // 这条是真机上抓到的 bug：原实现硬编码 cwd/kugua.config.local.json，
+    // 环境变量设了也不生效——主控照样去读 cwd 下那个文件（多半不存在），
+    // 凭据层整层丢失，界面上只显示「未配置」，完全看不出哪里错了。
+    const { 本地配置路径 } = await import("../src/module-config.js");
+    process.env.KUGUA_CONFIG_LOCAL = "some/where/override.json";
+    expect(本地配置路径()).toContain("override.json");
+    expect(本地配置路径()).not.toContain("kugua.config.local.json");
+  });
+
+  it("没设环境变量时回落到 cwd 下的默认文件名", async () => {
+    const { 本地配置路径 } = await import("../src/module-config.js");
+    delete process.env.KUGUA_CONFIG_LOCAL;
+    expect(本地配置路径()).toContain("kugua.config.local.json");
+  });
+
+  it("主配置与本地配置用的是同一套解析方式（不能一边认环境变量一边不认）", async () => {
+    const { 主配置路径, 本地配置路径 } = await import("../src/module-config.js");
+    process.env.KUGUA_CONFIG = "a/main.json";
+    process.env.KUGUA_CONFIG_LOCAL = "a/local.json";
+    // 两者都应当是绝对路径，且都以环境变量给的文件名结尾
+    expect(主配置路径()).toContain("main.json");
+    expect(本地配置路径()).toContain("local.json");
+    expect(主配置路径()).toBe(主配置路径()); // 稳定
+  });
+});

@@ -24,7 +24,15 @@ export function 主配置路径(): string {
 
 /** 本地私有覆盖文件路径（已 gitignore，用来放凭据） */
 export function 本地配置路径(): string {
-  return resolve(process.cwd(), "kugua.config.local.json");
+  // 必须认 KUGUA_CONFIG_LOCAL，与主配置对 KUGUA_CONFIG 的处理保持一致。
+  //
+  // 原先这里硬编码 cwd/kugua.config.local.json，于是设了环境变量也不生效：
+  // 主控照样去读 cwd 下那个文件（多半不存在 → 静默空对象），
+  // 凭据层整层丢失，而用户完全看不出哪里错了——界面上只是「未配置」。
+  // 隔离测试、多实例、便携模式都靠这个环境变量把私有层指到别处。
+  return process.env.KUGUA_CONFIG_LOCAL
+    ? resolve(process.cwd(), process.env.KUGUA_CONFIG_LOCAL)
+    : resolve(process.cwd(), "kugua.config.local.json");
 }
 
 /** 读 JSON 文件，失败返回空对象 */
