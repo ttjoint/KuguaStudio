@@ -287,6 +287,24 @@ export type 插件类 = 插件构造器;
  * 用法：export default 定义插件(示例插件, { name: "hello", version: "0.1.0", ... })
  */
 export function 定义插件<T extends 插件类>(类: T, 元数据: 插件元数据): T {
+  // 四个必填字段全部显式校验。
+  //
+  // 原来只有 name / version 会因 `.trim()` 而抛——抛出来的还是
+  // `Cannot read properties of undefined (reading 'trim')`，既不说哪个字段
+  // 也不说在哪一层。而 description / author 缺失**根本不抛**，
+  // 直接以 undefined 展开进元数据，等清单校验或界面渲染时才暴露。
+  //
+  // 现在统一在这里拦住，错误信息直接点名缺哪个。
+  const 必填 = ["name", "version", "description", "author"] as const;
+  const 缺失 = 必填.filter((k) => {
+    const 值 = (元数据 as unknown as Record<string, unknown> | undefined)?.[k];
+    return typeof 值 !== "string" || 值.trim() === "";
+  });
+  if (缺失.length > 0) {
+    throw new Error(
+      `定义插件 缺少必填字段：${缺失.join("、")}（name / version / description / author 都必须是非空字符串）`,
+    );
+  }
   类.插件元数据 = {
     ...元数据,
     name: 元数据.name.trim().toLowerCase(),
@@ -312,3 +330,14 @@ export function 解析插件类(模块: unknown): 插件类 | null {
   }
   return null;
 }
+
+// 插件契约失败的诊断助手。放在文件末尾 re-export：diagnose.ts 只 type-only
+// import 本文件，所以不构成运行期循环依赖。
+export {
+  像插件类,
+  描述导出,
+  诊断加载错误,
+  诊断元数据缺失,
+  诊断模块找不到,
+  诊断非插件类,
+} from "./diagnose.js";

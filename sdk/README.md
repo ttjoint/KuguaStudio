@@ -502,3 +502,19 @@ Windows 控制台编码问题，设 `PYTHONIOENCODING=utf-8` 即可。
 **Q：我在管理界面改了配置，为什么程序启动后又被改回去了？**
 不会发生 —— 已有配置永远不会被外部上报覆盖。如果看到的仍是旧值，
 确认改的是同名模块，且保存后平台日志有「配置已更新」。
+
+## 写插件常见失败与诊断
+
+插件加载失败时，`plugins.list` 里会有一条 `状态: "error"` 的记录，`错误` 字段会给出
+**指向原因的**说明。三类最常见的失败：
+
+| 现象 | 原因 | 改法 |
+|---|---|---|
+| `默认导出不是 BasePlugin 子类` + 「模块没有具名导出」 | 用了 CommonJS `module.exports` | 插件必须是 **ESM**：`export default class X extends BasePlugin {}` |
+| `默认导出不是 BasePlugin 子类` + 「没有 default 导出」 | 只写了 `class X extends BasePlugin {}` | 加 `export default` |
+| `定义插件 缺少必填字段：description` | `定义插件(类, {...})` 少字段 | `name` / `version` / `description` / `author` 四个都要非空字符串 |
+| `插件目录 … 里的入口文件 import 不到依赖` | 插件目录**不在仓库内**，解析不到 `@kugua/plugin-sdk` | 放到仓库内的 `plugins/` 下，或自己安装该依赖 |
+
+**注意**：`定义插件` 的四个字段缺任何一个都会直接抛错并点名缺哪个。
+早期版本只校验 `name` / `version`（缺了抛 `reading 'trim'`，完全指不到字段），
+`description` / `author` 缺了**静默写 undefined** —— 现在统一拦住了。

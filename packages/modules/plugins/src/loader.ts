@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import {
   Context,
   解析插件类,
+  诊断加载错误,
   type BasePlugin,
   type 插件元数据,
   type 插件宿主,
@@ -199,12 +200,26 @@ export class 插件加载器 {
     // 这是最坏的一种失败：静默消失比报错难查得多。
     //
     // 现在两条路径统一：谁调 `加载()` 都能在列表里看到 error 记录。
+    // 记录本次加载期拿到的模块导出物，供 catch 里的诊断用。
+    // 用局部变量而非实例字段：并发加载各自的诊断不能互相污染。
+    let 已导入: unknown;
+    let 已导入标志 = false;
     try {
-      return await this.加载内部(name, 已有);
+      return await this.加载内部(name, 已有, (m) => {
+        已导入 = m;
+        已导入标志 = true;
+      });
     } catch (err) {
       const 记录 = 已有 ?? this.扫描().find((r) => r.name === name);
       if (记录) {
-        this.插件表.set(name, { ...记录, 状态: "error", 错误: String(err) });
+        // 原始错误翻成可操作提示：三类契约错误（CJS 写法 / 少 description /
+        // 目录不在仓库内）原本都只有一句话，完全指不到原因。
+        const 说明 = 诊断加载错误(name, err, {
+          ...(已导入标志 ? { 模块: 已导入 } : {}),
+          目录: 记录.目录,
+          元数据: 记录.元数据 as unknown as Record<string, unknown>,
+        });
+        this.插件表.set(name, { ...记录, 状态: "error", 错误: 说明 });
       }
       throw err;
     }
@@ -214,6 +229,7 @@ export class 插件加载器 {
   private async 加载内部(
     name: string,
     已有: 插件记录 | undefined,
+    载入回调?: (模块: unknown) => void,
   ): Promise<插件记录> {
     const 记录 = 已有 ?? this.扫描().find((r) => r.name === name);
     if (!记录) throw new Error(`插件不存在：${name}`);
@@ -224,6 +240,7 @@ export class 插件加载器 {
     const 导入 = this.选项.导入 ?? (async (url: string) => import(url));
     const url = `${pathToFileURL(入口).href}?t=${Date.now()}`;
     const 模块 = await 导入(url);
+    载入回调?.(模块);
     const 插件类 = 解析插件类(模块);
     if (!插件类) throw new Error(`插件 ${name} 默认导出不是 BasePlugin 子类`);
 
