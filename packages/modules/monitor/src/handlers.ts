@@ -4,6 +4,7 @@
 
 import type { NiganeClient } from "@kugua/nigane";
 import { 采集快照 } from "./system.js";
+import { 归一间隔 } from "./calc.js";
 
 /** 注册监控动作；返回清理函数（停止周期广播） */
 export function 注册监控处理器(客户端: NiganeClient): () => void {
@@ -17,7 +18,7 @@ export function 注册监控处理器(客户端: NiganeClient): () => void {
       定时器 = null;
     }
     if (p.enabled === false) return { watching: false };
-    const 间隔 = Math.max(2, Math.floor(p.intervalSec ?? 10));
+    const 间隔 = 归一间隔(p.intervalSec, 10);
     定时器 = setInterval(() => {
       void 广播();
     }, 间隔 * 1000);

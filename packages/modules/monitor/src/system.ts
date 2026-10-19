@@ -5,14 +5,8 @@
 
 import { execFile } from "node:child_process";
 import { arch, availableParallelism, cpus, freemem, hostname, platform, totalmem, uptime } from "node:os";
-
-export interface 磁盘信息 {
-  name: string;
-  total: number;
-  free: number;
-  used: number;
-  usagePct: number;
-}
+import { 组装磁盘, 解析df, type 磁盘信息 } from "./calc.js";
+export type { 磁盘信息 };
 
 export interface 系统快照 {
   time: number;
@@ -66,18 +60,6 @@ export async function 采样磁盘(): Promise<磁盘信息[]> {
   return 数据;
 }
 
-function 组装磁盘(name: unknown, total: unknown, free: unknown): 磁盘信息 {
-  const t = typeof total === "number" && total > 0 ? total : 0;
-  const f = typeof free === "number" && free >= 0 ? free : 0;
-  return {
-    name: String(name ?? "?"),
-    total: t,
-    free: f,
-    used: Math.max(0, t - f),
-    usagePct: t > 0 ? ((t - f) / t) * 100 : 0,
-  };
-}
-
 function 读磁盘Windows(): Promise<磁盘信息[]> {
   return new Promise((resolve) => {
     execFile(
@@ -117,22 +99,7 @@ function 读磁盘POSIX(): Promise<磁盘信息[]> {
         resolve([]);
         return;
       }
-      const 结果: 磁盘信息[] = [];
-      for (const 行 of stdout.split("\n").slice(1)) {
-        const 段 = 行.trim().split(/\s+/);
-        if (段.length < 6) continue;
-        const 总 = Number(段[1]) * 1024;
-        const 已用 = Number(段[2]) * 1024;
-        if (!Number.isFinite(总) || 总 <= 0) continue;
-        结果.push({
-          name: 段[0],
-          total: 总,
-          free: 总 - 已用,
-          used: 已用,
-          usagePct: (已用 / 总) * 100,
-        });
-      }
-      resolve(结果);
+      resolve(解析df(stdout));
     });
   });
 }

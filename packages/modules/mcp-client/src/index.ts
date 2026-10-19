@@ -16,15 +16,7 @@ import { 启动模块 } from "@kugua/module-kit";
 import { MCP客户端 } from "@kugua/mcp";
 import type { 能力声明 } from "@kugua/capability";
 
-interface 外部服务配置 {
-  name: string;
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-  prefix?: string;
-  timeoutMs?: number;
-}
+import { 规范前缀, 清单转配置, 能力名, type 外部服务配置 } from "./naming.js";
 
 /** 运行时发现的提供者（能力发现阶段写入） */
 interface 提供者 {
@@ -44,40 +36,20 @@ function 读取脚本清单(目录: string): 外部服务配置[] {
     const 清单路径 = join(绝对, 项.name, "kugua-module.json");
     if (!existsSync(清单路径)) continue;
     try {
-      const m = JSON.parse(readFileSync(清单路径, "utf-8")) as {
-        name?: string;
-        command?: string;
-        entry?: string;
-        args?: string[];
-        env?: Record<string, string>;
-        prefix?: string;
-        timeoutMs?: number;
-      };
-      const command = m.command ?? m.entry;
-      if (!m.name || !command) {
+      const 服务 = 清单转配置(
+        JSON.parse(readFileSync(清单路径, "utf-8")),
+        join(绝对, 项.name),
+      );
+      if (!服务) {
         console.warn(`[mcp-client] 清单缺少 name 或 command：${清单路径}`);
         continue;
       }
-      结果.push({
-        name: m.name,
-        command,
-        args: Array.isArray(m.args) ? m.args : [],
-        env: m.env,
-        cwd: join(绝对, 项.name),
-        prefix: m.prefix ?? m.name,
-        timeoutMs: m.timeoutMs,
-      });
+      结果.push(服务);
     } catch (err) {
       console.warn(`[mcp-client] 清单解析失败：${清单路径} — ${String(err)}`);
     }
   }
   return 结果;
-}
-
-/** 规范化前缀：去掉空白与非法字符 */
-function 规范前缀(前缀: string, 回退: string): string {
-  const p = (前缀 || 回退).trim().replace(/[^a-zA-Z0-9_.-]/g, "_");
-  return p || 回退;
 }
 
 let 提供者列表: 提供者[] = [];
@@ -113,7 +85,7 @@ void 启动模块({
         const 工具列表 = await 客户端.列出工具();
         const 动作表 = new Map<string, string>();
         for (const 工具 of 工具列表) {
-          const 动作 = `${前缀}.${工具.name}`;
+          const 动作 = 能力名(前缀, 工具.name);
           动作表.set(动作, 工具.name);
           能力清单.push({
             名称: 动作,
