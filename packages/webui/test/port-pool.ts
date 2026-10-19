@@ -111,4 +111,6 @@ export const 端口段 = {
   平台生命周期: 26200,
   /** packages/webui/test/startup-robustness.test.ts */
   启动健壮性: 26400,
+  /** packages/webui/test/isolation-*.test.ts —— 模块装卸隔离 */
+  隔离: 26600,
 } as const;

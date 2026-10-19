@@ -46,6 +46,9 @@ jspm_packages/
 
 # 测试临时目录
 .tmp-plugins*/
+.tmp-插件-*/
+.tmp-界面-*/
+.tmp-d2-*/
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 

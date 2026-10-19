@@ -186,6 +186,35 @@ export class 插件加载器 {
       this.日志.警告(`插件 ${name} 已加载，忽略重复加载`);
       return 已有;
     }
+
+    // 失败要**留下记录**。
+    //
+    // 踩过的坑：原来只有 `加载全部()`（启动路径）在 catch 里写
+    // `插件表.set({状态:"error", 错误})`，而 `加载()` 自己不记。
+    // 于是**运行期动态投放**一个坏插件（写错语法、import 不到包、
+    // 不是 BasePlugin 子类）时，只打一行日志，插件表里什么都没有——
+    // `plugins.list` 查不到，界面上完全看不见。
+    //
+    // 用户看见目录里有东西、界面里没有、也不知道去哪看日志，
+    // 这是最坏的一种失败：静默消失比报错难查得多。
+    //
+    // 现在两条路径统一：谁调 `加载()` 都能在列表里看到 error 记录。
+    try {
+      return await this.加载内部(name, 已有);
+    } catch (err) {
+      const 记录 = 已有 ?? this.扫描().find((r) => r.name === name);
+      if (记录) {
+        this.插件表.set(name, { ...记录, 状态: "error", 错误: String(err) });
+      }
+      throw err;
+    }
+  }
+
+  /** 真正的加载逻辑。失败会抛，由 `加载()` 统一记表 */
+  private async 加载内部(
+    name: string,
+    已有: 插件记录 | undefined,
+  ): Promise<插件记录> {
     const 记录 = 已有 ?? this.扫描().find((r) => r.name === name);
     if (!记录) throw new Error(`插件不存在：${name}`);
 
