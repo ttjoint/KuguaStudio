@@ -4,11 +4,12 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import { MKG配置声明 } from "./declaration.js";
 import { MKG, type 资源关系类型, type 内容分类, type 查询条件, type 侧车数据 } from "@kugua/mkg";
 import type { 能力声明 } from "@kugua/capability";
+import { 是否在目录下, 判定文件类型, 读取索引默认值, type 索引默认值 } from "./pure.js";
 
 /**
  * 只读能力声明：MCP/GUI 可见，供外部 agent 检索知识库（不允许写操作）。
@@ -100,29 +101,7 @@ const 能力清单: 能力声明[] = [
 let 数据库路径: string | null = null;
 let 数据库实例: MKG | null = null;
 
-/** 索引默认选项：来自配置，每次索引时套用（可被单次调用的参数覆盖） */
-interface 索引默认值 {
-  maxDepth?: number;
-  exclude?: string[];
-  indexTextContent?: boolean;
-  maxTextSize?: number;
-}
 let 索引默认: 索引默认值 = {};
-
-/** 把配置里的索引默认值转成 索引选项（0 / 空值表示「不限」） */
-function 读取索引默认值(节: Record<string, unknown>): 索引默认值 {
-  const 深度 = Number(节.indexMaxDepth ?? 0);
-  const 上限MB = Number(节.maxTextSizeMb ?? 10);
-  const 排除 = Array.isArray(节.excludePatterns)
-    ? 节.excludePatterns.map((x) => String(x)).filter((x) => x.trim() !== "")
-    : [];
-  return {
-    maxDepth: Number.isFinite(深度) && 深度 > 0 ? 深度 : undefined,
-    exclude: 排除.length > 0 ? 排除 : undefined,
-    indexTextContent: 节.indexTextContent === false ? false : true,
-    maxTextSize: Number.isFinite(上限MB) && 上限MB > 0 ? 上限MB * 1024 * 1024 : undefined,
-  };
-}
 
 void 启动模块({
   name: "mkg",
@@ -461,14 +440,7 @@ void 启动模块({
     if (!path) throw new Error(`资源不存在：${resourceId}`);
     // 位于任一「已登记位置」目录下 = 原址扫描的原始文件，保存会直接修改源文件。
     // 导入/收藏的副本落在库目录，不属于任何登记位置。
-    const 规范 = (p: string) => resolve(p).toLowerCase().replace(/[\\/]+$/, "");
-    const 规范路径 = 规范(path);
-    const 命中位置 = mkg
-      .列出位置()
-      .find((l) => {
-        const 根 = 规范(l.path);
-        return 规范路径 === 根 || 规范路径.startsWith(根 + sep);
-      });
+    const 命中位置 = mkg.列出位置().find((l) => 是否在目录下(path, l.path));
     return {
       path,
       /** 是否为原址扫描（保存会改原始文件） */
@@ -484,27 +456,7 @@ void 启动模块({
     if (resourceId === undefined) throw new Error("缺少 resourceId");
     const path = mkg.getPhysicalPath(resourceId);
     if (!path) throw new Error(`资源不存在：${resourceId}`);
-    const ext = path.split(".").pop()?.toLowerCase() ?? "";
-    const 文本扩展名 = new Set([
-      "txt", "md", "markdown", "json", "js", "mjs", "cjs", "ts", "tsx", "jsx",
-      "py", "cs", "java", "c", "cpp", "h", "hpp", "go", "rs", "rb", "php",
-      "swift", "kt", "scala", "r", "lua", "dart", "sql", "sh", "bash", "zsh",
-      "bat", "cmd", "ps1", "vbs", "html", "htm", "css", "scss", "sass", "less",
-      "xml", "svg", "yaml", "yml", "toml", "ini", "cfg", "conf", "log",
-      "env", "gitignore", "editorconfig", "dockerfile", "makefile",
-    ]);
-    const 压缩包扩展名 = new Set(["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tbz2"]);
-    const 图片扩展名 = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg", "tiff", "tif", "avif", "heic", "heif"]);
-    const 视频扩展名 = new Set(["mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv", "flv", "wmv", "m4v", "mpg", "mpeg", "3gp"]);
-    const 音乐扩展名 = new Set(["mp3", "wav", "flac", "ogg", "oga", "aac", "m4a", "wma", "opus", "aiff", "ape"]);
-    return {
-      isText: 文本扩展名.has(ext),
-      isArchive: 压缩包扩展名.has(ext),
-      isImage: 图片扩展名.has(ext),
-      isVideo: 视频扩展名.has(ext),
-      isAudio: 音乐扩展名.has(ext),
-      extension: ext,
-    };
+    return 判定文件类型(path);
   });
 
   客户端.onRequest("mkg.tag.tree", () => {
