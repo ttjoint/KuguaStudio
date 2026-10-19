@@ -13,27 +13,14 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createRequire } from "node:module";
+import { 取测试端口, 端口段 } from "./port-pool.js";
 
 const 仓库根 = resolve(__dirname, "..", "..", "..");
 const 主控脚本 = join(仓库根, "packages", "main", "dist", "index.js");
 const WebUI脚本 = join(仓库根, "packages", "webui", "dist", "server.js");
 const 已构建 = existsSync(主控脚本) && existsSync(WebUI脚本);
 
-const require_ = createRequire(import.meta.url);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** 取一个空闲端口 */
-const 空闲端口 = (): Promise<number> =>
-  new Promise((res, rej) => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const net = require_("node:net") as typeof import("node:net");
-    const s = net.createServer();
-    s.once("error", rej);
-    s.listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => res(p));
-    });
-  });
 
 interface 子实例 {
   进程: ChildProcess;
@@ -91,8 +78,8 @@ describe.skipIf(!已构建)("平台生命周期", () => {
   });
 
   it("单实例守卫：第二个实例检测到已有实例并退出，第一个不受影响", async () => {
-    const 主控端口 = await 空闲端口();
-    const webui端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
+    const webui端口 = await 取测试端口(端口段.平台生命周期);
     const 配置路径 = join(临时目录, `single-${主控端口}.json`);
     writeFileSync(
       配置路径,
@@ -146,7 +133,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
   }, 90000);
 
   it("动态模块检测：新增模块被加载、移除模块被卸载", async () => {
-    const 主控端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
     const 临时数据 = join(临时目录, `dyn-${主控端口}`);
     const 配置路径 = join(临时目录, `dyn-${主控端口}.json`);
     const 写配置 = (模块: Array<Record<string, unknown>>) =>
@@ -193,7 +180,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
   }, 90000);
 
   it("配置写回保留不认识的顶层节（ai / plugins）", async () => {
-    const 主控端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
     const 临时数据 = join(临时目录, `keep-${主控端口}`);
     const 配置路径 = join(临时目录, `keep-${主控端口}.json`);
     writeFileSync(
@@ -227,7 +214,7 @@ describe.skipIf(!已构建)("平台生命周期", () => {
   }, 60000);
 
   it("插件动态检测：投放插件目录自动加载，删除后自动卸载", async () => {
-    const 主控端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
     const 临时数据 = join(临时目录, `plug-${主控端口}`);
     // 插件目录放在仓库内，便于解析 @kugua/plugin-sdk 依赖
     const 插件根 = join(仓库根, `.tmp-plugin-test-${主控端口}`);
@@ -310,7 +297,7 @@ describe.skipIf(!已构建)("外部程序动态接入", () => {
   });
 
   it("接入后能力可见，断开后自动移除，平台退出只广播 system.shutdown", async () => {
-    const 主控端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
     const 配置路径 = join(临时目录, "kugua.config.json");
     writeFileSync(
       配置路径,
@@ -407,7 +394,7 @@ describe.skipIf(!已构建)("平台退出通知", () => {
   });
 
   it("nigane.shutdown 触发 system.shutdown 广播，外部程序收到后自行退出", async () => {
-    const 主控端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
     const 配置路径 = join(临时目录, "kugua.config.json");
     writeFileSync(
       配置路径,
@@ -547,7 +534,7 @@ setInterval(() => {}, 1000);
   }
 
   it("首次注册写入配置；已有配置不覆盖；管理接口可查看与编辑", async () => {
-    const 主控端口 = await 空闲端口();
+    const 主控端口 = await 取测试端口(端口段.平台生命周期);
     const 配置路径 = join(临时目录, "kugua.config.json");
     writeFileSync(
       配置路径,

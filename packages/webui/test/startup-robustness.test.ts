@@ -20,23 +20,13 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { NiganeClient } from "@kugua/nigane";
+import { 取测试端口, 端口段 } from "./port-pool.js";
 
 const 仓库根 = resolve(__dirname, "..", "..", "..");
 const WebUI脚本 = join(仓库根, "packages", "webui", "dist", "server.js");
 const 已构建 = existsSync(WebUI脚本) && existsSync(join(仓库根, "packages", "main", "dist", "index.js"));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** 取一个空闲端口 */
-const 空闲端口 = (): Promise<number> =>
-  new Promise((res, rej) => {
-    const s = createServer();
-    s.once("error", rej);
-    s.listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => res(p));
-    });
-  });
 
 const 可访问 = async (端口: number): Promise<boolean> => {
   try {
@@ -67,8 +57,8 @@ interface 临时环境 {
 /** 造一套完全隔离的运行环境 */
 async function 造环境(): Promise<临时环境> {
   const 目录 = mkdtempSync(join(tmpdir(), "kugua-lifecycle-"));
-  const WebUI端口 = await 空闲端口();
-  const 主控端口 = await 空闲端口();
+  const WebUI端口 = await 取测试端口(端口段.启动健壮性);
+  const 主控端口 = await 取测试端口(端口段.启动健壮性);
   const 配置 = join(目录, "kugua.config.json");
   writeFileSync(
     配置,
@@ -203,7 +193,7 @@ describe.runIf(已构建)("启动健壮性", () => {
       //（安装脚本里的 $env: 到不了计划任务）。
       const 环境 = await 造环境();
       所有目录.add(环境.目录);
-      const 指定端口 = await 空闲端口();
+      const 指定端口 = await 取测试端口(端口段.启动健壮性);
       expect(指定端口).not.toBe(环境.WebUI端口);
 
       const p = 起WebUI(环境, { args: ["--port", String(指定端口), "--no-open"] });
@@ -376,7 +366,7 @@ describe.runIf(已构建)("退出与重启", () => {
       expect(await 等待可访问(环境.WebUI端口, 25000)).toBe(true);
 
       // 第二个实例：换端口、同锁、带重启标记
-      const 乙端口 = await 空闲端口();
+      const 乙端口 = await 取测试端口(端口段.启动健壮性);
       const 乙目录 = await 造环境();
       所有目录.add(乙目录.目录);
       const 乙 = 起WebUI(乙目录, {

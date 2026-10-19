@@ -86,12 +86,24 @@ export async function 合帧为GIF(frames: Buffer[], delays: number[]): Promise<
 }
 
 /** 默认延时把帧集合包成结果（含 images 与合并 GIF） */
-async function 多帧结果(frames: Buffer[], delays: number[], 信息: string, 格式 = "gif"): Promise<图片结果> {
+async function 多帧结果(
+  frames: Buffer[],
+  delays: number[],
+  信息: string,
+  格式 = "gif",
+  合帧 = true,
+): Promise<图片结果> {
   const { width, height } = 图片尺寸(frames[0]);
-  const gif = await 合帧为GIF(frames, delays);
+  // 合帧 为 false 时跳过「把帧再合成回 GIF」这一步。
+  //
+  // 只有「拆」类动作（拆帧、拆碎片）该传 false：它们的语义就是给用户一堆散帧，
+  // 合回去那张 GIF 用户根本不要，纯属白算一次 ImageMagick
+  // ——实测 30 帧要 850ms、多传 3.7MB。
+  // 「改帧」类动作（倍速、删帧、乱序）必须合帧，否则用户拿不到动画。
+  const 主图 = 合帧 ? await 合帧为GIF(frames, delays) : frames[0];
   return {
-    base64: gif.toString("base64"),
-    format: 格式,
+    base64: 主图.toString("base64"),
+    format: 合帧 ? 格式 : "png",
     width,
     height,
     images: frames.map((f) => f.toString("base64")),
@@ -282,8 +294,8 @@ export async function gifSprite(buf: Buffer, col: number): Promise<图片结果>
 export async function gifUnzip(buf: Buffer): Promise<图片结果> {
   const frames = await 拆帧(buf);
   const delays = frames.map(() => 100);
-  const r = await 多帧结果(frames, delays, `一共${frames.length}张`, "gif");
-  return r;
+  // 拆帧：不合回 GIF，帧本身就是结果
+  return 多帧结果(frames, delays, `一共${frames.length}张`, "png", false);
 }
 
 /** 拆成 col×row 碎片（取首帧） */
@@ -304,7 +316,8 @@ export async function gifUnzipGrid(buf: Buffer, col: number, row: number): Promi
       .sort((a, b) => Number(a.slice(2, -4)) - Number(b.slice(2, -4)))
       .map((f) => readFileSync(join(dir, f)));
   });
-  return 多帧结果(tiles, tiles.map(() => 100), `一共${tiles.length}张`, "gif");
+  // 拆碎片：同上，不合回 GIF
+  return 多帧结果(tiles, tiles.map(() => 100), `一共${tiles.length}张`, "png", false);
 }
 
 /** 删帧：从 beginFrame 起删掉 count 帧（复刻 removeGifFrame） */

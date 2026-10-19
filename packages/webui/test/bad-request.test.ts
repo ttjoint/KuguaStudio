@@ -16,22 +16,13 @@ import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { 取测试端口, 端口段 } from "./port-pool.js";
 
 const 仓库根 = resolve(__dirname, "..", "..", "..");
 const 脚本 = join(仓库根, "packages", "webui", "dist", "server.js");
 const 已构建 = existsSync(脚本) && existsSync(join(仓库根, "packages", "main", "dist", "index.js"));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-const 空闲端口 = (): Promise<number> =>
-  new Promise((res, rej) => {
-    const s = createServer();
-    s.once("error", rej);
-    s.listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => res(p));
-    });
-  });
 
 const 子进程 = new Set<ChildProcess>();
 const 目录们 = new Set<string>();
@@ -57,8 +48,8 @@ afterEach(() => {
 
 /** 起一个完全隔离的 WebUI，返回端口和进程 */
 async function 起WebUI(): Promise<{ 端口: number; 进程: ChildProcess; 输出: () => string }> {
-  const 端口 = await 空闲端口();
-  const 主控端口 = await 空闲端口();
+  const 端口 = await 取测试端口(端口段.畸形请求);
+  const 主控端口 = await 取测试端口(端口段.畸形请求);
   const 目录 = mkdtempSync(join(tmpdir(), "kugua-badreq-"));
   目录们.add(目录);
   const 配置 = join(目录, "kugua.config.json");
