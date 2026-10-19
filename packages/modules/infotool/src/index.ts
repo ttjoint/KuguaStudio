@@ -16,6 +16,7 @@ import type { 能力声明 } from "@kugua/capability";
 import { Calculator } from "./calculator.js";
 import { 大整数除法转字符串 } from "./bigutil.js";
 import { QQWry } from "./qqwry.js";
+import { 解析短链响应, 短链表单, 是合法URL } from "./bili.js";
 
 /** 能力声明：按功能分组，各自独立 MCP 工具 */
 const 能力清单: 能力声明[] = [
@@ -194,24 +195,16 @@ function 体脂率(参数: string): string {
 
 /* ============ B 站短链（复刻 BiliShortLinkGenerator）============ */
 async function b23短链(longUrl: string): Promise<string> {
-  const form = new URLSearchParams({
-    build: "6500300",
-    buvid: NextString(32) + "infoc",
-    oid: longUrl,
-    platform: "android",
-    share_channel: "COPY",
-    share_id: "public.webview.0.0.pv",
-    share_mode: "3",
-  });
   const res = await fetch("http://api.bilibili.com/x/share/click", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: form,
+    body: 短链表单(longUrl, NextString(32) + "infoc"),
     signal: AbortSignal.timeout(9000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const jo = (await res.json()) as { data?: { content?: string } };
-  return jo?.data?.content ?? "";
+  const r = 解析短链响应(await res.json());
+  if ("错误" in r) throw new Error(r.错误);
+  return r.短链;
 }
 
 /* ============ 启动 ============ */
@@ -288,7 +281,12 @@ void 启动模块({
     客户端.onRequest("infotool.biliShort", async (params) => {
       const p = (params ?? {}) as Record<string, unknown>;
       const url = 取文本(p, "url");
+      // 空值原样返回空结果（不是错误：用户还没填），
+      // 但填了不合法的 URL 要明确说，否则会拿一句接口的「请求错误」去猜
       if (!url) return { 输入: url, 结果: "" };
+      if (!是合法URL(url)) {
+        return { 输入: url, 结果: "请填写完整的 http(s) 链接" };
+      }
       try {
         return { 输入: url, 结果: await b23短链(url) };
       } catch (err) {
