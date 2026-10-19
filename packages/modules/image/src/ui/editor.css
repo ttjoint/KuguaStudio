@@ -1,0 +1,363 @@
+/* 图片编辑页样式。与平台主界面同色调，但独立文件——模块不能依赖宿主 CSS。 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #16181d;
+  color: #e6e8ec;
+  font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+}
+
+/* ---------- 空态 ---------- */
+
+#empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-box {
+  text-align: center;
+  padding: 40px 56px;
+  border: 1px dashed #3a3f4b;
+  border-radius: 12px;
+  background: #1b1e24;
+}
+
+.empty-icon {
+  font-size: 44px;
+  opacity: 0.55;
+  margin-bottom: 12px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.empty-sub {
+  color: #8b93a3;
+  margin-bottom: 18px;
+}
+
+.empty-hint {
+  margin-top: 16px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* ---------- 三栏 ---------- */
+
+#stage {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 210px 1fr 260px;
+}
+
+#actions,
+#params {
+  background: #1b1e24;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#actions {
+  border-right: 1px solid #2a2f3a;
+}
+
+#params {
+  border-left: 1px solid #2a2f3a;
+}
+
+.panel-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid #2a2f3a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.panel-title {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #9aa3b2;
+  text-transform: uppercase;
+}
+
+.filter {
+  flex: 1;
+  min-width: 0;
+  background: #14171c;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  color: #e6e8ec;
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.filter:focus {
+  border-color: #3a7afe;
+}
+
+/* ---------- 动作列表 ---------- */
+
+#action-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px;
+}
+
+.group-label {
+  font-size: 11px;
+  color: #6b7280;
+  padding: 8px 6px 4px;
+  letter-spacing: 0.06em;
+}
+
+.action-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #c8cdd6;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.action-btn:hover {
+  background: #23272f;
+  color: #fff;
+}
+
+.action-btn.active {
+  background: #22304a;
+  border-color: #3a7afe;
+  color: #fff;
+}
+
+.action-btn .action-desc {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 1px;
+}
+
+.action-btn.active .action-desc {
+  color: #9db4d8;
+}
+
+/* ---------- 画布 ---------- */
+
+#canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+#canvas-scroll {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-image:
+    linear-gradient(45deg, #1e2127 25%, transparent 25%),
+    linear-gradient(-45deg, #1e2127 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1e2127 75%),
+    linear-gradient(-45deg, transparent 75%, #1e2127 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+#canvas-inner {
+  position: relative;
+  /* 让 transform 以中心为原点，CSS 实时预览才不会跳位 */
+  transform-origin: center center;
+  will-change: transform;
+}
+
+#preview {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  /* 大图缩放时保持像素清晰度，避免浏览器插值造成的模糊被误认为处理结果 */
+  image-rendering: auto;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 16px;
+  padding: 6px 12px;
+  border-top: 1px solid #2a2f3a;
+  background: #1b1e24;
+  font-size: 12px;
+  color: #8b93a3;
+  font-variant-numeric: tabular-nums;
+}
+
+#status-msg {
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 参数面板 ---------- */
+
+#params-form {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.field-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: #c8cdd6;
+}
+
+.field-value {
+  font-size: 12px;
+  color: #3a7afe;
+  font-variant-numeric: tabular-nums;
+}
+
+.field-desc {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 3px;
+}
+
+.field input[type="range"] {
+  width: 100%;
+  accent-color: #3a7afe;
+}
+
+.field input[type="number"],
+.field input[type="text"],
+.field select {
+  width: 100%;
+  background: #14171c;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  color: #e6e8ec;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: #3a7afe;
+}
+
+.field input[type="checkbox"] {
+  accent-color: #3a7afe;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#params-actions {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-top: 1px solid #2a2f3a;
+  display: flex;
+  gap: 8px;
+}
+
+#params-note {
+  flex: 0 0 auto;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+button {
+  font-family: inherit;
+  font-size: 12.5px;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+button.primary {
+  background: #3a7afe;
+  color: #fff;
+  flex: 1;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #4a86ff;
+}
+
+button.primary:disabled {
+  background: #2a2f3a;
+  color: #5c6370;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  background: transparent;
+  border-color: #2a2f3a;
+  color: #9aa3b2;
+}
+
+button.ghost:hover {
+  border-color: #3a3f4b;
+  color: #e6e8ec;
+}
+
+#btn-pick.primary {
+  flex: none;
+}
+
+/* 拖拽进入时的提示 */
+body.dragging #canvas-scroll {
+  outline: 2px dashed #3a7afe;
+  outline-offset: -10px;
+}

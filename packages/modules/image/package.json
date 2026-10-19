@@ -5,7 +5,7 @@
   "description": "图片处理模块：ImageMagick CLI（忠实 Magick.NET）复刻 ModImages 全部能力，输入输出走 base64",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-ui.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

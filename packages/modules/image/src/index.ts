@@ -28,10 +28,47 @@ import {
   touchBall,
 } from "./gif.js";
 import { oldJpg, hytk, removeBg, upscale, similar } from "./pixels.js";
-import { 动作声明表, 系统动作, 动作schema, 查声明, 归一参数 } from "./actions.js";
-import { 打开会话, 释放会话, 释放全部会话, 在会话内, 会话合法 } from "./session.js";
+import { 动作声明表, 系统动作, 动作schema, 查声明, 归一参数, 需要源图 } from "./actions.js";
+import { 打开会话, 释放会话, 释放全部会话, 在会话内, 会话合法, 会话目录 } from "./session.js";
 
 /** 能力声明：33 项图片能力（中文指令 + GUI + MCP） */
+/**
+ * 把动作结果写成会话文件，并把路径一并返回。
+ *
+ * ## 为什么不在每个动作里各自处理
+ *
+ * 34 个动作全部是 `return 成结果(出)`，返回 base64。想让编辑页拿到路径，
+ * 改 34 处意味着 34 个地方都可能漏改——而漏改的表现是「前端显示不了图」，
+ * 不是报错。所以收成一个函数，动作体一行不加。
+ *
+ * ## 双契约
+ *
+ * 聊天框那条路径要 base64，编辑页要 path。两者**同时给**：
+ * - 有 `session` → 额外写文件、多一个 `path` 字段
+ * - 没 `session` → 原样返回，与改造前完全一致
+ *
+ * 不把 base64 去掉：聊天附件、外部接入方都在用它，改了就是破契约。
+ */
+function 落会话(
+  结果: { base64?: string; format?: string; width?: number; height?: number; images?: string[] },
+  会话: unknown,
+  名: string,
+): Record<string, unknown> {
+  if (!会话合法(会话) || !结果?.base64) return 结果 as unknown as Record<string, unknown>;
+  const 目录 = 会话目录(会话);
+  if (!existsSync(目录)) return 结果 as unknown as Record<string, unknown>;
+  try {
+    const 扩 = (结果.format ?? "png").toLowerCase();
+    const 纯名 = `${名}-${Date.now().toString(36)}.${扩}`;
+    const 路径 = join(目录, 纯名);
+    writeFileSync(路径, Buffer.from(结果.base64, "base64"));
+    return { ...结果, path: 路径 };
+  } catch (err) {
+    // 写盘失败不能把已算好的结果弄丢：退回 base64，前端照样能显示
+    console.debug(`[图片模块] 结果写会话失败：${String(err)}`);
+    return 结果 as unknown as Record<string, unknown>;
+  }
+}
 /**
  * 能力清单由 动作声明表 生成。
  *
@@ -79,30 +116,56 @@ void 启动模块({
   name: "image",
   version: "0.1.0",
   能力: 能力清单,
+  // 图片编辑页。`entry` 相对本模块入口文件（dist/index.js）所在目录，
+  // 所以是 `ui/index.html` —— 构建时 copy-ui.mjs 把 src/ui 拷到 dist/ui。
+  界面: {
+    title: "图片编辑",
+    entry: "ui/index.html",
+  },
   注册: (客户端) => {
+    /**
+     * 注册 34 个图片动作的统一入口。
+     *
+     * 每个动作只需要写「怎么算」，落会话目录、同时返回 path 这件事
+     * 在这里做一次。好处是：
+     * - 34 个动作体一个字不用改，不用担心漏改
+     * - 以后新加动作自动拥有路径能力
+     * - 没传 `session` 时行为与改造前完全一致
+     */
+    const 图片动作 = (名: string, 干活: (params: unknown) => Promise<unknown>) => {
+      客户端.onRequest(名, async (params) => {
+        const 结 = await 干活(params);
+        if (!结 || typeof 结 !== "object") return 结;
+        const 对象 = 结 as { base64?: string; format?: string };
+        if (!对象.base64) return 结;
+        const 会话 = (params as { session?: unknown } | undefined)?.session;
+        return 落会话(对象, 会话, 名.replace(/^image\./, ""));
+      });
+    };
+
     // —— 旋转：顺时针 degrees 度（ImageMagick Rotate）——
-    客户端.onRequest("image.rotate", async (params) => {
+    图片动作("image.rotate", async (params) => {
       const np = 归一参数(查声明("rotate")!, params) as Record<string, any>;
       const 出 = await magick单图(取图Buffer(params), ["-rotate", String(np.degrees)]);
       return 成结果(出);
     });
 
     // —— 水平翻转（ImageMagick Flop）——
-    客户端.onRequest("image.flipH", async (params) => {
+    图片动作("image.flipH", async (params) => {
       const np = 归一参数(查声明("flipH")!, params) as Record<string, any>;
       const 出 = await magick单图(取图Buffer(params), ["-flop"]);
       return 成结果(出);
     });
 
     // —— 垂直翻转（ImageMagick Flip）——
-    客户端.onRequest("image.flipV", async (params) => {
+    图片动作("image.flipV", async (params) => {
       const np = 归一参数(查声明("flipV")!, params) as Record<string, any>;
       const 出 = await magick单图(取图Buffer(params), ["-flip"]);
       return 成结果(出);
     });
 
     // —— 缩放（复刻 op_resize）——
-    客户端.onRequest("image.resize", async (params) => {
+    图片动作("image.resize", async (params) => {
       const np = 归一参数(查声明("resize")!, params) as Record<string, any>;
       const 图 = 取图Buffer(params);
       const { width: 原宽, height: 原高 } = 图片尺寸(图);
@@ -117,7 +180,7 @@ void 启动模块({
     });
 
     // —— 切边（复刻 op_cut）——
-    客户端.onRequest("image.cut", async (params) => {
+    图片动作("image.cut", async (params) => {
       const np = 归一参数(查声明("cut")!, params) as Record<string, any>;
       const 图 = 取图Buffer(params);
       const { width: w, height: h } = 图片尺寸(图);
@@ -138,7 +201,7 @@ void 启动模块({
     });
 
     // —— 镜像（ImageMagick：裁半 + flop/flip + append，复刻 ImgMirror）——
-    客户端.onRequest("image.mirror", async (params) => {
+    图片动作("image.mirror", async (params) => {
       const np = 归一参数(查声明("mirror")!, params) as Record<string, any>;
       const m = np.mode;
       const 图 = 取图Buffer(params);
@@ -174,21 +237,21 @@ void 启动模块({
     });
 
     // —— 反色（ImageMagick Negate，保留 alpha）——
-    客户端.onRequest("image.negate", async (params) => {
+    图片动作("image.negate", async (params) => {
       const np = 归一参数(查声明("negate")!, params) as Record<string, any>;
       const 出 = await magick单图(取图Buffer(params), ["-channel", "RGB", "-negate", "+channel"]);
       return 成结果(出);
     });
 
     // —— 灰度/遗像（ImageMagick 灰度）——
-    客户端.onRequest("image.grayscale", async (params) => {
+    图片动作("image.grayscale", async (params) => {
       const np = 归一参数(查声明("grayscale")!, params) as Record<string, any>;
       const 出 = await magick单图(取图Buffer(params), ["-colorspace", "Gray"]);
       return 成结果(出);
     });
 
     // —— 生成纯色方块（ImageMagick）——
-    客户端.onRequest("image.colorSample", async (params) => {
+    图片动作("image.colorSample", async (params) => {
       const np = 归一参数(查声明("colorSample")!, params) as Record<string, any>;
       const size = np.size;
       const 出 = await 运行Magick(["-size", `${size}x${size}`, `xc:${np.color}`, "png:-"]);
@@ -196,7 +259,7 @@ void 启动模块({
     });
 
     // —— 生成随机像素点图片（ImageMagick +noise Random）——
-    客户端.onRequest("image.randomPixel", async (params) => {
+    图片动作("image.randomPixel", async (params) => {
       const np = 归一参数(查声明("randomPixel")!, params) as Record<string, any>;
       const n = np.size;
       const 出 = await 运行Magick(["-size", `${n}x${n}`, "xc:", "+noise", "Random", "png:-"]);
@@ -204,7 +267,7 @@ void 启动模块({
     });
 
     // —— 网格化：每个像素以 scale 为步长放大（ImageMagick）——
-    客户端.onRequest("image.grid", async (params) => {
+    图片动作("image.grid", async (params) => {
       const np = 归一参数(查声明("grid")!, params) as Record<string, any>;
       const scale = Math.max(1, Math.floor(np.scale));
       const 图 = 取图Buffer(params);
@@ -228,7 +291,7 @@ void 启动模块({
     });
 
     // —— 网格化2：棋盘间隔扣像素（ImageMagick -fx）——
-    客户端.onRequest("image.gridHole", async (params) => {
+    图片动作("image.gridHole", async (params) => {
       const np = 归一参数(查声明("gridHole")!, params) as Record<string, any>;
       const 出 = await magick单图(取图Buffer(params), [
         "-channel", "A", "-fx", "((i+j)%2==1)?0:u", "+channel",
@@ -237,19 +300,19 @@ void 启动模块({
     });
 
     // —— 做旧：YUV 绿移 + 压损（复刻 ImgGreen，逐像素）——
-    客户端.onRequest("image.oldJpg", async (params) => {
+    图片动作("image.oldJpg", async (params) => {
       const np = 归一参数(查声明("oldJpg")!, params) as Record<string, any>;
       return oldJpg(取图Buffer(params), np.quality);
     });
 
     // —— 抠图：边缘主色泛洪去背景（逐像素，复刻 ImgRemoveBackground2）——
-    客户端.onRequest("image.removeBg", async (params) => {
+    图片动作("image.removeBg", async (params) => {
       const np = 归一参数(查声明("removeBg")!, params) as Record<string, any>;
       return removeBg(取图Buffer(params), np.tolerance);
     });
 
     // —— 像素字：红字逐字绘制（ImageMagick，复刻 ImgGeneratePixel2）——
-    客户端.onRequest("image.pixelWords", async (params) => {
+    图片动作("image.pixelWords", async (params) => {
       const np = 归一参数(查声明("pixelWords")!, params) as Record<string, any>;
       const text = np.text;
       if (!text) throw new Error("缺少文字 text");
@@ -273,7 +336,7 @@ void 启动模块({
     });
 
     // —— 验证码：10 帧随机字体/颜色/抖动 GIF（ImageMagick，复刻 ImgGenerateCaptcha）——
-    客户端.onRequest("image.captcha", async (params) => {
+    图片动作("image.captcha", async (params) => {
       const np = 归一参数(查声明("captcha")!, params) as Record<string, any>;
       const text = np.text;
       if (!text) throw new Error("缺少文字 text");
@@ -305,7 +368,7 @@ void 启动模块({
     });
 
     // —— CIS 色卡：xyY 转 RGB（复刻 ColorConvert.xyYtoRGB）——
-    客户端.onRequest("image.cisColor", async (params) => {
+    图片动作("image.cisColor", async (params) => {
       const np = 归一参数(查声明("cisColor")!, params) as Record<string, any>;
       const x = np.x;
       const y = np.y;
@@ -331,7 +394,7 @@ void 启动模块({
     });
 
     // —— 取色：提取主色生成色卡条（ImageMagick -colors -unique-colors）——
-    客户端.onRequest("image.colorExtract", async (params) => {
+    图片动作("image.colorExtract", async (params) => {
       const np = 归一参数(查声明("colorExtract")!, params) as Record<string, any>;
       const count = Math.max(1, Math.floor(np.count));
       const size = np.size;
@@ -353,98 +416,98 @@ void 启动模块({
     });
 
     // —— 幻影坦克：两张图叠加（逐像素，复刻 ImageBlend / ImageBlendColorful）——
-    客户端.onRequest("image.hytk", async (params) => {
+    图片动作("image.hytk", async (params) => {
       const np = 归一参数(查声明("hytk")!, params) as Record<string, any>;
       return hytk(np.images, np.colorful);
     });
 
     // —— 横向拼接（ImageMagick，复刻 combineImage）——
-    客户端.onRequest("image.combineH", async (params) => {
+    图片动作("image.combineH", async (params) => {
       const np = 归一参数(查声明("combineH")!, params) as Record<string, any>;
       return combine(np.images, true);
     });
 
     // —— 纵向拼接（ImageMagick，复刻 combineImage）——
-    客户端.onRequest("image.combineV", async (params) => {
+    图片动作("image.combineV", async (params) => {
       const np = 归一参数(查声明("combineV")!, params) as Record<string, any>;
       return combine(np.images, false);
     });
 
     // —— 拆帧平铺成序列图（ImageMagick）——
-    客户端.onRequest("image.gifSprite", async (params) => {
+    图片动作("image.gifSprite", async (params) => {
       const np = 归一参数(查声明("gifSprite")!, params) as Record<string, any>;
       const col = np.row === "竖" ? 1 : (np.col);
       return gifSprite(取图Buffer(params), col);
     });
 
     // —— 拆帧成一组图（ImageMagick）——
-    客户端.onRequest("image.gifUnzip", async (params) => {
+    图片动作("image.gifUnzip", async (params) => {
       const np = 归一参数(查声明("gifUnzip")!, params) as Record<string, any>;
       return gifUnzip(取图Buffer(params));
     });
 
     // —— 拆成 col x row 碎片（ImageMagick）——
-    客户端.onRequest("image.gifUnzipGrid", async (params) => {
+    图片动作("image.gifUnzipGrid", async (params) => {
       const np = 归一参数(查声明("gifUnzipGrid")!, params) as Record<string, any>;
       return gifUnzipGrid(取图Buffer(params), np.col, np.row);
     });
 
     // —— 删帧（ImageMagick）——
-    客户端.onRequest("image.gifRemoveFrame", async (params) => {
+    图片动作("image.gifRemoveFrame", async (params) => {
       const np = 归一参数(查声明("gifRemoveFrame")!, params) as Record<string, any>;
       return gifRemoveFrame(取图Buffer(params), np.begin, np.count);
     });
 
     // —— 合成 GIF：多图或序列图（ImageMagick）——
-    客户端.onRequest("image.gifZip", async (params) => {
+    图片动作("image.gifZip", async (params) => {
       const np = 归一参数(查声明("gifZip")!, params) as Record<string, any>;
       return gifZip(np.images, np.row, np.col, np.sprite);
     });
 
     // —— 乱序：打乱 gif 帧顺序（ImageMagick）——
-    客户端.onRequest("image.gifShuffle", async (params) => {
+    图片动作("image.gifShuffle", async (params) => {
       const np = 归一参数(查声明("gifShuffle")!, params) as Record<string, any>;
       return gifShuffle(取图Buffer(params));
     });
 
     // —— webp 转 gif/png（ImageMagick）——
-    客户端.onRequest("image.webpToGif", async (params) => {
+    图片动作("image.webpToGif", async (params) => {
       const np = 归一参数(查声明("webpToGif")!, params) as Record<string, any>;
       return webpToGif(取图Buffer(params));
     });
 
     // —— 倍速：调整 gif 播放速率，负数倒放（ImageMagick）——
-    客户端.onRequest("image.gifSpeed", async (params) => {
+    图片动作("image.gifSpeed", async (params) => {
       const np = 归一参数(查声明("gifSpeed")!, params) as Record<string, any>;
       return gifSpeed(取图Buffer(params), np.speed);
     });
 
     // —— 抖动动画（ImageMagick，复刻 ImgShake）——
-    客户端.onRequest("image.shake", async (params) => {
+    图片动作("image.shake", async (params) => {
       const np = 归一参数(查声明("shake")!, params) as Record<string, any>;
       return shake(取图Buffer(params), np.degree);
     });
 
     // —— 滚动动画（ImageMagick，复刻 ImgRoll）——
-    客户端.onRequest("image.roll", async (params) => {
+    图片动作("image.roll", async (params) => {
       const np = 归一参数(查声明("roll")!, params) as Record<string, any>;
       return rollImg(取图Buffer(params), np.degree);
     });
 
     // —— 摸摸：弹性压扁回弹（ImageMagick，复刻 ToElasticBounceGif）——
-    客户端.onRequest("image.touchBall", async (params) => {
+    图片动作("image.touchBall", async (params) => {
       const np = 归一参数(查声明("touchBall")!, params) as Record<string, any>;
       return touchBall(取图Buffer(params));
     });
 
     // —— 高清放大：Real-ESRGAN 超分，缺依赖自动回退（ImageMagick 降级）——
-    客户端.onRequest("image.upscale", async (params) => {
+    图片动作("image.upscale", async (params) => {
       const np = 归一参数(查声明("upscale")!, params) as Record<string, any>;
       return upscale(取图Buffer(params), np.scale, np.provider, np.faceEnhance);
     });
 
     // —— 图片相似度（逐像素 8x8 差异哈希，复刻 ImageSimilar）——
-    客户端.onRequest("image.similar", async (params) => {
+    图片动作("image.similar", async (params) => {
       const np = 归一参数(查声明("similar")!, params) as Record<string, any>;
       const r = await similar(np.images);
       return { ...r, message: `相似度 ${(r.相似度 * 100).toFixed(2)}%` };
@@ -496,6 +559,54 @@ void 启动模块({
         字节: buf.length,
         message: `${width}x${height} ${ext.toUpperCase()} ${(buf.length / 1024).toFixed(1)} KB`,
       };
+    });
+
+    // 编辑页拖图进来时用：前端读成 base64 → 写进会话目录 → 后续全走路径
+    客户端.onRequest("image.file.save", async (params) => {
+      const np = 归一参数(查声明("file.save")!, params) as Record<string, any>;
+      const 会话 = String(np.session ?? "");
+      if (!会话合法(会话)) throw new Error("缺少或非法的会话号");
+      const 原 = String(np.base64 ?? "");
+      if (!原) throw new Error("没有图像内容");
+
+      // 文件名只取纯名称部分。不剥路径的话 `../../x.png` 能写到会话目录外面：
+      // 入参来自前端，不能当可信。
+      const 原始名 = String(np.name ?? "src.png");
+      const 纯名 = 原始名.split(/[\\/]/).pop() ?? "src.png";
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(纯名)) throw new Error(`文件名不合法：${纯名}`);
+
+      const 目录 = 会话目录(会话);
+      if (!existsSync(目录)) throw new Error(`会话不存在：${会话}`);
+      const 路径 = join(目录, 纯名);
+
+      // 去掉可能带的 data: 前缀。前端已经剥了，但外部调用方不一定。
+      const 净 = 原.includes(",") ? 原.slice(原.indexOf(",") + 1) : 原;
+      const buf = Buffer.from(净, "base64");
+      if (!buf.length) throw new Error("图像内容解码后为空");
+      writeFileSync(路径, buf);
+
+      const { width, height } = 图片尺寸(buf);
+      return {
+        路径,
+        宽: width,
+        高: height,
+        字节: buf.length,
+        message: `已写入 ${纯名}（${width}x${height}）`,
+      };
+    });
+
+    // 编辑页靠这张表生成所有控件，自己不硬编码任何动作
+    客户端.onRequest("image.actions.declare", async () => {
+      return 动作声明表.map((d) => ({
+        动作: d.动作,
+        标题: d.标题,
+        说明: d.说明,
+        分组: d.分组,
+        参数: d.参数,
+        源图: 需要源图(d),
+        预览: d.预览 ?? "none",
+        常用: d.常用 === true,
+      }));
     });
 
     // 模块退出时把所有会话目录删掉。`taskkill` 不会走到这里——那种情况

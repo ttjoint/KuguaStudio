@@ -268,8 +268,14 @@ describe("系统动作（编辑页路径契约）", () => {
     }
   });
 
-  it("三个系统动作都在：open / release / read", () => {
+  it("系统动作齐全：会话、文件读写、声明表", () => {
     const 名 = 系统动作.map((d) => d.动作).sort();
-    expect(名).toEqual(["file.read", "session.open", "session.release"]);
+    expect(名).toEqual([
+      "actions.declare",
+      "file.read",
+      "file.save",
+      "session.open",
+      "session.release",
+    ]);
   });
 });

@@ -432,10 +432,26 @@ async function 解析模块UI根(名: string): Promise<string | null> {
     const 详情 = (await 苦音客户端.request("nigane", "nigane.registry.details", {}, 3000)) as Array<{
       name: string;
       entry?: string;
+      ui?: { title?: string; entry?: string };
     }>;
     const 项 = 详情.find((d) => d.name === 名);
-    if (!项?.entry) return null;
-    const 根 = dirname(resolve(仓库根, 项.entry));
+    if (!项) return null;
+
+    // 必须用 `ui.entry`，不能用 `entry`。
+    //
+    // `entry` 是**进程入口**（`dist/index.js`），`ui.entry` 才是**页面入口**
+    // （`ui/index.html`）。原来错用了 `entry`，于是根算成 `dist/`：
+    // 因为页面路径被拼成 `dist/ui/index.html`，恰好能打开，看着像正常；
+    // 但同级的 `editor.css` / `editor.js` 被拼成 `dist/editor.css`，全部 404。
+    //
+    // 这个错误之所以阴险：首页能开，只有样式和脚本丢失。
+    // 语义：`ui.entry` 是**相对模块进程入口所在目录**的路径（module-kit 的约定），
+    // 所以：
+    //   入口目录 = dirname(仓库根 / dist/index.js) = .../image/dist
+    //   UI 根 = dirname(入口目录 / ui/index.html) = .../image/dist/ui
+    const 声明 = 项.ui?.entry ?? "index.html";
+    const 入口目录 = dirname(resolve(仓库根, 项.entry ?? ""));
+    const 根 = dirname(resolve(入口目录, 声明));
     if (!existsSync(根)) return null;
     模块UI根缓存.set(名, 根);
     return 根;
@@ -481,7 +497,11 @@ async function 发送模块UI(req: IncomingMessage, res: ServerResponse, url: UR
   }
   if (!相对) {
     const 页 = (await 列出模块页面()).find((p) => p.name === 名);
-    相对 = 页?.entry ?? "index.html";
+    // 根已经是 `ui/` 目录了（见 解析模块UI根），所以只能用 `ui/index.html`
+    // 的**文件名部分**。直接用完整 entry 会拼成 `dist/ui/ui/index.html`。
+    // 反过来也需要：`entry` 不带子目录时（如 `page.html`）照样正确。
+    const 声明 = 页?.entry ?? "index.html";
+    相对 = 声明.split("/").pop() ?? "index.html";
   }
   const 目标 = resolve(根, 相对);
   // 防目录穿越：解析后必须仍在根目录内

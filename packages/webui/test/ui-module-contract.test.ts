@@ -192,3 +192,37 @@ describe("WebUI ↔ 模块参数契约", () => {
     });
   }
 });
+
+describe("模块 UI 根目录解析（真出过 bug 的地方）", () => {
+  /**
+   * 原来 `解析模块UI根()` 用的是 `项.entry`，而那是**进程入口**
+   * （`dist/index.js`），不是页面入口。症状极其阴险：
+   *
+   * - `/module-ui/image/` 能打开（因为相对路径恰好是 `ui/index.html`）
+   * - 同级的 `editor.css` / `editor.js` 全部 404
+   *
+   * 首页能开、样式脚本没了，第一反应是「静态资源没拷过去」，
+   * 于是去查构建脚本——查半天也查不出来。
+   */
+  it("用 ui.entry 而不是 entry 定位页面", () => {
+    const 源 = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const 段 = 源.slice(源.indexOf("async function 解析模块UI根"), 源.indexOf("async function 解析模块UI根") + 1200);
+    expect(段).toContain("项.ui?.entry");
+    // 反证：不能只有 `resolve(仓库根, 项.entry)`——那就是老写法
+    expect(段).not.toMatch(/const 根 = dirname\(resolve\(仓库根, 项\.entry/);
+  });
+
+  it("回落 index.html 时取文件名部分", () => {
+    // 根已经算到 `ui/` 目录，再用完整 entry `ui/index.html` 拼
+    // 就变成 `dist/ui/ui/index.html`
+    const 源 = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const 段 = 源.slice(源.indexOf("async function 发送模块UI"));
+    expect(段.slice(0, 1400)).toContain('split("/")');
+  });
+
+  it("仍然防目录穿越", () => {
+    const 源 = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const 段 = 源.slice(源.indexOf("async function 发送模块UI"));
+    expect(段.slice(0, 1500)).toContain("startsWith(根 + sep)");
+  });
+});
