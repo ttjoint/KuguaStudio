@@ -2,6 +2,7 @@ import { 附件 } from "./02-chat-core";
 import { 添加回应, 添加消息, 开始回复组, 结束回复组, 最近用户消息 } from "./03-preview";
 import { 帮助文本, 格式化输出 } from "./05-format";
 import { 与AI对话 } from "./10-chat-page";
+import { 图默认 } from "../image-command-defaults";
 
 // ===== 指令前缀元数据（供左侧指令面板“从路由推断”） =====
 //
@@ -332,11 +333,11 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
   if (/^垂直翻转/.test(文本)) return 需图("image.flipV", {}, "垂直翻转");
   // —— 镜像1~4，缺省 1（参考 ^镜像(.*)，1/2/3/4 保留不同部分）——
   const 镜像匹配 = 文本.match(/^镜像([1-4])?$/);
-  if (镜像匹配) return 需图("image.mirror", { mode: 镜像匹配[1] ? Number(镜像匹配[1]) : 1 }, "图片镜像");
-  if (文本 === "镜子") return 需图("image.mirror", { mode: 1 }, "图片镜像");
+  if (镜像匹配) return 需图("image.mirror", { mode: 镜像匹配[1] ? Number(镜像匹配[1]) : 图默认("mirror", "mode") }, "图片镜像");
+  if (文本 === "镜子") return 需图("image.mirror", { mode: 图默认("mirror", "mode") }, "图片镜像");
   // —— 旋转N度，缺省 90（参考 ^旋转(.*)，缺省参则 90）——
   const 旋转匹配 = 文本.match(/^旋转\s*([\d.]+)?\s*度?$/);
-  if (旋转匹配) return 需图("image.rotate", { degrees: 旋转匹配[1] ? Number(旋转匹配[1]) : 90 }, "图片旋转");
+  if (旋转匹配) return 需图("image.rotate", { degrees: 旋转匹配[1] ? Number(旋转匹配[1]) : 图默认("rotate", "degrees") }, "图片旋转");
   // —— 缩放：横缩放N / 竖缩放N / 横竖缩放N / 缩放N（比例，参考 ^([横竖]*)缩放(.+)）——
   const 缩放匹配 = 文本.match(/^([横竖]*)缩放\s*([\d.]+)%?$/);
   if (缩放匹配) {
@@ -345,12 +346,15 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
     if (倍率 <= 0) 倍率 = 0.1;
     const 横 = 方向.includes("横") || 方向 === "";
     const 竖 = 方向.includes("竖") || 方向 === "";
-    return 需图("image.resize", { scaleX: 横 ? 倍率 : 1, scaleY: 竖 ? 倍率 : 1 }, "图片缩放");
+    // 只要横或竖一个方向时，另一个方向传 1（= 保持原样）。
+    // 1 是语义值不是「默认值」，所以不从声明表取。
+    const 不动 = 1;
+    return 需图("image.resize", { scaleX: 横 ? 倍率 : 不动, scaleY: 竖 ? 倍率 : 不动 }, "图片缩放");
   }
   // —— 高清放大 / 超分（参考 ModImage2x.Get2X：Real-ESRGAN，缺依赖自动回退）——
   const 超分匹配 = 文本.match(/^(高清|放大|超分)([24])?$/);
   if (超分匹配) {
-    return 需图("image.upscale", { scale: 超分匹配[2] ? Number(超分匹配[2]) : 4 }, "图片高清放大");
+    return 需图("image.upscale", { scale: 超分匹配[2] ? Number(超分匹配[2]) : 图默认("upscale", "scale") }, "图片高清放大");
   }
   // 兼容保留：放大N / 缩小N（百分比）
   const 放缩匹配 = 文本.match(/^(放大|缩小|缩放)\s*(\d+)?\s*%?$/);
@@ -375,7 +379,7 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
   const 切边匹配 = 文本.match(/^切边\s*(\d+)?$/);
   if (切边匹配) {
     const 边 = 切边匹配[1] ? Number(切边匹配[1]) : 10;
-    return 需图("image.cut", { percent: false, top: 边, bottom: 边, left: 边, right: 边 }, "图片切边");
+    return 需图("image.cut", { percent: 图默认("cut", "percent"), top: 边, bottom: 边, left: 边, right: 边 }, "图片切边");
   }
   // —— 抖动：抖N / 内抖N（参考 ^(内?)抖(.*)，数字为震级 0~1 小数，支持逗号小数点）——
   if (/^(内?)抖/.test(文本)) {
@@ -391,10 +395,10 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
   }
   // —— 网格化 / 网格化2（参考 ^网格化$ / ^网格化2$）——
   if (文本 === "网格化2") return 需图("image.gridHole", {}, "图片网格孔");
-  if (文本 === "网格化") return 需图("image.grid", { scale: 2 }, "图片网格化");
+  if (文本 === "网格化") return 需图("image.grid", { scale: 图默认("grid", "scale") }, "图片网格化");
   // 兼容保留：网格N / 网格孔
   const 网格匹配 = 文本.match(/^网格\s*(\d+)?$/);
-  if (网格匹配) return 需图("image.grid", { scale: 网格匹配[1] ? Number(网格匹配[1]) : 2 }, "图片网格化");
+  if (网格匹配) return 需图("image.grid", { scale: 网格匹配[1] ? Number(网格匹配[1]) : 图默认("grid", "scale") }, "图片网格化");
   if (/^网格孔/.test(文本)) return 需图("image.gridHole", {}, "图片网格孔");
   // —— 抠图（参考 ^抠图）——
   if (/^抠图/.test(文本)) return 需图("image.removeBg", {}, "图片抠图");
@@ -449,15 +453,15 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
   if (扭曲匹配) return { 目标: "image", 动作: "image.captcha", 参数: { text: 扭曲匹配[1].trim() }, 描述: "扭曲图片" };
   // 噪声N → 随机像素图（参考 ^噪声([0-9]*)）
   const 噪声匹配 = 文本.match(/^噪声\s*(\d*)?$/);
-  if (噪声匹配) return { 目标: "image", 动作: "image.randomPixel", 参数: { size: 噪声匹配[1] ? Number(噪声匹配[1]) : 100 }, 描述: "随机像素图" };
+  if (噪声匹配) return { 目标: "image", 动作: "image.randomPixel", 参数: { size: 噪声匹配[1] ? Number(噪声匹配[1]) : 图默认("randomPixel", "size") }, 描述: "随机像素图" };
   const 验证码匹配 = 文本.match(/^验证码\s*(.+)?$/);
   if (验证码匹配) return { 目标: "image", 动作: "image.captcha", 参数: { text: (验证码匹配[1] ?? "").trim() }, 描述: "验证码图片" };
-  if (/^随机像素/.test(文本)) return { 目标: "image", 动作: "image.randomPixel", 参数: { size: 100 }, 描述: "随机像素图" };
+  if (/^随机像素/.test(文本)) return { 目标: "image", 动作: "image.randomPixel", 参数: { size: 图默认("randomPixel", "size") }, 描述: "随机像素图" };
   const 色块匹配 = 文本.match(/^色块\s*(#?[0-9a-fA-F]{3,8})?$/);
-  if (色块匹配) return { 目标: "image", 动作: "image.colorSample", 参数: { color: 色块匹配[1] ?? "#000000", size: 80 }, 描述: "色块" };
+  if (色块匹配) return { 目标: "image", 动作: "image.colorSample", 参数: { color: 色块匹配[1] ?? 图默认("colorSample", "color"), size: 图默认("colorSample", "size") }, 描述: "色块" };
 
   // —— 色卡：#RRGGBB 直接显示颜色（参考 ^#[0-9A-Fa-f]{6}$，showColor）——
-  if (/^#[0-9A-Fa-f]{6}$/.test(文本)) return { 目标: "image", 动作: "image.colorSample", 参数: { color: 文本, size: 80 }, 描述: "色块" };
+  if (/^#[0-9A-Fa-f]{6}$/.test(文本)) return { 目标: "image", 动作: "image.colorSample", 参数: { color: 文本, size: 图默认("colorSample", "size") }, 描述: "色块" };
   // —— 遗像/遗照：灰度（参考 ^(遗像|遗照)$，getYixiang + Rec601Luminance）——
   if (文本 === "遗像" || 文本 === "遗照") return 需图("image.grayscale", {}, "遗像");
   // —— CIS 色卡：CIS x y Y（参考 ^CIS\s*(\S+)\s(\S+)\s(\S+)$，convertCIS + xyYtoRGB）——
