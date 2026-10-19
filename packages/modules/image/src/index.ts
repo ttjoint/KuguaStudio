@@ -28,7 +28,8 @@ import {
   touchBall,
 } from "./gif.js";
 import { oldJpg, hytk, removeBg, upscale, similar } from "./pixels.js";
-import { 动作声明表, 动作schema, 查声明, 归一参数 } from "./actions.js";
+import { 动作声明表, 系统动作, 动作schema, 查声明, 归一参数 } from "./actions.js";
+import { 打开会话, 释放会话, 释放全部会话, 在会话内, 会话合法 } from "./session.js";
 
 /** 能力声明：33 项图片能力（中文指令 + GUI + MCP） */
 /**
@@ -38,7 +39,7 @@ import { 动作声明表, 动作schema, 查声明, 归一参数 } from "./action
  * 再散落在各处理函数里——三份描述之间没有约束，参数改了漏改一处就是
  * 「用户填了不生效」且毫无日志。现在只有一个来源。
  */
-const 能力清单: 能力声明[] = 动作声明表.map((d) => ({
+const 能力清单: 能力声明[] = [...动作声明表, ...系统动作].map((d) => ({
   名称: `image.${d.动作}`,
   模块: "image",
   标题: d.标题,
@@ -448,6 +449,61 @@ void 启动模块({
       const r = await similar(np.images);
       return { ...r, message: `相似度 ${(r.相似度 * 100).toFixed(2)}%` };
     });
+
+    // ================= 系统动作：编辑页的路径契约 =================
+    //
+    // 编辑页不拿 base64。30 帧 GIF 的 base64 塞进 JSON 是 3.7 MB，
+    // 只用路径是 1.4 KB（差 2687 倍），而且前端拿到路径后交给浏览器
+    // 自己流式加载，还能吃 HTTP 缓存。
+
+    客户端.onRequest("image.session.open", async (params) => {
+      const np = 归一参数(查声明("session.open")!, params) as Record<string, any>;
+      const 想复用 = 会话合法(np.session);
+      const { 会话: id, 目录 } = 打开会话(想复用 ? np.session : undefined);
+      return {
+        会话: id,
+        目录,
+        复用: 想复用,
+        message: `${想复用 ? "复用" : "新建"}会话 ${id}`,
+      };
+    });
+
+    客户端.onRequest("image.session.release", async (params) => {
+      const np = 归一参数(查声明("session.release")!, params) as Record<string, any>;
+      const 删了 = 释放会话(np.session);
+      return {
+        已释放: 删了,
+        message: 删了 ? `已删除会话 ${np.session}` : `会话 ${np.session} 不存在或已删除`,
+      };
+    });
+
+    客户端.onRequest("image.file.read", async (params) => {
+      const np = 归一参数(查声明("file.read")!, params) as Record<string, any>;
+      const 路径 = String(np.path ?? "");
+      // 只认会话目录里的文件。这条检查是 `/api/file` 白名单的另一半：
+      // 前端会把模块返回的路径原样发回去，服务端那边没法判断路径是不是
+      // 我们自己给的，只能靠这里不产出越界路径。
+      if (!在会话内(路径)) throw new Error("只允许读取图片会话目录内的文件");
+      if (!existsSync(路径)) throw new Error(`文件不存在：${路径}`);
+      const buf = readFileSync(路径);
+      const { width, height } = 图片尺寸(buf);
+      const ext = 路径.toLowerCase().match(/\.[a-z0-9]+$/)?.[0].slice(1) ?? "png";
+      return {
+        路径,
+        宽: width,
+        高: height,
+        格式: ext,
+        字节: buf.length,
+        message: `${width}x${height} ${ext.toUpperCase()} ${(buf.length / 1024).toFixed(1)} KB`,
+      };
+    });
+
+    // 模块退出时把所有会话目录删掉。`taskkill` 不会走到这里——那种情况
+    // 靠 `清掉过旧会话()` 在下次启动时兜底。
+    return () => {
+      const n = 释放全部会话();
+      if (n > 0) console.debug(`[图片模块] 退出清理：删除 ${n} 个会话目录`);
+    };
   },
   就绪: () => console.debug("[图片模块] 已接入主控（ImageMagick 引擎），等待图片处理请求"),
 });

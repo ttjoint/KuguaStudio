@@ -23,6 +23,7 @@ import {
   statSync,
   createReadStream,
   readdirSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -616,6 +617,53 @@ function 解析静态路径(pathname: string): string | null {
   return 目标;
 }
 
+/**
+ * `/api/file` 的白名单。
+ *
+ * ## 为什么必须加
+ *
+ * 改造前这个接口是 `anyPath => 发送文件(...)`，实测
+ * `GET /api/file?path=D:/Projects/KuguaStudio/package.json` 直接返回 200
+ * 和文件内容。也就是说**本机任何进程、以及任何能向本机发请求的网页**
+ * （CSRF）都能读整个磁盘。
+ *
+ * ## 为什么不能只做 `startsWith(tmpdir())`
+ *
+ * 那样仍然能读 `%TEMP%` 下任意程序的临时文件——别的软件的私有数据、
+ * 甚至凭据。真正该放行的只有「平台自己写的、且本来就会展示给前端的」目录：
+ *
+ * - `kugua-drop/` —— 拖拽上传的落地目录（`/api/writeTempFile` 产出的路径
+ *   会被前端原样发回来取图）
+ * - `kugua-clip/` —— 剪贴板图片
+ * - `kugua-image-<id>/` —— 图片模块的会话目录（编辑页用）
+ *
+ * 目录名里的 id 段按图片模块的规则校验（`[A-Za-z0-9_-]{1,64}`），
+ * 防止 `kugua-image-abc/../../..` 这种用前缀骗取信任。
+ */
+const 可读临时目录 = /^(kugua-drop|kugua-clip|kugua-image-[A-Za-z0-9_-]{1,64})$/;
+
+export function 允许读取的路径(文件路径: string): boolean {
+  if (typeof 文件路径 !== "string" || !文件路径) return false;
+  let 绝对: string;
+  try {
+    // realpath 解析符号链接与 `..`，避免 `kugua-drop/../../secret` 绕过
+    绝对 = realpathSync(resolve(文件路径));
+  } catch {
+    return false;
+  }
+  let 根: string;
+  try {
+    根 = realpathSync(resolve(tmpdir()));
+  } catch {
+    根 = resolve(tmpdir());
+  }
+  const 前缀 = 根 + sep;
+  if (!绝对.startsWith(前缀)) return false;
+  const 相对 = 绝对.slice(前缀.length);
+  const 首段 = 相对.split(sep)[0] ?? "";
+  return 可读临时目录.test(首段);
+}
+
 function 发送文件(req: IncomingMessage, res: ServerResponse, 文件路径: string): void {
   if (!existsSync(文件路径) || !statSync(文件路径).isFile()) {
     res.writeHead(404).end("Not Found");
@@ -917,7 +965,13 @@ async function 主流程(): Promise<void> {
     // 本地文件读取（支持 Range，用于图片/音视频预览）
     if (req.method === "GET" && url.pathname === "/api/file") {
       const 文件 = url.searchParams.get("path");
-      if (!文件 || !existsSync(文件)) {
+      // 403 而非 404：路径存在但不在白名单里，用户需要知道是「拒绝」而不是
+      // 「文件没了」——后者会让人以为自己路径写错了，往反方向排查。
+      if (!文件 || !允许读取的路径(文件)) {
+        res.writeHead(403).end("Forbidden");
+        return;
+      }
+      if (!existsSync(文件)) {
         res.writeHead(404).end("Not Found");
         return;
       }

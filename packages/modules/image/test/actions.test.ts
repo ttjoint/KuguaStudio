@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { 动作声明表, 查声明, 归一参数, 动作schema, 需要源图 } from "../src/actions.js";
+import { 动作声明表, 系统动作, 查声明, 归一参数, 动作schema, 需要源图 } from "../src/actions.js";
 
 /**
  * 原实现里的默认值，逐字抄自改造前的 `index.ts`。
@@ -231,5 +231,45 @@ describe("动作声明表", () => {
       // 旋转/翻转/缩放/反色/灰度这些该有；如果哪天全丢了说明字段没填
       expect(可预览.length).toBeGreaterThanOrEqual(5);
     });
+  });
+});
+
+describe("系统动作（编辑页路径契约）", () => {
+  it("查声明 也能查到系统动作", () => {
+    // 系统动作的处理函数同样写 `归一参数(查声明(x)!, params)`。
+    // 如果 查声明 只查 动作声明表，这里返回 undefined，运行时报
+    // 「Cannot read properties of undefined (reading '参数')」——
+    // 而 `!` 让 TypeScript 完全看不出问题。这个 bug 真发生过一次。
+    for (const d of 系统动作) {
+      expect(查声明(d.动作), `${d.动作} 查不到`).toBe(d);
+    }
+  });
+
+  it("系统动作不进编辑页动作列表", () => {
+    // 用户不该在「旋转/缩放」旁边看到「释放会话」按钮
+    const 名 = 动作声明表.map((d) => d.动作);
+    for (const d of 系统动作) {
+      expect(名).not.toContain(d.动作);
+    }
+  });
+
+  it("系统动作分组是「系统」且不带预览", () => {
+    for (const d of 系统动作) {
+      expect(d.分组).toBe("系统");
+      expect(d.预览 ?? "none").toBe("none");
+      expect(d.常用).toBeFalsy();
+    }
+  });
+
+  it("系统动作的参数能归一（默认值全空）", () => {
+    for (const d of 系统动作) {
+      const 得 = 归一参数(d, {});
+      expect(typeof 得).toBe("object");
+    }
+  });
+
+  it("三个系统动作都在：open / release / read", () => {
+    const 名 = 系统动作.map((d) => d.动作).sort();
+    expect(名).toEqual(["file.read", "session.open", "session.release"]);
   });
 });
