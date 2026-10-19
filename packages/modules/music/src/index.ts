@@ -16,17 +16,16 @@ import { 启动模块 } from "@kugua/module-kit";
 import type { NiganeClient } from "@kugua/nigane";
 import type { 能力声明 } from "@kugua/capability";
 import { 运行数据 } from "@kugua/paths";
-
-type 来源 = "wyy" | "qq" | "kg";
-
-interface 歌曲 {
-  id: string;
-  名称: string;
-  歌手: string;
-  专辑: string;
- 来源: 来源;
-  可下载: boolean;
-}
+import {
+  归一参数,
+  安全文件名,
+  是否MP3,
+  解析QQ,
+  解析酷狗,
+  解析网易云,
+  type 来源,
+  type 歌曲,
+} from "./parse.js";
 
 const 请求头 = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
@@ -38,17 +37,7 @@ async function 搜网易云(关键词: string, 数量: number): Promise<歌曲[]
     `https://music.163.com/api/search/get/web?s=${encodeURIComponent(关键词)}&type=1&limit=${数量}`,
     { headers: { ...请求头, Referer: "https://music.163.com/" } },
   );
-  const jo = (await r.json()) as {
-    result?: { songs?: Array<{ id: number; name: string; ar?: Array<{ name: string }>; al?: { name: string }; privilege?: { fl?: number } }> };
-  };
-  return (jo.result?.songs ?? []).map((s) => ({
-    id: String(s.id),
-    名称: s.name,
-    歌手: s.ar?.[0]?.name ?? "",
-    专辑: s.al?.name ?? "",
-    来源: "wyy" as const,
-    可下载: s.privilege?.fl !== 0,
-  }));
+  return 解析网易云(await r.json());
 }
 
 async function 搜QQ(关键词: string, 数量: number): Promise<歌曲[]> {
@@ -56,17 +45,7 @@ async function 搜QQ(关键词: string, 数量: number): Promise<歌曲[]> {
     `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?new_json=1&w=${encodeURIComponent(关键词)}&format=json&n=${数量}`,
     { headers: { ...请求头, Referer: "https://y.qq.com/" } },
   );
-  const jo = (await r.json()) as {
-    data?: { song?: { list?: Array<{ mid: string; name: string; singer?: Array<{ name: string }>; album?: { name: string }; pay?: { pay_play?: number } }> } };
-  };
-  return (jo.data?.song?.list ?? []).map((s) => ({
-    id: s.mid,
-    名称: s.name,
-    歌手: s.singer?.[0]?.name ?? "",
-    专辑: s.album?.name ?? "",
-    来源: "qq" as const,
-    可下载: s.pay?.pay_play !== 1,
-  }));
+  return 解析QQ(await r.json());
 }
 
 async function 搜酷狗(关键词: string, 数量: number): Promise<歌曲[]> {
@@ -74,17 +53,7 @@ async function 搜酷狗(关键词: string, 数量: number): Promise<歌曲[]> {
     `https://songsearch.kugou.com/song_search_v2?&keyword=${encodeURIComponent(关键词)}&platform=WebFilter&pagesize=${数量}`,
     { headers: 请求头 },
   );
-  const jo = (await r.json()) as {
-    data?: { lists?: Array<{ FileHash: string; SongName: string; SingerName: string; AlbumName: string; trans_param?: { musicpack_advance?: number } }> };
-  };
-  return (jo.data?.lists ?? []).map((s) => ({
-    id: s.FileHash,
-    名称: s.SongName,
-    歌手: s.SingerName,
-    专辑: s.AlbumName,
-    来源: "kg" as const,
-    可下载: s.trans_param?.musicpack_advance !== 1,
-  }));
+  return 解析酷狗(await r.json());
 }
 
 async function 搜索(关键词: string, 来源: 来源, 数量: number): Promise<歌曲[]> {
@@ -108,8 +77,7 @@ async function 下载(歌曲: 歌曲): Promise<{ buffer: Buffer; 格式: string 
     headers: { ...请求头, Referer: "https://music.163.com/" },
   });
   const buf = Buffer.from(await r.arrayBuffer());
-  const 类型 = r.headers.get("content-type") ?? "";
-  if (!类型.includes("audio") && !(buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33)) {
+  if (!是否MP3(r.headers.get("content-type") ?? "", buf)) {
     throw new Error("该歌曲不可下载（可能为 VIP/版权限制）");
   }
   return { buffer: buf, 格式: "mp3" };
@@ -119,8 +87,7 @@ async function 下载(歌曲: 歌曲): Promise<{ buffer: Buffer; 格式: string 
 function 存文件(名称: string, buf: Buffer): string {
   const 目录 = 运行数据("music");
   mkdirSync(目录, { recursive: true });
-  const 安全 = 名称.replace(/[\\/:*?"<>|]/g, "_").slice(0, 80) || `music_${Date.now()}`;
-  const 路径 = join(目录, `${安全}.mp3`);
+  const 路径 = join(目录, `${安全文件名(名称, Date.now())}.mp3`);
   writeFileSync(路径, buf);
   return 路径;
 }
@@ -144,13 +111,7 @@ void 启动模块({
   version: "0.1.0",
   能力: 能力清单,
   注册: (客户端) => {
-    const 取参数 = (params: unknown): { 关键词: string; 来源: 来源; 数量: number; 反向: boolean; id: string } => {
-      const p = (params ?? {}) as Record<string, unknown>;
-      const 关键词 = String(p.关键词 ?? p.参数文本 ?? p.原文 ?? "").trim();
-      const 来源 = (["wyy", "qq", "kg"].includes(String(p.来源)) ? String(p.来源) : "wyy") as 来源;
-      const 数量 = typeof p.数量 === "number" && p.数量 > 0 ? Math.min(p.数量, 30) : 10;
-      return { 关键词, 来源, 数量, 反向: Boolean(p.反向), id: String(p.id ?? "") };
-    };
+    const 取参数 = 归一参数;
 
     客户端.onRequest("music.search", async (params) => {
         const p = 取参数(params);

@@ -9,6 +9,7 @@
 
 import { NiganeClient } from "@kugua/nigane";
 import { Ob11Client } from "@kugua/onebot11";
+import { 事件名, 应转发, 解析Api请求 } from "./pure.js";
 
 export interface Napcat桥配置 {
   /** 苦音主控地址 */
@@ -42,11 +43,7 @@ export async function 启动Napcat桥(配置: Napcat桥配置): Promise<Napcat�
 
   // 下行：苦音请求 → Napcat API
   苦音.onRequest("api", async (params) => {
-    const { action, params: 参数 } = (params ?? {}) as {
-      action?: string;
-      params?: unknown;
-    };
-    if (!action) throw new Error("缺少 action 字段");
+    const { action, 参数 } = 解析Api请求(params);
     return ob11.callApi(action, 参数);
   });
   苦音.onRequest("send_msg", (params) => ob11.callApi("send_msg", params));
@@ -55,8 +52,8 @@ export async function 启动Napcat桥(配置: Napcat桥配置): Promise<Napcat�
 
   // 上行：Napcat 事件 → 苦音广播
   ob11.on("event", (分类: string, 数据: unknown) => {
-    if (分类 === "meta.heartbeat" && !配置.转发心跳) return;
-    苦音.sendEvent(`napcat.${分类}`, 数据);
+    if (!应转发(分类, 配置.转发心跳 ?? false)) return;
+    苦音.sendEvent(事件名(分类), 数据);
   });
   ob11.on("connect", () => console.log("[napcat桥] Napcat 已连接"));
   ob11.on("close", () => console.warn("[napcat桥] Napcat 连接断开，等待自动重连……"));

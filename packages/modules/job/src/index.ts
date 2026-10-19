@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import { 启动模块 } from "@kugua/module-kit";
 import { 作业配置声明 } from "./declaration.js";
 import type { 能力声明 } from "@kugua/capability";
-import { 作业存储 } from "./store.js";
+import { 作业存储, 推入日志 } from "./store.js";
 import type { 作业记录, 日志行, 启动作业参数 } from "./types.js";
 
 /** 由读配置阶段写入，供注册阶段使用 */
@@ -29,7 +29,6 @@ let 运行中实例: Map<string, 运行中作业> | null = null;
 let 结束作业实例: ((id: string, 状态: 作业记录["状态"], 退出码: number | null, 错误: string | null) => void) | null = null;
 let 杀进程树实例: ((pid: number) => void) | null = null;
 /** 内存日志环形缓冲上限 */
-const 日志缓冲上限 = 2000;
 
 const 能力清单: 能力声明[] = [
   {
@@ -156,10 +155,7 @@ void 启动模块({
   /** 追加一行日志：内存环形 + 文件流 + 事件推送 */
   function 追加日志(id: string, 流名: 日志行["流"], 行: string): void {
     const 条目: 日志行 = { 时间: Date.now(), 流: 流名, 行 };
-    const 列表 = 日志缓冲.get(id) ?? [];
-    列表.push(条目);
-    if (列表.length > 日志缓冲上限) 列表.splice(0, 列表.length - 日志缓冲上限);
-    日志缓冲.set(id, 列表);
+    日志缓冲.set(id, 推入日志(日志缓冲.get(id) ?? [], 条目));
     日志流.get(id)?.write(`[${流名}] ${行}\n`);
     客户端.sendEvent("job.log", { id, 流: 流名, 行, 时间: 条目.时间 });
   }

@@ -3,6 +3,15 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    /**
+     * `packages/modules/job` 用 `node:sqlite`（Node 24 内置模块）。
+     *
+     * 这里保留 external 声明不删：它是「不要试图把内置模块打成 npm 包」的
+     * 意图说明。**真正让 vitest 跑通的是 store.ts 里的 createRequire**——
+     * vitest 在 transform 阶段会把 `import "node:sqlite"` 剥成裸名
+     * `sqlite` 再当包 resolve，然后报 "Failed to load url sqlite"。
+     * external 对此无效（它只对 npm 包生效），但留着能提醒后来者这里踩过坑。
+     */
     server: {
       deps: {
         external: ["node:sqlite"],
