@@ -6,7 +6,7 @@
  * 能力声明（33 项）：中文指令 / GUI / MCP 由能力注册表派生。
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import { magick单图, 成结果, 图片尺寸, 运行Magick, 用临时目录 } from "./magick.js";
@@ -49,6 +49,48 @@ import { 打开会话, 释放会话, 释放全部会话, 在会话内, 会话合
  *
  * 不把 base64 去掉：聊天附件、外部接入方都在用它，改了就是破契约。
  */
+/**
+ * 把多图参数里的**路径**就地换成 base64。
+ *
+ * 编辑页手里的图是路径（第 3 步的路径契约），而 `combine` / `gifZip` 这类
+ * 底层函数的入参一直是 base64 数组（聊天框从第一天就这样传）。
+ *
+ * 两套契约都没错，错在中间没人做转换。不转的后果极除——甚至不报错：
+ * `Buffer.from("D:\\x\\a.png", "base64")` 会静默返回一堆垃圾字节，
+ * ImageMagick 照样能把它当成一张乱码图处理完，最后给用户一张 600x400 的
+ * 怪东西，而两张 200x150 的图纵向拼接本该是 200x300。
+ *
+ * 所以统一在注册层转换：不管上游给的是路径还是 base64，下游只看到 base64。
+ */
+export function 补多图(声明: { 参数?: { 键: string; 类型: string }[] } | undefined, params: unknown): unknown {
+  if (!声明 || !params || typeof params !== "object") return params;
+  const 入 = params as Record<string, unknown>;
+  const 多图键 = (声明.参数 ?? []).filter((p) => p.类型 === "images").map((p) => p.键);
+  if (!多图键.length) return params;
+
+  let 出: Record<string, unknown> | null = null;
+  for (const 键 of 多图键) {
+    const 列 = 入[键];
+    if (!Array.isArray(列) || !列.length) continue;
+    const 换 = 列.map((项) => {
+      const s = String(项 ?? "");
+      // 只有「看着像本地路径」且文件真实存在时才读。
+      // 不靠长度/字符集猜 base64：base64 里不会有盘符冒号或路径分隔符。
+      if (!s || /^[A-Za-z0-9+/=\r\n]+$/.test(s)) return s;
+      try {
+        if (!existsSync(s)) return s;
+        return readFileSync(s).toString("base64");
+      } catch (err) {
+        console.debug(`[图片模块] 多图参数 ${键} 读文件失败：${String(err)}`);
+        return s;
+      }
+    });
+    出 ??= { ...入 };
+    出[键] = 换;
+  }
+  return 出 ?? params;
+}
+
 function 落会话(
   结果: { base64?: string; format?: string; width?: number; height?: number; images?: string[] },
   会话: unknown,
@@ -59,10 +101,30 @@ function 落会话(
   if (!existsSync(目录)) return 结果 as unknown as Record<string, unknown>;
   try {
     const 扩 = (结果.format ?? "png").toLowerCase();
-    const 纯名 = `${名}-${Date.now().toString(36)}.${扩}`;
-    const 路径 = join(目录, 纯名);
-    writeFileSync(路径, Buffer.from(结果.base64, "base64"));
-    return { ...结果, path: 路径 };
+    // 时间戳只算一次：多帧的目录名和帧文件名用同一个，好对得上
+    const 标 = Date.now().toString(36);
+    const 主路径 = join(目录, `${名}-${标}.${扩}`);
+    writeFileSync(主路径, Buffer.from(结果.base64, "base64"));
+    const 出: Record<string, unknown> = { ...结果, path: 主路径 };
+
+    // 多帧动作（拆帧、拆碎片）会带一个 `images` 数组，里面全是 base64。
+    // 30 帧就是 3.7MB——这正是编辑页不能靠 base64 的原因。
+    //
+    // 所以帧也一并落盘，额外给一个 `frames` 路径数组。**`images` 原样保留**：
+    // 聊天框和外接方都在用它，删了就是破契约。
+    if (Array.isArray(结果.images) && 结果.images.length) {
+      const 帧目录 = join(目录, `${名}-${标}-frames`);
+      // 帧可能是带透明的 GIF 帧，统一存 png（存 jpg 会丢 alpha）
+      if (!existsSync(帧目录)) mkdirSync(帧目录, { recursive: true });
+      const 帧路径: string[] = [];
+      结果.images.forEach((b64, i) => {
+        const p = join(帧目录, `${String(i).padStart(4, "0")}.png`);
+        writeFileSync(p, Buffer.from(b64, "base64"));
+        帧路径.push(p);
+      });
+      出.frames = 帧路径;
+    }
+    return 出;
   } catch (err) {
     // 写盘失败不能把已算好的结果弄丢：退回 base64，前端照样能显示
     console.debug(`[图片模块] 结果写会话失败：${String(err)}`);
@@ -134,7 +196,7 @@ void 启动模块({
      */
     const 图片动作 = (名: string, 干活: (params: unknown) => Promise<unknown>) => {
       客户端.onRequest(名, async (params) => {
-        const 结 = await 干活(params);
+        const 结 = await 干活(补多图(查声明(名.replace(/^image\./, "")), params));
         if (!结 || typeof 结 !== "object") return 结;
         const 对象 = 结 as { base64?: string; format?: string };
         if (!对象.base64) return 结;

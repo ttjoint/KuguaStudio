@@ -70,6 +70,12 @@ const 状态 = {
   值: {},
   /** 请求序号：并发时只认最后一次的结果 */
   序号: 0,
+  /** 多帧结果的帧路径（空数组 = 单图结果） */
+  帧们: [],
+  /** 多图参数的槽位内容（键 → 路径数组） */
+  多图: {},
+  /** 最近一次结果的元信息（另存时命名用） */
+  结果信息: null,
 };
 
 // ============ DOM ============
@@ -311,11 +317,63 @@ function 造控件(p) {
     行.appendChild(旁注);
     容器.appendChild(行);
   } else if (p.类型 === "images") {
-    // 多图动作在编辑页暂时只支持「当前图 + 当前图」这种最简单的用法
-    const 提示 = document.createElement("div");
-    提示.className = "field-desc";
-    提示.textContent = "多图动作请从聊天框发起（编辑页只处理单张）";
-    容器.appendChild(提示);
+    // 多图参数：一个累加槽位。用户拖图进来 / 点「加入当前图」都能往里添。
+    //
+    // 为什么不做成多选文件对话框：拼接、做 GIF 这类操作的典型顺序是
+    // 「先看一张，再决定要不要加第二张」。一次性多选把人逼到先攒够再进来，
+    // 而槽位可以边看边加。
+    const 槽 = document.createElement("div");
+    槽.className = "image-slots";
+    槽.dataset.key = p.键;
+    槽.id = `f-${p.键}`;
+    容器.appendChild(槽);
+
+    const 刷 = () => {
+      while (槽.firstChild) 槽.removeChild(槽.firstChild);
+      // 必须**写回** 状态.多图。
+      //
+      // 原来写的是 `const 列 = 状态.多图[p.键] ?? []`，然后直接往 列 里
+      // push——数组是新的，push 完没挂回去，下一次 刷() 又取到 新的空数组。
+      // 症状：点了「加入当前图」毫无反应，也不报错。
+      const 列 = (状态.多图[p.键] ??= []);
+      if (!列.length) {
+        const 空 = document.createElement("div");
+        空.className = "field-desc";
+        空.textContent = "还没加图。先选一张图，再点下面的「加入当前图」。";
+        槽.appendChild(空);
+      }
+      列.forEach((路径, i) => {
+        const 行 = document.createElement("div");
+        行.className = "image-slot";
+        const 图 = document.createElement("img");
+        图.src = `/api/file?path=${encodeURIComponent(路径)}`;
+        图.alt = `第 ${i + 1} 张`;
+        行.appendChild(图);
+        const 删 = document.createElement("button");
+        删.className = "slot-del";
+        删.textContent = "×";
+        删.title = "移出";
+        删.addEventListener("click", () => {
+          列.splice(i, 1);
+          刷();
+        });
+        行.appendChild(删);
+        槽.appendChild(行);
+      });
+
+      const 加 = document.createElement("button");
+      加.className = "slot-add";
+      加.textContent = "＋ 加入当前图";
+      加.disabled = !状态.原图;
+      加.addEventListener("click", () => {
+        if (!状态.原图) return;
+        列.push(状态.原图);
+        刷();
+      });
+      槽.appendChild(加);
+    };
+    槽._刷 = 刷;
+    刷();
     取值控件 = null;
   } else {
     const 提示 = document.createElement("div");
@@ -453,6 +511,14 @@ async function 应用() {
   try {
     const 参数 = { session: 状态.会话, path: 状态.原图 };
     for (const p of d.参数 ?? []) {
+      if (p.类型 === "images") {
+        const 列 = 状态.多图[p.键] ?? [];        if (!列.length) {
+          设消息(`「${p.标题 ?? p.键}」还没加图`);
+          return;
+        }
+        参数[p.键] = 列;
+        continue;
+      }
       const v = 状态.值[p.键];
       if (v === undefined || v === null || v === "") continue;
       参数[p.键] = v;
@@ -465,12 +531,18 @@ async function 应用() {
       设尺寸(`${r.width ?? "?"} x ${r.height ?? "?"}  ·  ${r.message ?? ""}`);
       设消息("");
       // 结果替换原图，形成链式编辑（旋转后再切割）
-      if (r.path) 状态.原图 = r.path;
+      状态.原图 = r.path;
+      状态.结果信息 = { width: r.width, height: r.height, format: r.format, message: r.message };
+      // 多帧动作返回 `frames` 路径数组（拆帧、拆碎片）。
+      // 拿掉帧列表只显示一张的话，用户完全不知道拆出来几帧、每帧长什么样。
+      渲染帧列表(r.frames ?? []);
+      显示结果栏(true);
       应用本地预览();
     } else if (r?.base64) {
       // 兜底：动作还没改成返回路径时走 base64
       预览.src = `data:image/${r.format ?? "png"};base64,${r.base64}`;
       设尺寸(`${r.width} x ${r.height}`);
+      渲染帧列表([]);
     } else {
       设消息("模块没有返回图片");
     }
@@ -514,6 +586,9 @@ async function 收文件(file) {
 
     状态.原图 = 路径;
     进入编辑区();
+    渲染帧列表([]);
+    显示结果栏(false);
+    状态.结果信息 = null;
     显示图(路径);
     设尺寸(file.name);
     设消息("");
@@ -534,6 +609,169 @@ async function 载入声明() {
   const 首选 = 表.find((d) => d.动作 === "rotate") ?? 表.find((d) => d.常用 && d.分组 !== "系统") ?? 表[0];
   if (首选) 选动作(首选);
 }
+
+// ============ 帧列表 ============
+
+const 帧栏 = $("frames-bar");
+const 帧条 = $("frames-strip");
+const 帧计数 = $("frames-count");
+
+/**
+ * 多帧动作（拆帧、拆碎片）的结果展示。
+ *
+ * 帧全部走**路径**不走 base64：30 帧的 base64 是 3.7MB，传过去再让浏览器
+ * 解码，既堵通道又费内存。路径交给 `<img src>` 后浏览器自己流式加载，
+ * 还吃 HTTP 缓存，而且没有的帧根本不会请求。
+ */
+function 渲染帧列表(帧们) {
+  while (帧条.firstChild) 帧条.removeChild(帧条.firstChild);
+  状态.帧们 = 帧们;
+
+  if (!帧们.length) {
+    帧栏.hidden = true;
+    return;
+  }
+
+  帧栏.hidden = false;
+  帧计数.textContent = `共 ${帧们.length} 帧`;
+
+  帧们.forEach((路径, i) => {
+    const 钮 = document.createElement("button");
+    钮.className = "frame-thumb";
+    钮.dataset.index = String(i);
+    if (i === 0) 钮.classList.add("active");
+
+    const 图 = document.createElement("img");
+    图.src = `/api/file?path=${encodeURIComponent(路径)}`;
+    图.alt = `第 ${i + 1} 帧`;
+    // 帧多时一次性全部解码会卡一下，但只 30、50 帧且都是缩略尺寸，
+    // 加 loading=lazy 反而让横向滚动时出现空白
+    图.decoding = "async";
+    钮.appendChild(图);
+
+    const 号 = document.createElement("span");
+    号.className = "frame-no";
+    号.textContent = String(i + 1);
+    钮.appendChild(号);
+
+    钮.addEventListener("click", () => {
+      for (const x of 帧条.querySelectorAll(".frame-thumb")) x.classList.remove("active");
+      钮.classList.add("active");
+      显示图(路径);
+      // 点某一帧 = 把它当成「当前图」，后续动作作用于它。
+      // 这是拆帧后最常见的后续操作：只看某一帧、或拿它去处理。
+      状态.原图 = 路径;
+      应用按钮.disabled = false;
+    });
+
+    帧条.appendChild(钮);
+  });
+}
+
+// ============ 结果处置 ============
+
+const 结果栏 = $("result-bar");
+
+function 显示结果栏(显示) {
+  结果栏.hidden = !显示;
+}
+
+/**
+ * 调平台的桥接口。
+ *
+ * 这几个接口（剪贴板、另存对话框）是平台提供的，模块自己做不到——
+ * 浏览器里没有写剪贴板图片、也没有原生保存对话框。宿主已把它们挂在
+ * `window.kugua` 上（同源 iframe 可以直接用）。
+ *
+ * 没拿到桥时静默降级，不能报错：用户可能是在纯浏览器里直接开了
+ * `/module-ui/image/` 调试，那时这些功能本来就不存在。
+ */
+async function 桥(动作, ...参数) {
+  const k = window.kugua;
+  if (!k || typeof k[动作] !== "function") return null;
+  try {
+    return await k[动作](...参数);
+  } catch (e) {
+    设消息(`操作失败：${e.message}`);
+    return null;
+  }
+}
+
+/** 当前结果图的 data URL（剪贴板需要 data URL，不是路径） */
+async function 当前图DataURL() {
+  const 源 = 预览.src;
+  if (!源) throw new Error("没有可用的图片");
+  const r = await fetch(源);
+  if (!r.ok) throw new Error(`读图失败（${r.status}）`);
+  const blob = await r.blob();
+  return await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result ?? ""));
+    fr.onerror = () => rej(new Error("转 data URL 失败"));
+    fr.readAsDataURL(blob);
+  });
+}
+
+$("btn-copy").addEventListener("click", async () => {
+  try {
+    const url = await 当前图DataURL();
+    const ok = await 桥("copyImage", url);
+    // 桥不存在时退回浏览器原生剪贴板（只支持 png，但大多数情况够用）
+    if (ok === null) {
+      if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+        设消息("当前环境不支持复制图片");
+        return;
+      }
+      const blob = await (await fetch(url)).blob();
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+      设消息("已复制到剪贴板");
+      return;
+    }
+    设消息(ok ? "已复制到剪贴板" : "复制失败");
+  } catch (e) {
+    设消息(`复制失败：${e.message}`);
+  }
+});
+
+$("btn-save").addEventListener("click", async () => {
+  try {
+    const url = await 当前图DataURL();
+    const 名 = `kugua-${(状态.当前?.动作 ?? "img")}-${Date.now().toString(36)}`;
+    const 路径 = await 桥("writeTempFile", { base64: url.slice(url.indexOf(",") + 1), name: 名, ext: ".png" });
+    if (!路径) {
+      设消息("当前环境不支持另存");
+      return;
+    }
+    // 浏览器没法弹「保存到」对话框（沙箱限制），所以先在系统临时目录落一份，
+    // 再用一个 <a download> 把文件交给浏览器自己的下载流程。
+    const a = document.createElement("a");
+    a.href = `/api/file?path=${encodeURIComponent(路径)}`;
+    a.download = `${名}.png`;
+    a.click();
+    设消息(`已导出 ${名}.png`);
+  } catch (e) {
+    设消息(`另存失败：${e.message}`);
+  }
+});
+
+$("btn-chat").addEventListener("click", async () => {
+  // 发回聊天框：把结果图交给平台，聊天框会当成一个待发送附件。
+  // 走的是平台已有的附件通道，不在模块里另造一套。
+  try {
+    const url = await 当前图DataURL();
+    const k = window.kugua;
+    if (k && typeof k.sendToChat === "function") {
+      await k.sendToChat({ dataUrl: url, name: `kugua-${Date.now().toString(36)}.png` });
+      设消息("已发到聊天框");
+      return;
+    }
+    // 没有专用通道时退一步：复制图片，并提示用户直接粘贴
+    const ok = await 桥("copyImage", url);
+    设消息(ok ? "已复制，去聊天框粘贴即可" : "当前环境不支持发送到聊天框");
+  } catch (e) {
+    设消息(`发送失败：${e.message}`);
+  }
+});
 
 // ============ 事件 ============
 
