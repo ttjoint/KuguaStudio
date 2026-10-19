@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 const 仓库根 = resolve(__dirname, "..", "..", "..");
 const 模块根 = join(仓库根, "packages", "modules");
@@ -105,17 +105,24 @@ describe("静态解耦：模块之间零直接依赖", () => {
   });
 
   it("没有模块跨包引用别的模块的相对路径（../../text/src 这类）", () => {
-    // 包名依赖容易看出来，相对路径穿越更容易漏
+    // 包名依赖容易看出来，相对路径穿越更容易漏。
+    //
+    // 注意用**按路径段比较**而不是 `includes("modules/av/")`：
+    // `...\modules\avatar\src\parse.ts` 里包含 `modules\av`，
+    // 裸 includes 会把 avatar 自己目录里的文件误判成「引用了 av 模块」。
+    // 曾经就是这么误报的。
+    const 模块目录 = new Map(
+      模块们.map((名) => [名, resolve(模块根, 名) + sep]),
+    );
     const 违规: string[] = [];
     for (const 名 of 模块们) {
       for (const 文件 of 所有源文件(join(模块根, 名, "src"))) {
         for (const 说明符 of 模块说明符(readFileSync(文件, "utf8"))) {
           if (!说明符.startsWith(".")) continue;
           const 目标 = resolve(文件, "..", 说明符);
-          // 跑到别的模块目录里去了
-          for (const 别的名 of 模块们) {
+          for (const [别的名, 别的目录] of 模块目录) {
             if (别的名 === 名) continue;
-            if (目标.includes(join("modules", 别的名, ""))) {
+            if (目标.startsWith(别的目录)) {
               违规.push(`${名} → ${别的名}（${说明符}）`);
             }
           }

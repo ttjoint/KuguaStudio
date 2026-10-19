@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NiganeClient } from "@kugua/nigane";
 import { 语言代码, 是否语言, 语言名列表 } from "./lang.js";
+import { 切块, 解析译文, 解码HTML实体, 语言显示名 } from "./parse.js";
 
 interface 模块配置 {
   host?: string;
@@ -35,12 +36,6 @@ function 随机用户代理(): string {
   return 用户代理列表[Math.floor(Math.random() * 用户代理列表.length)];
 }
 
-/** 从 HTML 中解析 result-container div 的内容 */
-function 解析译文(html: string): string | null {
-  const m = html.match(/div[^"]*?"result-container".*?>([\s\S]*?)<\/div>/);
-  return m ? m[1] : null;
-}
-
 /** 单次 Google 翻译（在线） */
 async function 翻译单次(input: string, to: string, from = "auto"): Promise<string> {
   const url = `https://translate.google.com/m?sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&ie=UTF-8&prev=_m&q=${encodeURIComponent(input)}`;
@@ -53,36 +48,18 @@ async function 翻译单次(input: string, to: string, from = "auto"): Promise<s
   return 译 ? 解码HTML实体(译) : "";
 }
 
-/** 解码 HTML 实体（&amp; &lt; 等） */
-function 解码HTML实体(s: string): string {
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-}
-
 /** 按行翻译：每行分块（最长 100 字符）逐块翻译后拼接 */
 async function 翻译文本(input: string, to: string): Promise<string> {
-  const 行s = input.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
   const 结果: string[] = [];
-  for (const 行 of 行s) {
+  for (const { 块 } of 切块(input)) {
     let 拼接 = "";
-    for (let i = 0; i < 行.length; i += 100) {
-      const 段 = 行.slice(i, i + 100);
+    for (const 段 of 块) {
       const 译 = await 翻译单次(段, to);
       拼接 += 译 && 译 !== 段 ? 译 : 段;
     }
     结果.push(拼接);
   }
   return 结果.join("\r\n");
-}
-
-/** 语言名 → 显示名（去掉「语」结尾用于拼接） */
-function 语言显示名(名: string): string {
-  return 名.endsWith("语") ? 名.slice(0, -1) : 名;
 }
 
 async function 启动(): Promise<void> {

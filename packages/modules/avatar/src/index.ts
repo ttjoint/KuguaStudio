@@ -10,45 +10,7 @@
 
 import { 启动模块 } from "@kugua/module-kit";
 import type { 能力声明 } from "@kugua/capability";
-
-/** 图片尺寸（PNG/GIF/JPEG 头部） */
-function 图片尺寸(buf: Buffer): { width: number; height: number } {
-  if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50) {
-    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-  }
-  if (buf.length >= 10 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) {
-    return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
-  }
-  if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) {
-    let i = 2;
-    while (i + 9 < buf.length) {
-      if (buf[i] !== 0xff) {
-        i++;
-        continue;
-      }
-      const 标记 = buf[i + 1];
-      if (标记 >= 0xc0 && 标记 <= 0xcf && 标记 !== 0xc4 && 标记 !== 0xc8 && 标记 !== 0xcc) {
-        return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-      }
-      const 长度 = buf.readUInt16BE(i + 2);
-      i += 2 + 长度;
-    }
-  }
-  return { width: 0, height: 0 };
-}
-
-/** 从参数中解析 QQ 号/群号（提取首个合法数字串） */
-function 取号码(p: Record<string, unknown>): string {
-  const 候选 = [p.qq, p.groupid, p.群号, p.号码, p.参数文本, p.原文];
-  for (const c of 候选) {
-    if (typeof c === "string") {
-      const m = c.match(/[1-9][0-9]{4,}/);
-      if (m) return m[0];
-    }
-    if (typeof c === "number" && c >= 10000) return String(c);
-  }
-  return "";
-}
+import { 图片尺寸, 取号码 } from "./parse.js";
 
 const 能力清单: 能力声明[] = [
   {

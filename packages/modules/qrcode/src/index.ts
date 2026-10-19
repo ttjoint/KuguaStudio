@@ -8,6 +8,7 @@
 import { 启动模块 } from "@kugua/module-kit";
 import type { 能力声明 } from "@kugua/capability";
 import QRCode from "qrcode";
+import { 归一参数 } from "./params.js";
 
 const 能力清单: 能力声明[] = [
   {
@@ -36,22 +37,13 @@ void 启动模块({
   能力: 能力清单,
   处理器: {
     "qrcode.generate": async (params) => {
-      const p = (params ?? {}) as {
-        文本?: string;
-        尺寸?: number;
-        纠错?: "L" | "M" | "Q" | "H";
-        边距?: number;
-        参数文本?: string;
-        原文?: string;
-      };
-      const 文本 = (p.文本 ?? p.参数文本 ?? p.原文 ?? "").trim();
-      if (!文本) throw new Error("缺少 文本");
-      const width = typeof p.尺寸 === "number" && p.尺寸 > 0 ? p.尺寸 : 300;
+      const { 文本, 尺寸, 纠错, 边距 } = 归一参数(params);
+      const width = 尺寸;
       const buf = await QRCode.toBuffer(文本, {
         type: "png",
         width,
-        margin: typeof p.边距 === "number" ? p.边距 : 4,
-        errorCorrectionLevel: p.纠错 ?? "M",
+        margin: 边距,
+        errorCorrectionLevel: 纠错,
       });
       return {
         文本,
