@@ -238,7 +238,7 @@ export class 任务调度器 {
   }
 }
 
-function 校验动作(动作: 任务动作): void {
+export function 校验动作(动作: 任务动作): void {
   if (!动作 || typeof 动作 !== "object") throw new Error("定时任务缺少 action");
   switch (动作.kind) {
     case "request": {

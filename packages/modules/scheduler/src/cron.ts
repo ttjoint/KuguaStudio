@@ -100,8 +100,11 @@ function 月末日(year: number, month: number): number {
 
 function 日匹配(表达式: Cron表达式, d: Date): boolean {
   const dom = 表达式.日.取值.has(d.getDate()) || (表达式.日.L === true && d.getDate() === 月末日(d.getFullYear(), d.getMonth() + 1));
-  const 周值 = d.getDay() === 0 ? 7 : d.getDay();
-  const dow = 表达式.周.取值.has(周值);
+  // 周日有两种写法：0 与 7 都算周日（cron 通例）。
+  // 取值集合里可能只有 0 或只有 7，所以两个都要查。
+  // 曾经只查 7，导致 `* * * * 0`（最常见的周日写法）永远不匹配。
+  const 周码 = d.getDay();
+  const dow = 表达式.周.取值.has(周码) || (周码 === 0 && 表达式.周.取值.has(7));
   const dom通配 = 表达式.日.通配 && !表达式.日.L;
   const 周通配 = 表达式.周.通配;
   if (dom通配 && 周通配) return true;
