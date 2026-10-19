@@ -1,0 +1,235 @@
+/**
+ * 动作声明表必须与原实现行为等价。
+ *
+ * ## 这条测试在防什么
+ *
+ * 把 34 个动作从「手写能力清单 + 内联类型 + 散落 `?? 默认值`」改成表驱动，
+ * 最容易出的错是**默认值搬错**。比如 `colorSample` 原默认 `size: 80`，
+ * 我第一版声明写成 200——不会有任何编译错误，也不会有运行时异常，
+ * 只是用户不填参数时生成的方块大了 2.5 倍。
+ *
+ * 这种错**只能靠比对**发现。所以这里把原实现里的每个 `?? 默认值`
+ * 抄成一张期望表，逐项断言 `归一参数()` 的结果。
+ *
+ * ## 为什么不用「跑一遍看输出对不对」
+ *
+ * 调用真 magick 需要图、需要时间（每次 200ms），30 多个动作要几秒，
+ * 而且输出是二进制图——默认值错了未必能看出来（80x80 和 200x200 的
+ * 纯色方块都是"一个方块"）。直接断言归一后的参数更快也更准确。
+ */
+
+import { describe, expect, it } from "vitest";
+import { 动作声明表, 查声明, 归一参数, 动作schema, 需要源图 } from "../src/actions.js";
+
+/**
+ * 原实现里的默认值，逐字抄自改造前的 `index.ts`。
+ *
+ * 格式：动作名 → { 参数键: 默认值 }
+ * 这里**宁可写多**：每个有 `??` 的参数都要列，漏列就是漏测。
+ */
+const 原默认值: Record<string, Record<string, unknown>> = {
+  rotate: { degrees: 0 },
+  resize: { scaleX: 1, scaleY: 1 },
+  cut: { top: 0, bottom: 0, left: 0, right: 0, percent: false },
+  mirror: { mode: 1 },
+  colorSample: { size: 80, color: "#000000" },
+  randomPixel: { size: 100 },
+  grid: { scale: 2 },
+  oldJpg: { quality: 0.75 },
+  removeBg: { tolerance: 10 },
+  pixelWords: { text: "", fontSize: 12, lineMax: 20 },
+  captcha: { text: "" },
+  cisColor: { x: 0.3127, y: 0.329, Y: 1.0, size: 200 },
+  colorExtract: { count: 3, size: 80 },
+  hytk: { colorful: false },
+  gifUnzipGrid: { col: 1, row: 1 },
+  gifSprite: { row: "横", col: 1 },
+  gifSpeed: { speed: 1.0 },
+  shake: { degree: 0.5 },
+  roll: { degree: 0 },
+  upscale: { scale: 4, provider: "auto", faceEnhance: false },
+};
+
+describe("动作声明表", () => {
+  it("34 个动作全在表里，且无重复", () => {
+    expect(动作声明表).toHaveLength(34);
+    const 名 = 动作声明表.map((d) => d.动作);
+    expect(new Set(名).size).toBe(34);
+  });
+
+  it("每个动作都能查到声明", () => {
+    for (const d of 动作声明表) {
+      expect(查声明(d.动作)).toBe(d);
+    }
+  });
+
+  it("声明里的参数不重复", () => {
+    for (const d of 动作声明表) {
+      const 键 = d.参数.map((p) => p.键);
+      expect(new Set(键).size, `${d.动作} 有重复参数`).toBe(键.length);
+    }
+  });
+
+  describe("默认值与改造前一致", () => {
+    for (const [动作, 期望] of Object.entries(原默认值)) {
+      it(`${动作}`, () => {
+        const d = 查声明(动作);
+        expect(d, `${动作} 未声明`).toBeTruthy();
+        // 不传任何参数，归一后应该拿到全部原默认值
+        const 得 = 归一参数(d!, {});
+        for (const [键, 值] of Object.entries(期望)) {
+          expect(得[键], `${动作}.${键}`).toEqual(值);
+        }
+      });
+    }
+  });
+
+  describe("归一参数会夹取越界值", () => {
+    it("旋转超过 360 度被夹到 360", () => {
+      const d = 查声明("rotate")!;
+      expect(归一参数(d, { degrees: 9999 }).degrees).toBe(360);
+      expect(归一参数(d, { degrees: -9999 }).degrees).toBe(-360);
+    });
+
+    it("容差超过 255 被夹到 255", () => {
+      const d = 查声明("removeBg")!;
+      expect(归一参数(d, { tolerance: 999 }).tolerance).toBe(255);
+      expect(归一参数(d, { tolerance: -5 }).tolerance).toBe(0);
+    });
+
+    it("无法解析成数字时回落到默认值，而不是 NaN", () => {
+      const d = 查声明("grid")!;
+      expect(归一参数(d, { scale: "不是数字" }).scale).toBe(2);
+      expect(归一参数(d, { scale: NaN }).scale).toBe(2);
+    });
+
+    it("空字符串数字回落默认值（聊天框容易传出空串）", () => {
+      const d = 查声明("oldJpg")!;
+      expect(归一参数(d, { quality: "" }).quality).toBe(0.75);
+    });
+
+    it("布尔值接受字符串和数字写法", () => {
+      const d = 查声明("cut")!;
+      expect(归一参数(d, { percent: "true" }).percent).toBe(true);
+      expect(归一参数(d, { percent: 1 }).percent).toBe(true);
+      expect(归一参数(d, { percent: "false" }).percent).toBe(false);
+      expect(归一参数(d, { percent: 0 }).percent).toBe(false);
+    });
+  });
+
+  describe("图片字段原样透传，不被当成参数", () => {
+    it("base64 / path 透传", () => {
+      const d = 查声明("rotate")!;
+      const 得 = 归一参数(d, { base64: "AAAA", path: "/x.png", degrees: 45 });
+      expect(得.base64).toBe("AAAA");
+      expect(得.path).toBe("/x.png");
+      expect(得.degrees).toBe(45);
+    });
+
+    it("images 数组透传且过滤非字符串", () => {
+      const d = 查声明("combineH")!;
+      const 得 = 归一参数(d, { images: ["a", 123, null, "b"] });
+      expect(得.images).toEqual(["a", "b"]);
+    });
+  });
+
+  describe("源图判定", () => {
+    it("要图的动作返回 true", () => {
+      expect(需要源图(查声明("rotate")!)).toBe(true);
+      expect(需要源图(查声明("gifUnzip")!)).toBe(true);
+    });
+
+    it("多图动作也算要图", () => {
+      expect(需要源图(查声明("combineH")!)).toBe(true);
+      expect(需要源图(查声明("hytk")!)).toBe(true);
+    });
+
+    it("纯生成动作不要图", () => {
+      expect(需要源图(查声明("colorSample")!)).toBe(false);
+      expect(需要源图(查声明("captcha")!)).toBe(false);
+    });
+  });
+
+  describe("生成的 JSON Schema 可用", () => {
+    it("number 参数带范围", () => {
+      const s = 动作schema(查声明("rotate")!) as {
+        properties: Record<string, Record<string, unknown>>;
+      };
+      expect(s.properties.degrees.type).toBe("number");
+      expect(s.properties.degrees.minimum).toBe(-360);
+      expect(s.properties.degrees.maximum).toBe(360);
+    });
+
+    it("要图的动作 schema 带 base64 / path", () => {
+      const s = 动作schema(查声明("rotate")!) as { properties: Record<string, unknown> };
+      expect(s.properties.base64).toBeTruthy();
+      expect(s.properties.path).toBeTruthy();
+    });
+
+    it("选择题生成 enum", () => {
+      const s = 动作schema(查声明("upscale")!) as {
+        properties: Record<string, Record<string, unknown>>;
+      };
+      expect(s.properties.provider.enum).toEqual(["auto", "realesrgan", "imagemagick"]);
+    });
+
+    it("多图参数是字符串数组", () => {
+      const s = 动作schema(查声明("combineH")!) as {
+        properties: Record<string, Record<string, unknown>>;
+      };
+      expect(s.properties.images.type).toBe("array");
+      expect(s.properties.images.items).toEqual({ type: "string" });
+    });
+  });
+
+  describe("界面用的元信息齐全", () => {
+    it("每个动作都有分组和说明", () => {
+      for (const d of 动作声明表) {
+        expect(d.分组, `${d.动作} 缺分组`).toBeTruthy();
+        expect(d.说明, `${d.动作} 缺说明`).toBeTruthy();
+        expect(d.标题, `${d.动作} 缺标题`).toBeTruthy();
+      }
+    });
+
+    it("每个参数都有标题", () => {
+      for (const d of 动作声明表) {
+        for (const p of d.参数) {
+          expect(p.标题, `${d.动作}.${p.键} 缺标题`).toBeTruthy();
+        }
+      }
+    });
+
+    it("数字参数的默认值落在范围内", () => {
+      for (const d of 动作声明表) {
+        for (const p of d.参数) {
+          if (p.类型 !== "number" || typeof p.默认 !== "number") continue;
+          if (p.最小 !== undefined) expect(p.默认, `${d.动作}.${p.键} 默认低于最小`).toBeGreaterThanOrEqual(p.最小);
+          if (p.最大 !== undefined) expect(p.默认, `${d.动作}.${p.键} 默认超过最大`).toBeLessThanOrEqual(p.最大);
+        }
+      }
+    });
+
+    it("有默认值的参数才能出滑块，没默认值的必须有档位或说明", () => {
+      // resize.width / resize.height 故意没默认值（填了才生效），
+      // 这类"可选覆盖"参数不需要滑块，但必须写清楚
+      for (const d of 动作声明表) {
+        for (const p of d.参数) {
+          if (p.类型 !== "number" || p.默认 !== undefined) continue;
+          expect(p.档位 ?? p.说明, `${d.动作}.${p.键} 既无默认值也无说明`).toBeTruthy();
+        }
+      }
+    });
+
+    it("常用动作约 20 个，不至于把 34 个全铺在界面上", () => {
+      const 常用 = 动作声明表.filter((d) => d.常用);
+      expect(常用.length).toBeGreaterThanOrEqual(15);
+      expect(常用.length).toBeLessThanOrEqual(25);
+    });
+
+    it("有预览方式的动作必须真的能本地预览（css-transform / css-filter / overlay）", () => {
+      const 可预览 = 动作声明表.filter((d) => d.预览 && d.预览 !== "none");
+      // 旋转/翻转/缩放/反色/灰度这些该有；如果哪天全丢了说明字段没填
+      expect(可预览.length).toBeGreaterThanOrEqual(5);
+    });
+  });
+});
