@@ -14,13 +14,7 @@ import { readFileSync } from "node:fs";
 import { 启动模块 } from "@kugua/module-kit";
 import type { 能力声明 } from "@kugua/capability";
 import { 模块资源 } from "@kugua/paths";
-import { NextInt } from "@kugua/random";
-
-interface 模式 {
-  name: string;
-  config: string[];
-  sentences: string[];
-}
+import { 生成 as 生成内部, type 模式, type 语料 } from "./generate.js";
 
 const 能力清单: 能力声明[] = [
   {
@@ -108,157 +102,12 @@ function 确保加载(): void {
   已加载 = true;
 }
 
-/* ============ 生成算法（忠实复刻） ============ */
-
-/** `ChatMode.getRandomSentence`：按语料与配置随机拼合 */
-function 随机句(mode: 模式): string {
-  const sentences = mode.sentences;
-  if (sentences.length === 0) return "";
-  let maxsnum = 5;
-  let maxslen = 7;
-  let maxwordnum = 4;
-  if (mode.config.includes("单句")) {
-    maxslen = 1;
-    maxwordnum = 1;
-    maxsnum = 1;
-  }
-  if (mode.config.includes("句内不拼接")) {
-    maxwordnum = 1;
-    maxslen = 1;
-  }
-  const sgn1 = [",", "，", "；", "、"];
-  const sgn2 = ["\r\n", "。", "。", "。", "？", "！", "…", "——"];
-  const sgn3 = ["\r\n", "。", "？", "！", "…", "——", "??", "...", "：", "?!", "???", "!!", "！！！"];
-  let result = "";
-  const sn = NextInt(1, maxsnum);
-  for (let i = 0; i < sn; i++) {
-    const thislen = NextInt(1, maxslen);
-    let thissentence = "";
-    let wordnum = 0;
-    while (thissentence.length < thislen && wordnum < maxwordnum) {
-      wordnum++;
-      thissentence += sentences[NextInt(0, sentences.length - 1)];
-    }
-    const last = thissentence.length > 0 ? thissentence[thissentence.length - 1] : "";
-    if (thissentence.length > 0 && !sgn1.includes(last) && !sgn2.includes(last)) {
-      if (mode.config.includes("无标点")) thissentence += " ";
-      else thissentence += sgn1[NextInt(sgn1.length)];
-      result += thissentence;
-      if (result.length > 0) {
-        if (mode.config.includes("无标点")) {
-          /* 保持 */
-        } else if (mode.config.includes("乱打标点")) {
-          result = result.slice(0, -1) + sgn3[NextInt(sgn3.length)];
-        } else {
-          result = result.slice(0, -1) + sgn2[NextInt(sgn2.length)];
-        }
-      }
-    } else {
-      result += thissentence;
-    }
-  }
-  if (!result || !result.trim()) {
-    if (mode.config.includes("无标点")) result = " ";
-    else if (mode.config.includes("乱打标点")) result = result.slice(0, -1) + sgn3[NextInt(sgn3.length)];
-    else result = result.slice(0, -1) + sgn2[NextInt(sgn2.length)];
-  }
-  return result;
+/** 把当前加载到的语料打包给生成算法 */
+function 语料(): 语料 {
+  return { chaosWord, chaosMotion, chaosXwb, bencao, xyDisease, xyDrugs, xyTreatment, penlist };
 }
 
-/** `getChaosRandomSentence`：混沌模式组句（两库按概率抽取） */
-function 混沌句(): string {
-  const sgn = ["\r\n", "。", "？", "！", "…", "——", "??", "...", "：", "?!", "???", "!!", "！！！"];
-  let result = "";
-  const sentences = NextInt(1, 6);
-  for (let i = 0; i < sentences; i++) {
-    const thislen = NextInt(0, 11);
-    let thissentence = "";
-    let wordnum = 0;
-    while (thissentence.length < thislen && wordnum < 5) {
-      wordnum++;
-      if (NextInt(0, 100) > 80) {
-        if (chaosWord.length > 0) thissentence += chaosWord[NextInt(0, chaosWord.length - 1)][0];
-      } else {
-        if (chaosXwb.length > 0) thissentence += chaosXwb[NextInt(0, chaosXwb.length - 1)];
-      }
-    }
-    thissentence += sgn[NextInt(sgn.length)];
-    result += thissentence;
-  }
-  return result;
-}
-
-/** `getMotionString`：随机括弧情绪（如「(悲)」） */
-function 情绪括弧(): string {
-  if (chaosMotion.length <= 0) return "";
-  if (NextInt(0, 100) > 66) return `(${chaosMotion[NextInt(0, chaosMotion.length - 1)]})`;
-  return "";
-}
-
-/** `getGong`：小万邦式拼合 */
-function 小万邦句(): string {
-  if (chaosXwb.length === 0) return "";
-  let sb = "";
-  const snum = NextInt(1, 5);
-  for (let i = 0; i < snum; i++) {
-    const wnum = NextInt(1, 5);
-    let nowlen = 0;
-    for (let j = 0; j < wnum; j++) {
-      const s = chaosXwb[NextInt(chaosXwb.length)];
-      sb += s;
-      nowlen += s.length;
-      if (nowlen > 15) break;
-    }
-    if (i < snum - 1) sb += "，";
-    else sb += "。？!"[NextInt(3)];
-  }
-  return sb;
-}
-
-/** `getXiyi`：西医模拟 */
-function 西医句(): string {
-  let disease = "";
-  let drug = "";
-  let treatment = "";
-  let num = NextInt(1, 4);
-  for (let i = 0; i < num; i++) disease += xyDisease[NextInt(xyDisease.length)] + "，";
-  num = NextInt(1, 4);
-  for (let i = 0; i < num; i++) drug += xyDrugs[NextInt(xyDrugs.length)] + "，";
-  num = NextInt(1, 4);
-  for (let i = 0; i < num; i++) treatment += xyTreatment[NextInt(xyTreatment.length)] + "，";
-  return `查了下${treatment}怀疑你得了${disease}建议吃${drug}祝你早日康复！`;
-}
-
-/** `getPen`：喷人（多句） */
-function 喷人句(): string {
-  if (penlist.length === 0) return "";
-  const num = NextInt(2, 10);
-  const res: string[] = [];
-  for (let i = 0; i < num; i++) res.push(penlist[NextInt(penlist.length)].trim());
-  return res.join("\n");
-}
-
-/** 按模式生成一句 */
-function 生成(模式名: string): string {
-  确保加载();
-  const mode = 模式表.get(模式名);
-  if (!mode) throw new Error(`未知模式：${模式名}`);
-  switch (模式名) {
-    case "混沌":
-      return 混沌句() + 情绪括弧();
-    case "小万邦":
-      return 小万邦句();
-    case "本草":
-      return bencao.length > 0 ? bencao[NextInt(bencao.length)] : "";
-    case "西医":
-      return 西医句();
-    case "喷人":
-      return 喷人句();
-    default:
-      return 随机句(mode);
-  }
-}
-
+/** 生成算法见 generate.ts（语料作为参数传入，便于单测） */
 void 启动模块({
   name: "chatmode",
   version: "0.1.0",
@@ -268,7 +117,8 @@ void 启动模块({
       const p = (params ?? {}) as { 模式?: string; 内容?: string; 参数文本?: string; 原文?: string };
       const 模式名 = (p.模式 ?? "").trim();
       if (!模式名) throw new Error("缺少 模式");
-      return { 模式: 模式名, 结果: 生成(模式名) };
+      确保加载();
+      return { 模式: 模式名, 结果: 生成内部(模式名, 模式表, 语料()) };
     });
 
     客户端.onRequest("chatmode.list", () => {
