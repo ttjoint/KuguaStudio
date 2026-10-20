@@ -8,6 +8,8 @@
  * 属于「看起来正常、实际开了口子」的安全问题，因此用测试锁死。
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { 能力清单 } from "../src/capabilities";
 
 describe("mkg 能力声明：唯一性与暴露策略", () => {
@@ -76,5 +78,21 @@ describe("mkg 能力声明：唯一性与暴露策略", () => {
       expect(动作).toContain("list");
       expect(动作).toContain("create");
     }
+  });
+});
+
+describe("mkg 能力声明 ↔ handler 一致性", () => {
+  it("每条声明都有对应的 onRequest handler 注册", () => {
+    // 交叉验证：能力声明是元数据，handler 是实现。若声明了一个
+    // 不存在的 handler（或 handler 被改名/删除而声明未同步），
+    // 外部 agent 调它时会静默失败，故用测试锁死两者同步。
+    const src = readFileSync(resolve(__dirname, "../src/index.ts"), "utf-8");
+    const 缺失: string[] = [];
+    for (const c of 能力清单) {
+      if (!src.includes(`onRequest("${c.名称}"`)) {
+        缺失.push(c.名称);
+      }
+    }
+    expect(缺失, `声明了但缺 handler：${缺失.join(", ")}`).toEqual([]);
   });
 });
