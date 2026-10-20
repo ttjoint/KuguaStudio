@@ -45,6 +45,17 @@ describe("标签：创建 / 树 / 树形批量 / 相关标签", () => {
     expect(子.description).toBe("前端相关");
   });
 
+  it("setTagAiPublic 切换 AI 读访问 opt-in", () => {
+    const 标签 = mkg.createTag("AI可读");
+    expect(标签.aiPublic).toBe(false);
+    const 开 = mkg.setTagAiPublic(标签.id, true);
+    expect(开.aiPublic).toBe(true);
+    const 关 = mkg.setTagAiPublic(标签.id, false);
+    expect(关.aiPublic).toBe(false);
+    // listTags 也带出 aiPublic
+    expect(mkg.listTags().find((t) => t.id === 标签.id)?.aiPublic).toBe(false);
+  });
+
   it("getTagTree 返回嵌套结构", () => {
     const 父 = mkg.createTag("技术");
     mkg.createTag("前端", 父.id);
@@ -277,6 +288,38 @@ describe("文本片段：CRUD", () => {
     expect(更新?.content).toBe("改后文本");
     mkg.deleteSnippet(s.id);
     expect(mkg.getSnippet(s.id)).toBeUndefined();
+  });
+});
+
+describe("AIGC：AI 生成内容（agent_id 隔离）", () => {
+  it("创建 / 读取 / 列表 / 更新 / 删除", () => {
+    const a = mkg.createAigc("agent-1", "AI 笔记", "# 标题\n内容");
+    expect(mkg.getAigc("agent-1", a.id)?.content).toBe("# 标题\n内容");
+    expect(mkg.listAigcByAgent("agent-1")).toHaveLength(1);
+    const 更新 = mkg.updateAigc("agent-1", a.id, { content: "改后" });
+    expect(更新?.content).toBe("改后");
+    mkg.deleteAigc("agent-1", a.id);
+    expect(mkg.getAigc("agent-1", a.id)).toBeUndefined();
+  });
+
+  it("agent 隔离：A 读不到 B 的 aigc", () => {
+    const a = mkg.createAigc("agent-A", "A 的笔记", "A 内容");
+    expect(mkg.getAigc("agent-B", a.id)).toBeUndefined();
+    expect(mkg.listAigcByAgent("agent-B")).toHaveLength(0);
+  });
+
+  it("agent 隔离：A 删不掉 B 的 aigc", () => {
+    const a = mkg.createAigc("agent-A", "A 的笔记", "A 内容");
+    mkg.deleteAigc("agent-B", a.id);
+    expect(mkg.getAigc("agent-A", a.id)).toBeDefined();
+  });
+
+  it("aigc 参与统一内容浏览，分类为文本段", () => {
+    mkg.createAigc("agent-1", "AI 生成", "正文");
+    const 条目 = mkg.listAllContent().find((x) => x.name === "AI 生成");
+    expect(条目).toBeDefined();
+    expect(条目?.category).toBe("文本段");
+    expect(条目?.载体).toBe("库内");
   });
 });
 

@@ -62,6 +62,7 @@ interface 上下文 {
   确保素材表(): void;
   确保看板表(): void;
   确保片段表(): void;
+  确保AIGC表(): void;
   节点转详情(row: {
     id: number;
     type: string;
@@ -205,6 +206,7 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
     if (type === "note") return "点子";
     if (type === "material") return "素材";
     if (type === "snippet") return "文本段";
+    if (type === "aigc") return "文本段";
     const ext = (name.split(".").pop() || "").toLowerCase();
     const 图片 = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"];
     const 音乐 = ["mp3", "wav", "flac", "m4a", "ogg", "opus", "aac", "wma"];
@@ -243,6 +245,11 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
     if (node.type === "snippet") {
       this.确保片段表();
       const r = this.db.prepare("SELECT content FROM snippet_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
+      return r?.content ?? "";
+    }
+    if (node.type === "aigc") {
+      this.确保AIGC表();
+      const r = this.db.prepare("SELECT content FROM aigc_contents WHERE node_id = ?").get(node.id) as { content: string } | undefined;
       return r?.content ?? "";
     }
     // file 类型：从 text_contents 表读取索引的文本内容

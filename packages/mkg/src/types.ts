@@ -34,6 +34,8 @@ export interface 标签 {
   icon?: string | null;
   /** 排序权重 */
   sort?: number;
+  /** AI 读访问 opt-in：1 表示该标签下内容允许 AI 读取 */
+  aiPublic?: boolean;
 }
 
 export type 资源关系类型 = "contains" | "references" | "similar";
@@ -95,7 +97,7 @@ export interface 打开方式配置 {
 
 // ===== 统一内容节点（P0） =====
 
-export type 节点类型 = "file" | "directory" | "note" | "material" | "card" | "snippet";
+export type 节点类型 = "file" | "directory" | "note" | "material" | "card" | "snippet" | "aigc";
 
 /** 统一内容节点：文件/目录/笔记/素材/文本段/看板卡片共用此实体 */
 export interface 节点 {
@@ -319,6 +321,34 @@ export interface 文本片段 {
 
 /** 文本段实体的可更新字段 */
 export interface 文本片段更新 {
+  title?: string;
+  content?: string;
+  tagIds?: number[];
+}
+
+// ===== AI 生成内容（aigc）=====
+
+/**
+ * AI 生成内容实体。
+ *
+ * 沙箱边界：AI 只能写自己 session（agent_id）下的 aigc 节点，
+ * 正文存 aigc_contents 表，绝不直接写磁盘文件。
+ */
+export interface AIGC内容 {
+  id: number;
+  /** 所属 agent session id（隔离边界） */
+  agentId: string;
+  /** 标题 */
+  title: string;
+  /** 正文（Markdown） */
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+  tagIds: number[];
+}
+
+/** aigc 实体的可更新字段 */
+export interface AIGC更新 {
   title?: string;
   content?: string;
   tagIds?: number[];

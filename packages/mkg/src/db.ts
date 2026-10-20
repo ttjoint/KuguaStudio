@@ -75,10 +75,10 @@ export function 初始化数据库(dbPath: string): Database.Database {
       label TEXT
     );
 
-    -- ===== 统一内容节点主表（P0：文件/目录/笔记/素材/看板卡片共用一个实体） =====
+    -- ===== 统一内容节点主表（P0：文件/目录/笔记/素材/看板卡片/文本段/AIGC 共用一个实体） =====
     CREATE TABLE IF NOT EXISTS nodes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL CHECK(type IN ('file','directory','note','material','card','snippet')),
+      type TEXT NOT NULL CHECK(type IN ('file','directory','note','material','card','snippet','aigc')),
       title TEXT NOT NULL,
       created_at INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL DEFAULT 0,
@@ -154,11 +154,11 @@ export function 初始化数据库(dbPath: string): Database.Database {
   }
 
   
-  // 5) 迁移 nodes 表：旧 CHECK 约束不含 'snippet'。采用 SQLite 标准三件套重建，避免子表外键指向旧表名
+  // 5) 迁移 nodes 表：旧 CHECK 约束不含 'snippet'/'aigc'。采用 SQLite 标准三件套重建，避免子表外键指向旧表名
   const 建表SQL = db
     .prepare("SELECT sql AS s FROM sqlite_master WHERE type='table' AND name='nodes'")
     .get() as { s?: string } | undefined;
-  if (建表SQL?.s && !建表SQL.s.includes("'snippet'")) {
+  if (建表SQL?.s && (!建表SQL.s.includes("'snippet'") || !建表SQL.s.includes("'aigc'"))) {
     db.pragma("foreign_keys = OFF");
     db.exec("BEGIN");
     try {
@@ -166,7 +166,7 @@ export function 初始化数据库(dbPath: string): Database.Database {
         [
           "CREATE TABLE nodes_new (",
           "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
-          "  type TEXT NOT NULL CHECK(type IN ('file','directory','note','material','card','snippet')),",
+          "  type TEXT NOT NULL CHECK(type IN ('file','directory','note','material','card','snippet','aigc')),",
           "  title TEXT NOT NULL,",
           "  created_at INTEGER NOT NULL DEFAULT 0,",
           "  updated_at INTEGER NOT NULL DEFAULT 0,",
@@ -181,7 +181,7 @@ export function 初始化数据库(dbPath: string): Database.Database {
       db.exec("COMMIT");
     } catch {
       db.exec("ROLLBACK");
-      throw new Error("迁移 nodes 表失败：无法支持 snippet 类型");
+      throw new Error("迁移 nodes 表失败：无法支持 snippet/aigc 类型");
     } finally {
       db.pragma("foreign_keys = ON");
     }
@@ -200,6 +200,9 @@ export function 初始化数据库(dbPath: string): Database.Database {
     ["kind", "TEXT NOT NULL DEFAULT 'plain'"],
     ["icon", "TEXT"],
     ["sort", "INTEGER NOT NULL DEFAULT 0"],
+    // ai_public：AI 读访问的 opt-in 开关。默认 0（不可读）。
+    // 用户显式给标签打「AI 可读」标记后置 1，AI 才能读到该标签下内容。
+    ["ai_public", "INTEGER NOT NULL DEFAULT 0"],
   ];
   for (const [列, 定义] of 待增列) {
     if (!标签列.some((c) => c.name === 列)) {
@@ -226,6 +229,18 @@ export function 初始化数据库(dbPath: string): Database.Database {
       excludes TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL DEFAULT 0
     );
+  `);
+
+  // 2.5) AI 生成内容（aigc）正文表：按 agent_id 隔离
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS aigc_contents (
+      node_id INTEGER PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_aigc_agent ON aigc_contents(agent_id);
   `);
 
   // 3) 全文索引 FTS5：优先 trigram（适合中文子串），不可用则回退 unicode61

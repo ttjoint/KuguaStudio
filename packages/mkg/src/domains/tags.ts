@@ -23,6 +23,7 @@ declare module "../index.js" {
     addResourceTags(resourceId: number, tagIds: number[]): 标签[];
     removeResourceTags(resourceId: number, tagIds: number[]): 标签[];
     获取标签路径(tagId: number): string[];
+    setTagAiPublic(tagId: number, aiPublic: boolean): 标签;
   }
 }
 
@@ -50,25 +51,76 @@ export function 安装标签域(proto: { [k: string]: unknown }): void {
       ON CONFLICT(name) DO UPDATE SET
         parent_id = excluded.parent_id,
         description = excluded.description
-      RETURNING id, name, parent_id, description
+      RETURNING id, name, parent_id, description, ai_public
     `);
     const row = stmt.get(
       name,
       parentId ?? null,
       description ?? null,
       当前时间,
-    ) as unknown as { id: number; name: string; parent_id: number | null; description: string | null };
-    return { id: row.id, name: row.name, parentId: row.parent_id ?? null, description: row.description };
+    ) as unknown as {
+      id: number;
+      name: string;
+      parent_id: number | null;
+      description: string | null;
+      ai_public: number;
+    };
+    return {
+      id: row.id,
+      name: row.name,
+      parentId: row.parent_id ?? null,
+      description: row.description,
+      aiPublic: row.ai_public === 1,
+    };
+  };
+
+  proto.setTagAiPublic = function (this: 上下文, tagId: number, aiPublic: boolean): 标签 {
+    this.db
+      .prepare("UPDATE tags SET ai_public = ? WHERE id = ?")
+      .run(aiPublic ? 1 : 0, tagId);
+    const row = this.db
+      .prepare("SELECT id, name, parent_id, description, ai_public FROM tags WHERE id = ?")
+      .get(tagId) as unknown as
+      | { id: number; name: string; parent_id: number | null; description: string | null; ai_public: number }
+      | undefined;
+    if (!row) throw new Error(`标签不存在：${tagId}`);
+    return {
+      id: row.id,
+      name: row.name,
+      parentId: row.parent_id ?? null,
+      description: row.description,
+      aiPublic: row.ai_public === 1,
+    };
   };
 
   proto.listTags = function (this: 上下文, parentId?: number | null): 标签[] {
     const rows =
       parentId === undefined
-        ? (this.db.prepare("SELECT id, name, parent_id, description FROM tags").all() as unknown as { id: number; name: string; parent_id: number | null; description: string | null }[])
+        ? (this.db
+            .prepare("SELECT id, name, parent_id, description, ai_public FROM tags")
+            .all() as unknown as {
+            id: number;
+            name: string;
+            parent_id: number | null;
+            description: string | null;
+            ai_public: number;
+          }[])
         : (this.db
-            .prepare("SELECT id, name, parent_id, description FROM tags WHERE parent_id = ?")
-            .all(parentId) as unknown as { id: number; name: string; parent_id: number | null; description: string | null }[]);
-    return rows.map((t) => ({ id: t.id, name: t.name, parentId: t.parent_id ?? null, description: t.description }));
+            .prepare("SELECT id, name, parent_id, description, ai_public FROM tags WHERE parent_id = ?")
+            .all(parentId) as unknown as {
+            id: number;
+            name: string;
+            parent_id: number | null;
+            description: string | null;
+            ai_public: number;
+          }[]);
+    return rows.map((t) => ({
+      id: t.id,
+      name: t.name,
+      parentId: t.parent_id ?? null,
+      description: t.description,
+      aiPublic: t.ai_public === 1,
+    }));
   };
 
   proto.deleteTag = function (this: 上下文, id: number): void {
