@@ -7,7 +7,8 @@
  * 直接测试 `@kugua/mkg` 的 MKG 类（不经 IPC），保证快速且确定。
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, utimesSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MKG } from "../src/index";
@@ -565,5 +566,56 @@ describe("WebUI 返回形状契约", () => {
     const r = mkg.getResource(p)!;
     expect(mkg.获取扩展名(r.name)).toBe(".ts");
     expect(mkg.推断MimeType(".ts")).toBe("text/javascript");
+  });
+});
+
+describe("磁盘一致性：sha256 校验与载体标记", () => {
+  function 哈希(p: string): string {
+    return createHash("sha256").update(readFileSync(p)).digest("hex");
+  }
+
+  it("磁盘哈希返回当前文件哈希；文件不存在返回 null", async () => {
+    const p = 造文件("一致/a.txt", "hello");
+    await mkg.index(p, { maxDepth: 0 });
+    const r = mkg.getResource(p)!;
+    expect(mkg.磁盘哈希(r.id)).toBe(哈希(p));
+    // 删除后返回 null
+    rmSync(p);
+    expect(mkg.磁盘哈希(r.id)).toBeNull();
+  });
+
+  it("校验磁盘未变更：哈希一致时不抛错，不一致时抛错", async () => {
+    const p = 造文件("一致/b.txt", "原始内容");
+    await mkg.index(p, { maxDepth: 0 });
+    const r = mkg.getResource(p)!;
+    const 原始哈希 = 哈希(p);
+    // 一致：不抛错
+    expect(() => mkg.校验磁盘未变更(r.id, 原始哈希)).not.toThrow();
+    // 外部改动
+    writeFileSync(p, "被外部改了", "utf-8");
+    expect(() => mkg.校验磁盘未变更(r.id, 原始哈希)).toThrow(/外部/);
+  });
+
+  it("listAllContent 对外部文件标记载体=外部文件与磁盘已变更", async () => {
+    const p = 造文件("一致/c.txt", "内容");
+    await mkg.index(p, { maxDepth: 0 });
+    const 条目 = mkg.listAllContent().find((x) => x.path === p)!;
+    expect(条目.载体).toBe("外部文件");
+    expect(条目.磁盘已变更).toBe(false);
+    // 显式把文件 mtime 拨到未来，让「磁盘比索引后更新」确定可测，
+    // 而非依赖真实写文件的秒级 mtime（同一秒内写入会被秒级截断吞掉）。
+    const 未来 = new Date();
+    未来.setSeconds(未来.getSeconds() + 30);
+    utimesSync(p, 未来, 未来);
+    const 条目2 = mkg.listAllContent().find((x) => x.path === p)!;
+    expect(条目2.磁盘已变更).toBe(true);
+  });
+
+  it("库内内容载体=库内且磁盘已变更恒为 false", () => {
+    mkg.createNote("库内笔记", "内容");
+    const 条目 = mkg.listAllContent().find((x) => x.name === "库内笔记")!;
+    expect(条目.载体).toBe("库内");
+    expect(条目.磁盘已变更).toBe(false);
+    expect(条目.同步时间).toBeNull();
   });
 });

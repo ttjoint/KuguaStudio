@@ -413,20 +413,26 @@ void 启动模块({
     const path = mkg.getPhysicalPath(resourceId);
     if (!path) throw new Error(`资源不存在：${resourceId}`);
     const buf = readFileSync(path);
-    return { base64: buf.toString("base64"), size: buf.length, path };
+    // 返回当前磁盘哈希，让编辑器记住加载时的内容版本，
+    // 保存时作为 expectedSha256 回传，用来检测加载后是否被外部改动。
+    return { base64: buf.toString("base64"), size: buf.length, path, sha256: mkg.磁盘哈希(resourceId) };
   });
 
   /** 写入文件内容（用于内置编辑器保存） */
   客户端.onRequest("mkg.file.write", (params) => {
-    const { resourceId, content, encoding } = (params ?? {}) as {
+    const { resourceId, content, encoding, expectedSha256 } = (params ?? {}) as {
       resourceId?: number;
       content?: string;
       encoding?: "utf8" | "base64";
+      expectedSha256?: string;
     };
     if (resourceId === undefined) throw new Error("缺少 resourceId");
     if (content === undefined) throw new Error("缺少 content");
     const path = mkg.getPhysicalPath(resourceId);
     if (!path) throw new Error(`资源不存在：${resourceId}`);
+    // 外部改动防护：调用方带期望哈希时，写盘前比对磁盘当前哈希，
+    // 不一致则拒绝（避免覆盖外部进程已改动的内容）。
+    if (expectedSha256) mkg.校验磁盘未变更(resourceId, expectedSha256);
     const enc: BufferEncoding = encoding === "base64" ? "base64" : "utf8";
     writeFileSync(path, content, enc);
     return { success: true, path };

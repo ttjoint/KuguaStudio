@@ -17,6 +17,7 @@ import { 安装工作区域 } from "./domains/workspace.js";
 
 export * from "./types.js";
 export * from "./sidecar.js";
+export * from "./pure.js";
 export { 索引目录, 初始化数据库, type 索引结果 };
 
 /**

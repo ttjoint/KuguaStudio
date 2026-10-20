@@ -24,6 +24,10 @@ declare module "../index.js" {
     listOpenWith(): 打开方式配置[];
     deleteOpenWith(id: number): void;
     getPhysicalPath(resourceId: number): string | null;
+    /** 计算磁盘文件当前 sha256；文件不存在返回 null */
+    磁盘哈希(resourceId: number): string | null;
+    /** 校验磁盘文件哈希是否等于期望值，不等则抛错（防止覆盖外部改动） */
+    校验磁盘未变更(resourceId: number, expectedSha256: string): void;
     openInExplorer(resourceId: number): boolean;
     openWithProgram(resourceId: number, programPath?: string): boolean;
     getResourceDetail(idOrPath: number | string): 资源详情 | undefined;
@@ -77,6 +81,8 @@ interface 上下文 {
   setAlias(resourceId: number, alias: string): void;
   tagResource(resourceId: number, tagId: number): void;
   getPhysicalPath(resourceId: number): string | null;
+  磁盘哈希(resourceId: number): string | null;
+  校验磁盘未变更(resourceId: number, expectedSha256: string): void;
   getResourceDetail(idOrPath: number | string): 资源详情 | undefined;
   getAlias(resourceId: number): string | null;
   importFile(params: {
@@ -191,6 +197,23 @@ export function 安装文件域(proto: { [k: string]: unknown }): void {
       .prepare("SELECT path FROM resources WHERE id = ?")
       .get(resourceId) as { path: string } | undefined;
     return row?.path ?? null;
+  };
+
+  proto.磁盘哈希 = function (this: 上下文, resourceId: number): string | null {
+    const path = this.getPhysicalPath(resourceId);
+    if (!path || !existsSync(path)) return null;
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  };
+
+  proto.校验磁盘未变更 = function (this: 上下文, resourceId: number, expectedSha256: string): void {
+    if (!expectedSha256) return; // 调用方未提供期望值（旧前端），退化为不校验
+    const 当前 = this.磁盘哈希(resourceId);
+    if (当前 === null) {
+      throw new Error("磁盘文件不存在或已移动：可能已被外部删除");
+    }
+    if (当前 !== expectedSha256) {
+      throw new Error("磁盘内容已在外部被修改，为避免覆盖你的改动，保存已取消。请重新打开该文件后再编辑。");
+    }
   };
 
   proto.openInExplorer = function (this: 上下文, resourceId: number): boolean {

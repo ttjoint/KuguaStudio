@@ -5,6 +5,7 @@
  */
 import type Database from "better-sqlite3";
 import { basename } from "node:path";
+import { statSync } from "node:fs";
 import type {
   标签,
   节点类型,
@@ -14,6 +15,7 @@ import type {
   搜索选项,
   搜索结果,
 } from "../types.js";
+import { 判定载体, 判定磁盘已变更 } from "../pure.js";
 
 declare module "../index.js" {
   interface MKG {
@@ -312,6 +314,23 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
       const 资源行 = this.db.prepare("SELECT * FROM resources WHERE node_id = ?").get(row.id) as {
         id: number; path: string; size: number; modified_time: number; indexed_at: number;
       } | undefined;
+      const resourceId = 资源行?.id ?? null;
+      const 载体 = 判定载体({ type: row.type, resourceId });
+      // 「磁盘已变更」仅对外部文件有意义，且必须读磁盘当前 mtime 与库内记录比较：
+      // 库内 modified_time 是上次索引时的快照，外部改动后不会自己更新。
+      let 磁盘已变更 = false;
+      if (载体 === "外部文件" && 资源行?.path) {
+        try {
+          const st = statSync(资源行.path);
+          磁盘已变更 = 判定磁盘已变更({
+            磁盘Mtime: Math.floor(st.mtimeMs / 1000),
+            库内Mtime: 资源行.modified_time,
+          });
+        } catch {
+          // 文件已被外部删除/移动：视为已变更（甚至更糟），由上层决定如何提示
+          磁盘已变更 = true;
+        }
+      }
       items.push({
         id: row.id,
         type: row.type as 节点类型,
@@ -322,7 +341,7 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
         tagPaths,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        resourceId: 资源行?.id ?? null,
+        resourceId,
         path: 资源行?.path ?? null,
         size: 资源行?.size ?? 0,
         modifiedTime: 资源行?.modified_time ?? 0,
@@ -330,6 +349,9 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
         realName: 资源行?.path ? basename(资源行.path) : null,
         extension: this.获取扩展名(row.title),
         meta,
+        载体,
+        同步时间: 载体 === "外部文件" ? (资源行?.indexed_at ?? null) : null,
+        磁盘已变更,
       });
     }
     if (sort === "name") items.sort((a, b) => a.name.localeCompare(b.name, "zh"));
