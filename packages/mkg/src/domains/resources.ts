@@ -11,7 +11,7 @@ import type Database from "better-sqlite3";
 import { 索引目录, type 索引结果 } from "../indexer.js";
 import type {
   资源,
-  资源关系类型,
+  节点关系类型,
   索引选项,
   搜索选项,
   搜索结果,
@@ -26,8 +26,8 @@ declare module "../index.js" {
     searchByTags(tagIds: number[], options?: 搜索选项): 搜索结果<资源>;
     searchByPath(keyword: string, options?: 搜索选项): 搜索结果<资源>;
     searchByContent(keyword: string, options?: 搜索选项): 搜索结果<资源 & { snippet: string }>;
-    addRelation(fromResourceId: number, toResourceId: number, relationType: 资源关系类型): void;
-    getRelations(resourceId: number, relationType?: 资源关系类型): { toResourceId: number; relationType: 资源关系类型 }[];
+    addRelation(fromNodeId: number, toNodeId: number, relationType: 节点关系类型): void;
+    getRelations(nodeId: number, relationType?: 节点关系类型): { toNodeId: number; relationType: 节点关系类型 }[];
     createResource(
       path: string,
       name: string,
@@ -154,29 +154,29 @@ export function 安装资源域(proto: { [k: string]: unknown }): void {
 
   proto.addRelation = function (
     this: 上下文,
-    fromResourceId: number,
-    toResourceId: number,
-    relationType: 资源关系类型,
+    fromNodeId: number,
+    toNodeId: number,
+    relationType: 节点关系类型,
   ): void {
     const 当前时间 = Math.floor(Date.now() / 1000);
     this.db
-      .prepare("INSERT OR IGNORE INTO resource_relations (from_resource_id, to_resource_id, relation_type, created_at) VALUES (?, ?, ?, ?)")
-      .run(fromResourceId, toResourceId, relationType, 当前时间);
+      .prepare("INSERT OR IGNORE INTO node_relations (from_node_id, to_node_id, relation_type, created_at) VALUES (?, ?, ?, ?)")
+      .run(fromNodeId, toNodeId, relationType, 当前时间);
   };
 
   proto.getRelations = function (
     this: 上下文,
-    resourceId: number,
-    relationType?: 资源关系类型,
-  ): { toResourceId: number; relationType: 资源关系类型 }[] {
+    nodeId: number,
+    relationType?: 节点关系类型,
+  ): { toNodeId: number; relationType: 节点关系类型 }[] {
     if (relationType) {
       return this.db
-        .prepare("SELECT to_resource_id as toResourceId, relation_type as relationType FROM resource_relations WHERE from_resource_id = ? AND relation_type = ?")
-        .all(resourceId, relationType) as { toResourceId: number; relationType: 资源关系类型 }[];
+        .prepare("SELECT to_node_id as toNodeId, relation_type as relationType FROM node_relations WHERE from_node_id = ? AND relation_type = ?")
+        .all(nodeId, relationType) as { toNodeId: number; relationType: 节点关系类型 }[];
     }
     return this.db
-      .prepare("SELECT to_resource_id as toResourceId, relation_type as relationType FROM resource_relations WHERE from_resource_id = ?")
-      .all(resourceId) as { toResourceId: number; relationType: 资源关系类型 }[];
+      .prepare("SELECT to_node_id as toNodeId, relation_type as relationType FROM node_relations WHERE from_node_id = ?")
+      .all(nodeId) as { toNodeId: number; relationType: 节点关系类型 }[];
   };
 
   proto.createResource = function (

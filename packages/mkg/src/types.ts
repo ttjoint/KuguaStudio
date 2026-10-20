@@ -38,10 +38,21 @@ export interface 标签 {
 
 export type 资源关系类型 = "contains" | "references" | "similar";
 
+/** 节点关系类型（语义与旧 资源关系类型 相同，仅对象维度从资源改为节点） */
+export type 节点关系类型 = "contains" | "references" | "similar";
+
+/** @deprecated 旧资源维度关系，已迁移到 节点关系 */
 export interface 资源关系 {
   fromResourceId: number;
   toResourceId: number;
   relationType: 资源关系类型;
+}
+
+/** 节点关系：两个统一内容节点之间的引用（contains/references/similar） */
+export interface 节点关系 {
+  fromNodeId: number;
+  toNodeId: number;
+  relationType: 节点关系类型;
 }
 
 export interface 索引选项 {

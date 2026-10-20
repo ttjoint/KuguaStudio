@@ -323,10 +323,9 @@ export function 安装文件域(proto: { [k: string]: unknown }): void {
     const 文件数 = (this.db.prepare("SELECT COUNT(*) as c FROM resources WHERE kind = 'file'").get() as { c: number }).c;
     const 目录数 = (this.db.prepare("SELECT COUNT(*) as c FROM resources WHERE kind = 'directory'").get() as { c: number }).c;
     const 标签数 = (this.db.prepare("SELECT COUNT(*) as c FROM tags").get() as { c: number }).c;
-    // 关联数暂查 resource_relations：业务层 addRelation/getRelations 至今仍写这张表，
-    // 而 node_relations 已建但无写入路径（双轨债，待专门迁移——见 docs/知识库设计.md）。
-    // 查 node_relations 会得到一个恒为 0 的假统计，故这里先反映真实写入的表。
-    const 关联数 = (this.db.prepare("SELECT COUNT(*) as c FROM resource_relations").get() as { c: number }).c;
+    // 关联数查 node_relations（节点关系表）。关系层已迁移：addRelation/getRelations
+    // 现写 node_relations，resource_relations 仅保留兼容（见 docs/技术债.md）。
+    const 关联数 = (this.db.prepare("SELECT COUNT(*) as c FROM node_relations").get() as { c: number }).c;
     const 文本内容数 = (this.db.prepare("SELECT COUNT(*) as c FROM text_contents").get() as { c: number }).c;
     // 数据库大小：page_count × page_size，比「扫描文件字节」便宜且准确（含索引/空闲页）。
     const 页 = this.db.prepare("PRAGMA page_count").get() as { page_count: number };

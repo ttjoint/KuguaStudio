@@ -407,13 +407,39 @@ describe("统计：getStats", () => {
     expect(s.数据库大小).toBeGreaterThan(0);
   });
 
-  it("关联数统计 resource_relations（当前业务层实际写的表）", () => {
-    // resource_relations 仍是 addRelation 实际写入的表（node_relations 双轨债待迁移）
-    const a = mkg.createResource("ra.txt", "ra.txt", "file");
-    const b = mkg.createResource("rb.txt", "rb.txt", "file");
+  it("关联数统计 node_relations（节点关系表）", () => {
+    // 关系层已迁移到节点维度：addRelation 写 node_relations
+    const a = mkg.createNote("关系A", "x");
+    const b = mkg.createNote("关系B", "y");
     mkg.addRelation(a.id, b.id, "references");
     const s = mkg.getStats();
     expect(s.关联数).toBe(1);
+  });
+});
+
+describe("节点关系：addRelation / getRelations（node 维度）", () => {
+  it("建立关系并按节点 id 查询（含类型过滤）", () => {
+    const a = mkg.createNote("源", "x");
+    const b = mkg.createNote("目标", "y");
+    mkg.addRelation(a.id, b.id, "references");
+    // 无过滤：返回全部关系
+    const 全部 = mkg.getRelations(a.id);
+    expect(全部).toEqual([{ toNodeId: b.id, relationType: "references" }]);
+    // 按类型过滤
+    expect(mkg.getRelations(a.id, "references")).toHaveLength(1);
+    expect(mkg.getRelations(a.id, "similar")).toHaveLength(0);
+  });
+
+  it("重复建立同关系去重（INSERT OR IGNORE）", () => {
+    const a = mkg.createNote("重源", "x");
+    const b = mkg.createNote("重目标", "y");
+    mkg.addRelation(a.id, b.id, "contains");
+    mkg.addRelation(a.id, b.id, "contains");
+    expect(mkg.getRelations(a.id, "contains")).toHaveLength(1);
+  });
+
+  it("getRelations 对不存在的节点返回空数组", () => {
+    expect(mkg.getRelations(999999)).toEqual([]);
   });
 });
 

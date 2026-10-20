@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import { MKG配置声明 } from "./declaration.js";
-import { MKG, type 资源关系类型, type 内容分类, type 查询条件, type 侧车数据 } from "@kugua/mkg";
+import { MKG, type 节点关系类型, type 内容分类, type 查询条件, type 侧车数据 } from "@kugua/mkg";
 import { 是否在目录下, 判定文件类型, 读取索引默认值, type 索引默认值 } from "./pure.js";
 import { 能力清单 } from "./capabilities.js";
 
@@ -229,25 +229,25 @@ void 启动模块({
   });
 
   客户端.onRequest("mkg.relation.add", (params) => {
-    const { fromResourceId, toResourceId, relationType } = (params ?? {}) as {
-      fromResourceId?: number;
-      toResourceId?: number;
-      relationType?: 资源关系类型;
+    const { fromNodeId, toNodeId, relationType } = (params ?? {}) as {
+      fromNodeId?: number;
+      toNodeId?: number;
+      relationType?: 节点关系类型;
     };
-    if (fromResourceId === undefined || toResourceId === undefined || !relationType) {
-      throw new Error("缺少 fromResourceId、toResourceId 或 relationType");
+    if (fromNodeId === undefined || toNodeId === undefined || !relationType) {
+      throw new Error("缺少 fromNodeId、toNodeId 或 relationType");
     }
-    mkg.addRelation(fromResourceId, toResourceId, relationType);
+    mkg.addRelation(fromNodeId, toNodeId, relationType);
     return { success: true };
   });
 
   客户端.onRequest("mkg.relation.list", (params) => {
-    const { resourceId, relationType } = (params ?? {}) as {
-      resourceId?: number;
-      relationType?: 资源关系类型;
+    const { nodeId, relationType } = (params ?? {}) as {
+      nodeId?: number;
+      relationType?: 节点关系类型;
     };
-    if (resourceId === undefined) throw new Error("缺少 resourceId");
-    return mkg.getRelations(resourceId, relationType);
+    if (nodeId === undefined) throw new Error("缺少 nodeId");
+    return mkg.getRelations(nodeId, relationType);
   });
 
   客户端.onRequest("mkg.alias.set", (params) => {
