@@ -614,4 +614,32 @@ export const 能力清单: 能力声明[] = [
     "删除工作区及其放置项（不删除被引用节点）",
     参({ id: { type: "number" } }, ["id"]),
   ),
+
+  // ===== mkg.ai.*：AI 专属能力族（沙箱：按 agent_id 隔离）=====
+  // 这些能力是 agent 模块内部调用的操作面；read/search 对 MCP 开放
+  // （opt-in 已保证只读安全），write/listMine 不对外（agent 内部）
+  只读(
+    "mkg.ai.read",
+    "AI 读取可读内容",
+    "读取带 ai_public 标签的内容（opt-in；不含 aigc 类型）",
+    参({ keyword: { type: "string" }, id: { type: "number" }, limit: { type: "number" } }),
+  ),
+  只读(
+    "mkg.ai.search",
+    "AI 搜索可读内容",
+    "在 ai_public 范围内按关键词搜索",
+    参({ keyword: { type: "string" }, limit: { type: "number" } }, ["keyword"]),
+  ),
+  写入(
+    "mkg.ai.write",
+    "AI 写入 aigc",
+    "创建/更新自己的 aigc 节点（按 agent_id 隔离，只写自己 session）",
+    参({ agentId: { type: "string" }, id: { type: "number" }, title: { type: "string" }, content: { type: "string" }, tagIds: { type: "array", items: { type: "number" } } }, ["agentId"]),
+  ),
+  写入(
+    "mkg.ai.listMine",
+    "AI 列出自己的 aigc",
+    "列出自己 session 的 aigc 节点（按 agent_id 隔离）",
+    参({ agentId: { type: "string" } }, ["agentId"]),
+  ),
 ];

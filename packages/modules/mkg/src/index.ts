@@ -844,6 +844,78 @@ void 启动模块({
     if (!keyword) throw new Error("缺少 keyword");
     return mkg.全文检索(keyword, typeof limit === "number" ? limit : 50);
   });
+
+  // ===== mkg.ai.*：AI 专属能力族（沙箱：按 agent_id 隔离）=====
+
+  // AI 写自己的 aigc 节点（create 或 update，按 agent_id 隔离）
+  客户端.onRequest("mkg.ai.write", (params) => {
+    const { agentId, id, title, content, tagIds } = (params ?? {}) as {
+      agentId?: string;
+      id?: number;
+      title?: string;
+      content?: string;
+      tagIds?: number[];
+    };
+    if (!agentId) throw new Error("缺少 agentId（AI 会话隔离标识）");
+    if (id !== undefined) {
+      // update：只能改自己的
+      const 更新 = mkg.updateAigc(agentId, id, {
+        title,
+        content,
+        tagIds,
+      });
+      if (!更新) throw new Error(`未找到或无权修改 aigc 节点 ${id}（agentId=${agentId}）`);
+      return { action: "update", ...更新 };
+    }
+    if (!title) throw new Error("缺少 title（新建 aigc 需标题）");
+    const 新建 = mkg.createAigc(agentId, title, content ?? "", tagIds ?? []);
+    return { action: "create", ...新建 };
+  });
+
+  // AI 列出自己的 aigc 节点
+  客户端.onRequest("mkg.ai.listMine", (params) => {
+    const { agentId } = (params ?? {}) as { agentId?: string };
+    if (!agentId) throw new Error("缺少 agentId");
+    return mkg.listAigcByAgent(agentId);
+  });
+
+  // AI 读可读内容（opt-in：仅 ai_public 标签下的内容）
+  客户端.onRequest("mkg.ai.read", (params) => {
+    const { keyword, id, limit } = (params ?? {}) as {
+      keyword?: string;
+      id?: number;
+      limit?: number;
+    };
+    const 可读 = mkg.listAiReadable({
+      keyword,
+      limit: typeof limit === "number" ? limit : undefined,
+    });
+    if (id !== undefined) {
+      const 命中 = 可读.find((x) => x.id === id);
+      if (!命中) {
+        throw new Error(`未找到可读内容 ${id}（该内容不存在或未标记 ai_public）`);
+      }
+      return 命中;
+    }
+    return {
+      total: 可读.length,
+      items: 可读,
+      note: "仅返回带 ai_public 标签的内容；aigc 类型请用 mkg.ai.listMine",
+    };
+  });
+
+  // AI 在可读范围内搜索
+  客户端.onRequest("mkg.ai.search", (params) => {
+    const { keyword, limit } = (params ?? {}) as { keyword?: string; limit?: number };
+    if (!keyword) throw new Error("缺少 keyword");
+    return {
+      total: 0,
+      items: mkg.listAiReadable({
+        keyword,
+        limit: typeof limit === "number" ? limit : 50,
+      }),
+    };
+  });
   },
   关闭: () => {
     数据库实例?.close();

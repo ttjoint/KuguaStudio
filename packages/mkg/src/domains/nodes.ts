@@ -33,6 +33,8 @@ declare module "../index.js" {
       sort?: "import" | "name" | "updated";
       limit?: number;
     }): 统一内容条目[];
+    /** AI 可读内容：仅返回带 ai_public 标签的内容（不含 aigc 类型） */
+    listAiReadable(opts?: { keyword?: string; limit?: number }): 统一内容条目[];
     节点转详情(row: {
       id: number;
       type: string;
@@ -75,6 +77,14 @@ interface 上下文 {
   获取内容分类(type: string, name: string): 内容分类;
   获取节点内容(node: { id: number; type: string }): string;
   获取标签及后代Ids(tagId: number): Set<number>;
+  listAllContent(opts?: {
+    keyword?: string;
+    categories?: 内容分类[];
+    tagId?: number;
+    noTag?: boolean;
+    sort?: "import" | "name" | "updated";
+    limit?: number;
+  }): 统一内容条目[];
 }
 
 export function 安装节点域(proto: { [k: string]: unknown }): void {
@@ -365,5 +375,28 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
     else if (sort === "updated") items.sort((a, b) => b.updatedAt - a.updatedAt);
     else items.sort((a, b) => a.createdAt - b.createdAt); // 导入顺序（旧→新）
     return limit ? items.slice(0, limit) : items;
+  };
+
+  proto.listAiReadable = function (
+    this: 上下文,
+    opts: { keyword?: string; limit?: number } = {},
+  ): 统一内容条目[] {
+    const 全部 = this.listAllContent({
+      keyword: opts.keyword,
+      limit: 100000,
+    });
+    // 先收集所有 ai_public 标签 id（含后代：父标签 ai_public 时，子标签下的内容也应可读）
+    const aiPublic标签 = new Set<number>();
+    for (const t of this.listTags()) {
+      if (t.aiPublic) {
+        // 该标签及其全部后代都算 ai_public
+        for (const id of this.获取标签及后代Ids(t.id)) aiPublic标签.add(id);
+      }
+    }
+    const 结果 = 全部.filter((x) => {
+      if (x.type === "aigc") return false; // AI 生成物走 listAigcByAgent，不在此列
+      return x.tagIds.some((tid: number) => aiPublic标签.has(tid));
+    });
+    return opts.limit ? 结果.slice(0, opts.limit) : 结果;
   };
 }

@@ -323,6 +323,46 @@ describe("AIGC：AI 生成内容（agent_id 隔离）", () => {
   });
 });
 
+describe("AI 可读内容：listAiReadable（opt-in）", () => {
+  it("默认全不可读（无 ai_public 标签）", () => {
+    mkg.createNote("私密笔记", "秘密内容");
+    expect(mkg.listAiReadable()).toHaveLength(0);
+  });
+
+  it("打 ai_public 标签后可读，未打不可读", () => {
+    const 公开 = mkg.createTag("AI公开");
+    mkg.setTagAiPublic(公开.id, true);
+    const 笔记 = mkg.createNote("可读笔记", "公开内容", [公开.id]);
+    mkg.createNote("私密笔记", "秘密内容");
+    const 结果 = mkg.listAiReadable();
+    expect(结果.map((x) => x.name)).toEqual(["可读笔记"]);
+    expect(结果[0].content).toBe("公开内容");
+  });
+
+  it("父标签 ai_public 时后代标签内容也可读", () => {
+    const 父 = mkg.createTag("公开父");
+    mkg.setTagAiPublic(父.id, true);
+    const 子 = mkg.createTag("公开子", 父.id);
+    mkg.createNote("子标签笔记", "内容", [子.id]);
+    expect(mkg.listAiReadable().map((x) => x.name)).toEqual(["子标签笔记"]);
+  });
+
+  it("aigc 类型不进入 listAiReadable（走 listAigcByAgent）", () => {
+    const 公开 = mkg.createTag("公开");
+    mkg.setTagAiPublic(公开.id, true);
+    mkg.createAigc("agent-1", "AI 写的东西", "内容", [公开.id]);
+    expect(mkg.listAiReadable()).toHaveLength(0);
+  });
+
+  it("关键词过滤在可读范围内生效", () => {
+    const 公开 = mkg.createTag("公开");
+    mkg.setTagAiPublic(公开.id, true);
+    mkg.createNote("番茄炒蛋", "食谱", [公开.id]);
+    mkg.createNote("红烧肉", "食谱", [公开.id]);
+    expect(mkg.listAiReadable({ keyword: "番茄" }).map((x) => x.name)).toEqual(["番茄炒蛋"]);
+  });
+});
+
 describe("看板：列 + 卡片 CRUD", () => {
   it("列的创建 / 列表 / 更新 / 删除", () => {
     const c1 = mkg.createColumn("待办");
