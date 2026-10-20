@@ -16,18 +16,31 @@ export async function 加载素材(): Promise<void> {
 }
 
 /** 供统一资料库双击时调用：按内容条目打开素材编辑对话框 */
-export function 打开素材编辑(item: Explorer.内容条目): void {
-  const meta = (item.meta ?? {}) as Record<string, unknown>;
+export async function 打开素材编辑(item: Explorer.内容条目): Promise<void> {
+  // 走强类型接口拿素材，而不是从 listAllContent 的 meta 黑盒 JSON 里手翻 kind/sourceUrl/imageUrl。
+  // 后端 mkg.material.get 已返回完整 素材（含这些字段），多一次本地往返代价可忽略，
+  // 却让前端不再依赖 meta 的实现细节（字段改名/搬家不会再静默读到空值）。
+  let 数据: 素材 | null = null;
+  try {
+    数据 = (await window.kugua.request("mkg", "mkg.material.get", { id: item.id })) as 素材 | null;
+  } catch (err) {
+    添加消息("读取素材失败：" + String(err), "error");
+    return;
+  }
+  if (!数据) {
+    添加消息("素材不存在或已删除", "error");
+    return;
+  }
   素材编辑目标 = {
-    id: item.id,
-    title: item.name,
-    content: item.content,
-    kind: typeof meta.kind === "string" ? meta.kind : "",
-    sourceUrl: typeof meta.sourceUrl === "string" ? meta.sourceUrl : "",
-    imageUrl: typeof meta.imageUrl === "string" ? meta.imageUrl : "",
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-    tagIds: item.tagIds,
+    id: 数据.id,
+    title: 数据.title,
+    content: 数据.content,
+    kind: 数据.kind,
+    sourceUrl: 数据.sourceUrl,
+    imageUrl: 数据.imageUrl,
+    createdAt: 数据.createdAt,
+    updatedAt: 数据.updatedAt,
+    tagIds: 数据.tagIds,
   };
   打开素材对话框(true);
 }

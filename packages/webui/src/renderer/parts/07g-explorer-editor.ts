@@ -16,7 +16,7 @@ export async function 打开内容(item: Explorer.内容条目, programPath?: st
       return;
     }
     if (item.type === "material" || item.category === "素材") {
-      打开素材编辑(item);
+      await 打开素材编辑(item);
       return;
     }
     // 片段（文本段）没有物理文件：按文本编辑方式打开，可预览与修改
