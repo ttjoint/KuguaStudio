@@ -30,8 +30,6 @@ export interface 标签 {
   description: string | null;
   /** 颜色 #RRGGBB（可选） */
   color?: string | null;
-  /** 标签类型：plain | arrow | group | smart */
-  kind?: string;
   /** 图标（可选） */
   icon?: string | null;
   /** 排序权重 */

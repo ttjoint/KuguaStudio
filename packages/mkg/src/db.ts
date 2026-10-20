@@ -195,6 +195,8 @@ export function 初始化数据库(dbPath: string): Database.Database {
   const 标签列 = db.prepare("PRAGMA table_info(tags)").all() as { name: string }[];
   const 待增列: Array<[string, string]> = [
     ["color", "TEXT"],
+    // kind 列已废弃（曾计划表达 plain|arrow|group|smart，但从零读写逻辑，纯占位）。
+    // 保留列以兼容既有库与待删的旧数据；类型定义已不再暴露该字段。
     ["kind", "TEXT NOT NULL DEFAULT 'plain'"],
     ["icon", "TEXT"],
     ["sort", "INTEGER NOT NULL DEFAULT 0"],

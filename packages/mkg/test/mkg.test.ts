@@ -400,6 +400,21 @@ describe("统计：getStats", () => {
     expect(s.标签数).toBe(1);
     expect(typeof s.资源总数).toBe("number");
   });
+
+  it("数据库大小按 page_count×page_size 计算（不再硬编码 0）", () => {
+    mkg.createNote("大小", "内容");
+    const s = mkg.getStats();
+    expect(s.数据库大小).toBeGreaterThan(0);
+  });
+
+  it("关联数统计 resource_relations（当前业务层实际写的表）", () => {
+    // resource_relations 仍是 addRelation 实际写入的表（node_relations 双轨债待迁移）
+    const a = mkg.createResource("ra.txt", "ra.txt", "file");
+    const b = mkg.createResource("rb.txt", "rb.txt", "file");
+    mkg.addRelation(a.id, b.id, "references");
+    const s = mkg.getStats();
+    expect(s.关联数).toBe(1);
+  });
 });
 
 describe("资源详情：getResourceDetail / listResourcesDetail / listResourcesByTagDetail", () => {
