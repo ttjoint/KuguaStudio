@@ -185,8 +185,10 @@ describe("统一内容节点（listAllContent / listNodes / searchNodes）", () 
     const 名 = 全.map((x) => x.name);
     expect(名).toContain("我的笔记");
     expect(名).toContain("参考素材");
-    const 仅笔记 = mkg.listAllContent({ categories: ["note"] });
-    expect(仅笔记.every((x) => x.category === "note")).toBe(true);
+    const 仅笔记 = mkg.listAllContent({ categories: ["点子"] });
+    // 反假绿：先断言非空，否则 .every() 对空数组恒真，会掩盖过滤失效
+    expect(仅笔记.length).toBeGreaterThan(0);
+    expect(仅笔记.every((x) => x.category === "点子")).toBe(true);
   });
 
   it("listAllContent 关键词过滤", () => {
