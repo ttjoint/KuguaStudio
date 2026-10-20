@@ -264,6 +264,12 @@ describe("作业存储：真数据库读写", () => {
     耗时毫秒: 1234,
     日志文件: "C:/tmp/a.log",
     错误: null,
+    发起者: "system",
+    来源: "user",
+    尝试次数: 1,
+    进度文件: "C:/tmp/job-1.progress",
+    能力名: null,
+    能力参数: null,
     ...改,
   });
 

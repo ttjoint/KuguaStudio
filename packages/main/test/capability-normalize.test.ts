@@ -93,3 +93,19 @@ describe("能力列表归一与容错", () => {
     expect(() => 归一全部能力(脏 as unknown[])).not.toThrow();
   });
 });
+
+describe("执行 字段（能力作业）", () => {
+  it("英文 exec / execute 归一成 执行", () => {
+    // 外部模块（Python/Go）按自己的习惯写 `exec`，不归一的话 job 侧
+    // 永远找不到 执行，报「未声明 执行」——明明声明了，只是键名不同
+    const 甲 = 归一全部能力([{ name: "image.batch", exec: { 命令: "magick" } }]);
+    expect((甲.合法.get("image.batch") as { 执行?: { 命令: string } }).执行).toEqual({ 命令: "magick" });
+    const 乙 = 归一全部能力([{ name: "image.batch", execute: { 命令: "magick" } }]);
+    expect((乙.合法.get("image.batch") as { 执行?: { 命令: string } }).执行).toEqual({ 命令: "magick" });
+  });
+
+  it("本来就是中文键时原样保留", () => {
+    const r = 归一全部能力([{ 名称: "x.y", 执行: { 命令: "node" } }]);
+    expect((r.合法.get("x.y") as { 执行?: { 命令: string } }).执行).toEqual({ 命令: "node" });
+  });
+});

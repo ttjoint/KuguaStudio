@@ -29,9 +29,13 @@ import {
 } from "./gif.js";
 import { oldJpg, hytk, removeBg, upscale, similar } from "./pixels.js";
 import { 动作声明表, 系统动作, 动作schema, 查声明, 归一参数, 需要源图 } from "./actions.js";
+// 补多图 是纯逻辑，跟着 multi-image.ts 走（那边能单测，不会拉起模块进程）；
+// 这里重导出保持既有调用方（前端/MCP）可用
+import { 补多图 } from "./multi-image.js";
+export { 补多图 } from "./multi-image.js";
+
 import { 打开会话, 释放会话, 释放全部会话, 在会话内, 会话合法, 会话目录 } from "./session.js";
 
-/** 能力声明：33 项图片能力（中文指令 + GUI + MCP） */
 /**
  * 把动作结果写成会话文件，并把路径一并返回。
  *
@@ -49,48 +53,6 @@ import { 打开会话, 释放会话, 释放全部会话, 在会话内, 会话合
  *
  * 不把 base64 去掉：聊天附件、外部接入方都在用它，改了就是破契约。
  */
-/**
- * 把多图参数里的**路径**就地换成 base64。
- *
- * 编辑页手里的图是路径（第 3 步的路径契约），而 `combine` / `gifZip` 这类
- * 底层函数的入参一直是 base64 数组（聊天框从第一天就这样传）。
- *
- * 两套契约都没错，错在中间没人做转换。不转的后果极除——甚至不报错：
- * `Buffer.from("D:\\x\\a.png", "base64")` 会静默返回一堆垃圾字节，
- * ImageMagick 照样能把它当成一张乱码图处理完，最后给用户一张 600x400 的
- * 怪东西，而两张 200x150 的图纵向拼接本该是 200x300。
- *
- * 所以统一在注册层转换：不管上游给的是路径还是 base64，下游只看到 base64。
- */
-export function 补多图(声明: { 参数?: { 键: string; 类型: string }[] } | undefined, params: unknown): unknown {
-  if (!声明 || !params || typeof params !== "object") return params;
-  const 入 = params as Record<string, unknown>;
-  const 多图键 = (声明.参数 ?? []).filter((p) => p.类型 === "images").map((p) => p.键);
-  if (!多图键.length) return params;
-
-  let 出: Record<string, unknown> | null = null;
-  for (const 键 of 多图键) {
-    const 列 = 入[键];
-    if (!Array.isArray(列) || !列.length) continue;
-    const 换 = 列.map((项) => {
-      const s = String(项 ?? "");
-      // 只有「看着像本地路径」且文件真实存在时才读。
-      // 不靠长度/字符集猜 base64：base64 里不会有盘符冒号或路径分隔符。
-      if (!s || /^[A-Za-z0-9+/=\r\n]+$/.test(s)) return s;
-      try {
-        if (!existsSync(s)) return s;
-        return readFileSync(s).toString("base64");
-      } catch (err) {
-        console.debug(`[图片模块] 多图参数 ${键} 读文件失败：${String(err)}`);
-        return s;
-      }
-    });
-    出 ??= { ...入 };
-    出[键] = 换;
-  }
-  return 出 ?? params;
-}
-
 function 落会话(
   结果: { base64?: string; format?: string; width?: number; height?: number; images?: string[] },
   会话: unknown,
@@ -145,6 +107,11 @@ const 能力清单: 能力声明[] = [...动作声明表, ...系统动作].map((
   说明: d.说明,
   参数: 动作schema(d) as never,
   暴露: { 指令: true, GUI: true, 定时: false, MCP: true },
+  // 三个字段原样上报：job 靠 `执行` 把能力调用转成子进程，
+  // scheduler 靠 `可作业/长任务` 决定是否改写为作业。
+  // 漏报的后果不是报错，而是「这个动作在定时任务里静默变回同步阻塞」。
+  ...(d.执行 ? { 执行: d.执行 } : {}),
+  ...(d.可作业 ? { 可作业: true, 长任务: true } : {}),
 }));
 
 /** 输入解析：把 params 里的 base64/path 规整为 图片输入 */

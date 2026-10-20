@@ -51,10 +51,15 @@ const 原默认值: Record<string, Record<string, unknown>> = {
 };
 
 describe("动作声明表", () => {
-  it("34 个动作全在表里，且无重复", () => {
-    expect(动作声明表).toHaveLength(34);
+  it("全部动作在表里，且无重复", () => {
+    // 数量不写死：每加一个动作就要改这里的话，这个断言迟早被人顺手改成
+    // `toHaveLength(动作声明表.length)`，那就什么都没在测。
+    // 真正要守的是下面两条：不重复、能查到。
     const 名 = 动作声明表.map((d) => d.动作);
-    expect(new Set(名).size).toBe(34);
+    expect(名.length).toBeGreaterThanOrEqual(34);
+    expect(new Set(名).size).toBe(名.length);
+    // 批处理入口必须在表里，否则 scheduler 的 建议作业动作 指向一个不存在的能力
+    expect(名).toContain("batch");
   });
 
   it("每个动作都能查到声明", () => {
@@ -277,5 +282,40 @@ describe("系统动作（编辑页路径契约）", () => {
       "session.open",
       "session.release",
     ]);
+  });
+});
+
+describe("批处理动作：作业入口契约", () => {
+  it("batch 声明了 执行，且占位符只引用自己声明的参数", () => {
+    const d = 查声明("batch")!;
+    expect(d.可作业).toBe(true);
+    expect(d.执行?.命令).toBeTruthy();
+    // 占位符名写错时 job 会原样把 `{动作名}` 传给子进程，
+    // 孩子收到的就是一个带花括号的路径——报「文件不存在」，查半天
+    const 参数名 = new Set(d.参数.map((p) => p.键));
+    for (const a of d.执行!.参数 ?? []) {
+      for (const m of a.matchAll(/\{([^}]+)\}/g)) {
+        if (m[1] === "参数") continue;
+        expect(参数名.has(m[1]), `占位符 {${m[1]}} 没有对应的参数`).toBe(true);
+      }
+    }
+  });
+
+  it("文件列表 是数组型参数（带计数标题 依赖它）", () => {
+    const d = 查声明("batch")!;
+    const p = d.参数.find((x) => x.键 === "文件列表");
+    expect(p?.类型).toBe("images");
+  });
+
+  it("能从能力声明里看到 执行/可作业（漏上报 = 定时任务里静默变回同步阻塞）", async () => {
+    // 能力清单在 index.ts 里生成，会被 启动模块 副作用带走，
+    // 所以这里只校验「生成规则」本身：动作声明 → 能力声明的映射。
+    const mod = await import("../src/actions.js");
+    const d = mod.查声明("batch")!;
+    // 等价于 index.ts 里的 map 表达式
+    const 能力 = { 名称: `image.${d.动作}`, ...(d.执行 ? { 执行: d.执行 } : {}), ...(d.可作业 ? { 可作业: true, 长任务: true } : {}) };
+    expect(能力.执行?.命令).toBe(d.执行!.命令);
+    expect(能力.可作业).toBe(true);
+    expect(能力.长任务).toBe(true);
   });
 });

@@ -23,6 +23,31 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { 作业记录, 作业状态 } from "./types.js";
 
+/**
+ * 给已存在的老库补列。
+ *
+ * 为什么不用 `ALTER TABLE ... IF NOT EXISTS`：SQLite 没有这个语法，
+ * 而 `ADD COLUMN` 在列已存在时会抛。所以必须自己查 `PRAGMA table_info`。
+ *
+ * 这一步不做的话，升级后打开旧 `jobs.db` 就是
+ * `no such column: owner`——作业模块直接起不来，而用户完全不知道
+ * 原因只是「之前跑过作业」。
+ */
+function 补列(db: InstanceType<typeof DatabaseSync>, 声明表: Array<[string, string]>): void {
+  const 已有 = new Set(
+    (db.prepare("PRAGMA table_info(jobs)").all() as Array<Record<string, unknown>>).map((r) => String(r.name)),
+  );
+  for (const [名, 类型] of 声明表) {
+    if (已有.has(名)) continue;
+    try {
+      db.exec(`ALTER TABLE jobs ADD COLUMN ${名} ${类型}`);
+    } catch (err) {
+      // 补列失败不该炸掉整个模块：缺列顶多是这一项显示为空
+      console.warn(`[作业] 补列 ${名} 失败：${String(err)}`);
+    }
+  }
+}
+
 export class 作业存储 {
   private db: InstanceType<typeof DatabaseSync>;
 
@@ -53,18 +78,30 @@ export class 作业存储 {
       CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at);
       CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
     `);
+    补列(this.db, [
+      ["owner", "TEXT NOT NULL DEFAULT ''"],
+      ["origin", "TEXT NOT NULL DEFAULT 'user'"],
+      ["attempt", "INTEGER NOT NULL DEFAULT 1"],
+      ["progress_file", "TEXT NOT NULL DEFAULT ''"],
+      ["capability", "TEXT"],
+      ["capability_params", "TEXT"],
+    ]);
   }
 
   保存(记录: 作业记录): void {
     this.db
       .prepare(
-        `INSERT INTO jobs (id, title, command, args, cwd, shell, status, exit_code, started_at, ended_at, duration_ms, log_file, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO jobs (id, title, command, args, cwd, shell, status, exit_code, started_at, ended_at, duration_ms, log_file, error,
+                           owner, origin, attempt, progress_file, capability, capability_params)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title=excluded.title, command=excluded.command, args=excluded.args, cwd=excluded.cwd,
            shell=excluded.shell, status=excluded.status, exit_code=excluded.exit_code,
            started_at=excluded.started_at, ended_at=excluded.ended_at, duration_ms=excluded.duration_ms,
-           log_file=excluded.log_file, error=excluded.error`,
+           log_file=excluded.log_file, error=excluded.error,
+           owner=excluded.owner, origin=excluded.origin, attempt=excluded.attempt,
+           progress_file=excluded.progress_file, capability=excluded.capability,
+           capability_params=excluded.capability_params`,
       )
       .run(
         记录.id,
@@ -80,6 +117,12 @@ export class 作业存储 {
         记录.耗时毫秒,
         记录.日志文件,
         记录.错误,
+        记录.发起者,
+        记录.来源,
+        记录.尝试次数,
+        记录.进度文件,
+        记录.能力名,
+        记录.能力参数 === undefined ? null : JSON.stringify(记录.能力参数),
       );
   }
 
@@ -155,5 +198,44 @@ export function 映射(row: Record<string, unknown>): 作业记录 {
     耗时毫秒: row.duration_ms === null || row.duration_ms === undefined ? null : Number(row.duration_ms),
     日志文件: String(row.log_file ?? ""),
     错误: row.error === null || row.error === undefined ? null : String(row.error),
+    发起者: String(row.owner ?? ""),
+    来源: 归一来源(row.origin),
+    尝试次数: 归一尝试次数(row.attempt),
+    进度文件: String(row.progress_file ?? ""),
+    能力名: row.capability === null || row.capability === undefined ? null : String(row.capability),
+    能力参数: 解析JSON列(row.capability_params),
   };
+}
+
+/**
+ * `attempt` 兜底为 1。
+ *
+ * 这里**不能**写 `Number(row.attempt ?? 0)`——取不到时 `Number(null) === 0`
+ * 会把「第一次跑」显示成「0」次，续跑逻辑还会拿它去算 ATTEMPT。
+ * job 模块历史上在同样的地方栽过（映射 的三字段 null）。
+ */
+export function 归一尝试次数(值: unknown): number {
+  if (值 === null || 值 === undefined) return 1;
+  const n = Number(值);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.trunc(n);
+}
+
+/** `origin` 是补列默认值或脏数据时按 user 处理，不要统计出「未知来源」这种空类别 */
+export function 归一来源(值: unknown): 作业记录["来源"] {
+  const 文本 = String(值 ?? "").trim();
+  if (文本 === "module" || 文本 === "plugin" || 文本 === "scheduler" || 文本 === "user") return 文本;
+  return "user";
+}
+
+/** `capability_params` 是 JSON 文本列；解析失败返回 null 而不是抛 */
+export function 解析JSON列(值: unknown): unknown {
+  if (值 === null || 值 === undefined) return null;
+  const 文本 = String(值);
+  if (!文本) return null;
+  try {
+    return JSON.parse(文本);
+  } catch {
+    return null;
+  }
 }

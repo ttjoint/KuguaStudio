@@ -13,7 +13,7 @@ import { describe, expect, it, beforeAll } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { 补多图 } from "../dist/index.js";
+import { 补多图 } from "../src/multi-image.js";
 
 let 目录: string;
 let 图路径: string;
@@ -100,9 +100,18 @@ describe("接线：注册层真的调了 补多图", () => {
   });
 
   it("补多图 只在多图参数上动作", () => {
+    // 实现搬到了 multi-image.ts（index.ts 导入即启动模块，单测跑不动）。
+    // 断言仍然钉在「真的只挑 images 类型」这一行上：
+    // 少了这个过滤，输出目录这类字符串参数也会被当文件读，抛一堆 EISDIR。
+    const 源 = readFileSync(new URL("../src/multi-image.ts", import.meta.url), "utf8");
+    expect(源).toContain('p.类型 === "images"');
+    expect(源).toMatch(/filter\(\(p\) => p\.类型 === "images"\)/);
+  });
+
+  it("index.ts 仍然从 multi-image 引入 补多图 并重导出（老调用方不能破）", () => {
     const 源 = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
-    const 段 = 源.slice(源.indexOf("function 补多图"), 源.indexOf("function 落会话"));
-    expect(段).toContain('p.类型 === "images"');
+    expect(源).toContain('import { 补多图 } from "./multi-image.js"');
+    expect(源).toContain('export { 补多图 } from "./multi-image.js"');
   });
 
   it("落会话 会把帧也写盘并给出 frames 路径数组", () => {

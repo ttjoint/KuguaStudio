@@ -9,7 +9,7 @@
 import { resolve } from "node:path";
 import { 启动模块 } from "@kugua/module-kit";
 import { 任务调度器 } from "./scheduler.js";
-import { 创建动作执行者, 默认数据路径, 注册调度处理器, 任务存储, 设置命令Shell } from "./handlers.js";
+import { 创建动作执行者, 默认数据路径, 注册调度处理器, 任务存储, 设置命令Shell, 设置命令工作目录 } from "./handlers.js";
 import { 调度配置声明 } from "./declaration.js";
 
 let 调度器: 任务调度器 | null = null;
@@ -21,9 +21,10 @@ void 启动模块({
   version: "0.7.0",
   配置声明: 调度配置声明,
   读配置: (文件配置) => {
-    const 节 = (文件配置.scheduler ?? {}) as { dataFile?: string; commandShell?: string };
+    const 节 = (文件配置.scheduler ?? {}) as { dataFile?: string; commandShell?: string; commandDir?: string };
     任务文件 = 节.dataFile ? resolve(process.cwd(), 节.dataFile) : 默认数据路径();
     设置命令Shell(节.commandShell);
+    设置命令工作目录(节.commandDir ? resolve(process.cwd(), 节.commandDir) : process.cwd());
     return {};
   },
   注册: (客户端) => {
