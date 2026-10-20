@@ -104,6 +104,24 @@ export const 能力清单: 能力声明[] = [
     "按关键词搜索节点标题与正文（返回节点详情）",
     参({ keyword: { type: "string" }, options: { type: "object" } }, ["keyword"]),
   ),
+  破坏(
+    "mkg.node.remove",
+    "移除节点",
+    "从知识库移除节点（不删除物理文件）",
+    参({ nodeId: { type: "number" } }, ["nodeId"]),
+  ),
+  破坏(
+    "mkg.node.removeMany",
+    "批量移除节点",
+    "从知识库批量移除多个节点（不删除物理文件）",
+    参({ nodeIds: { type: "array" } }, ["nodeIds"]),
+  ),
+  破坏(
+    "mkg.node.trash",
+    "移入回收站",
+    "从知识库移除并移到系统回收站（仅文件/目录；非文件内容仅移除）",
+    参({ nodeId: { type: "number" } }, ["nodeId"]),
+  ),
   只读(
     "mkg.stats",
     "知识库统计",
@@ -147,6 +165,12 @@ export const 能力清单: 能力声明[] = [
     "删除标签",
     "删除标签（不删除其下对象）",
     参({ id: { type: "number" } }, ["id"]),
+  ),
+  写入(
+    "mkg.tag.removeResourceTags",
+    "移除资源标签",
+    "从某资源移除指定标签关联",
+    参({ resourceId: { type: "number" }, tagIds: { type: "array", items: { type: "number" } } }, ["resourceId", "tagIds"]),
   ),
 
   // ===== 笔记（点子）=====
@@ -383,6 +407,18 @@ export const 能力清单: 能力声明[] = [
     "读取资源详情（含别名/扩展名/标签路径）",
     参({ id: { type: "number" }, path: { type: "string" } }),
   ),
+  破坏(
+    "mkg.resource.delete",
+    "删除资源",
+    "从知识库删除资源（不删除物理文件）",
+    参({ id: { type: "number" } }, ["id"]),
+  ),
+  破坏(
+    "mkg.openwith.delete",
+    "删除打开方式",
+    "删除某扩展名的打开方式配置",
+    参({ id: { type: "number" } }, ["id"]),
+  ),
 
   // ===== 索引文本 =====
   只读(
@@ -416,6 +452,12 @@ export const 能力清单: 能力声明[] = [
     "更新工作区",
     "更新工作区名称",
     参({ id: { type: "number" }, patch: { type: "object" } }, ["id", "patch"]),
+  ),
+  破坏(
+    "mkg.workspace.itemRemove",
+    "移除工作区项",
+    "从工作区移除一个放置项（不删除被引用节点）",
+    参({ id: { type: "number" } }, ["id"]),
   ),
   破坏(
     "mkg.workspace.delete",
