@@ -244,16 +244,29 @@ export function 清空OWU缓存(): void {
 }
 
 export interface OWU聊天参数 {
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{ role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }>;
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /** 下发给模型的工具定义 */
+  tools?: Array<{
+    type: "function";
+    function: { name: string; description?: string; parameters?: Record<string, unknown> };
+  }>;
+  /** auto / required / none / 或指定某工具名 */
+  tool_choice?: "auto" | "required" | "none" | string;
 }
 
 export interface OWU聊天结果 {
   reply: string;
   model: string;
   提供方: "openwebui";
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
+  finish_reason?: string;
 }
 
 /** 通过 OpenWebUI 对话 */
@@ -261,17 +274,23 @@ export async function OWU聊天(配置: OpenWebUI配置, 参数: OWU聊天参数
   const 模型 = (参数.model && 参数.model.trim()) || 配置.defaultModel;
   if (!模型) throw new Error("未指定模型，且 OpenWebUI 未配置默认模型（ai.openwebui.defaultModel）");
 
+  const 体: Record<string, unknown> = {
+    model: 模型,
+    messages: 参数.messages,
+    temperature: 参数.temperature,
+    max_tokens: 参数.maxTokens,
+    stream: false,
+  };
+  if (参数.tools && 参数.tools.length > 0) {
+    体.tools = 参数.tools;
+    体.tool_choice = 参数.tool_choice ?? "auto";
+  }
+
   const 发送 = async (令牌: string) =>
     fetch(`${配置.baseUrl}/api/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${令牌}` },
-      body: JSON.stringify({
-        model: 模型,
-        messages: 参数.messages,
-        temperature: 参数.temperature,
-        max_tokens: 参数.maxTokens,
-        stream: false,
-      }),
+      body: JSON.stringify(体),
       signal: AbortSignal.timeout(180_000),
     });
 
@@ -284,14 +303,42 @@ export async function OWU聊天(配置: OpenWebUI配置, 参数: OWU聊天参数
   const 文本 = await r.text();
   if (!r.ok) throw new Error(`OpenWebUI 对话失败：${提取错误(r.status, 文本)}`);
   const 数据 = JSON.parse(文本) as {
-    choices?: Array<{ message?: { content?: unknown } }>;
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+        tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }>;
+      };
+      finish_reason?: string;
+    }>;
     model?: string;
   };
-  const 内容 = 数据.choices?.[0]?.message?.content;
+  const 选中 = 数据.choices?.[0];
+  const 内容 = 选中?.message?.content;
+  const 工具调用 = (选中?.message?.tool_calls ?? [])
+    .map((t) => ({
+      id: String(t.id ?? ""),
+      type: "function" as const,
+      function: { name: String(t.function?.name ?? ""), arguments: String(t.function?.arguments ?? "") },
+    }))
+    .filter((t) => t.function.name);
+  if (工具调用.length > 0) {
+    return {
+      reply: typeof 内容 === "string" ? 内容 : "",
+      model: 数据.model ?? 模型,
+      提供方: "openwebui",
+      tool_calls: 工具调用,
+      finish_reason: 选中?.finish_reason,
+    };
+  }
   if (typeof 内容 !== "string" || !内容.trim()) {
     throw new Error(`OpenWebUI 响应缺少文本内容：${文本.slice(0, 300)}`);
   }
-  return { reply: 内容, model: 数据.model ?? 模型, 提供方: "openwebui" };
+  return {
+    reply: 内容,
+    model: 数据.model ?? 模型,
+    提供方: "openwebui",
+    finish_reason: 选中?.finish_reason,
+  };
 }
 
 export interface OWU连通性 {

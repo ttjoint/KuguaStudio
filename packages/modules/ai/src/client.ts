@@ -6,8 +6,32 @@
 import type { AI提供方 } from "./providers.js";
 
 export interface 对话消息 {
-  role: "system" | "user" | "assistant";
-  content: string;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  /** assistant 消息带工具调用时填写 */
+  tool_calls?: 工具调用[];
+  /** tool 消息携带的调用 id（对应上一条 assistant 的 tool_calls[].id） */
+  tool_call_id?: string;
+}
+
+/** OpenAI 标准工具定义（function calling） */
+export interface 工具定义 {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+}
+
+/** 模型返回的工具调用（assistant 消息里的 tool_calls） */
+export interface 工具调用 {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 export interface 聊天参数 {
@@ -15,6 +39,10 @@ export interface 聊天参数 {
   messages: 对话消息[];
   temperature?: number;
   maxTokens?: number;
+  /** 下发给模型的工具定义（OpenAI function calling） */
+  tools?: 工具定义[];
+  /** auto / required / none / 或指定某工具名 */
+  tool_choice?: "auto" | "required" | "none" | string;
 }
 
 export interface 聊天结果 {
@@ -22,6 +50,10 @@ export interface 聊天结果 {
   model: string;
   提供方: string;
   usage?: unknown;
+  /** 模型请求调用工具（finish_reason=tool_calls 时非空） */
+  tool_calls?: 工具调用[];
+  /** 原始 finish_reason，供 agent 循环判断是否继续 */
+  finish_reason?: string;
 }
 
 const 模型缓存 = new Map<string, string>();
@@ -65,27 +97,62 @@ async function 解析模型(提供方: AI提供方, 用途: "chat" | "image" | "
 
 export async function 聊天(提供方: AI提供方, 参数: 聊天参数): Promise<聊天结果> {
   const 模型 = await 解析模型(提供方, "chat", 参数.model);
+  const 体: Record<string, unknown> = {
+    model: 模型,
+    messages: 参数.messages,
+    temperature: 参数.temperature,
+    max_tokens: 参数.maxTokens,
+    stream: false,
+  };
+  if (参数.tools && 参数.tools.length > 0) {
+    体.tools = 参数.tools;
+    体.tool_choice = 参数.tool_choice ?? "auto";
+  }
   const r = await fetch(`${提供方.baseUrl}/chat/completions`, {
     method: "POST",
     headers: 请求头(提供方),
-    body: JSON.stringify({
-      model: 模型,
-      messages: 参数.messages,
-      temperature: 参数.temperature,
-      max_tokens: 参数.maxTokens,
-      stream: false,
-    }),
+    body: JSON.stringify(体),
     signal: AbortSignal.timeout(120000),
   });
   if (!r.ok) throw new Error(`AI 对话返回 ${r.status}：${(await r.text()).slice(0, 300)}`);
   const 数据 = (await r.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>;
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+        tool_calls?: Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }>;
+      };
+      finish_reason?: string;
+    }>;
     model?: string;
     usage?: unknown;
   };
-  const 内容 = 数据.choices?.[0]?.message?.content;
+  const 选中 = 数据.choices?.[0];
+  const 内容 = 选中?.message?.content;
+  const 工具调用 = (选中?.message?.tool_calls ?? [])
+    .map((t) => ({
+      id: String(t.id ?? ""),
+      type: "function" as const,
+      function: { name: String(t.function?.name ?? ""), arguments: String(t.function?.arguments ?? "") },
+    }))
+    .filter((t) => t.function.name);
+  if (工具调用.length > 0) {
+    return {
+      reply: typeof 内容 === "string" ? 内容 : "",
+      model: 数据.model ?? 模型,
+      提供方: 提供方.name,
+      usage: 数据.usage,
+      tool_calls: 工具调用,
+      finish_reason: 选中?.finish_reason,
+    };
+  }
   if (typeof 内容 !== "string" || !内容.trim()) throw new Error("AI 响应缺少文本内容");
-  return { reply: 内容, model: 数据.model ?? 模型, 提供方: 提供方.name, usage: 数据.usage };
+  return {
+    reply: 内容,
+    model: 数据.model ?? 模型,
+    提供方: 提供方.name,
+    usage: 数据.usage,
+    finish_reason: 选中?.finish_reason,
+  };
 }
 
 export interface 图像参数 {
