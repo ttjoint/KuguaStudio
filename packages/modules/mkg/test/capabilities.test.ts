@@ -43,7 +43,8 @@ describe("mkg 能力声明：唯一性与暴露策略", () => {
       "mkg.material.list", "mkg.material.get", "mkg.snippet.list", "mkg.snippet.get",
       "mkg.card.columnList", "mkg.card.list", "mkg.card.get", "mkg.view.list",
       "mkg.view.get", "mkg.view.run", "mkg.location.list", "mkg.resource.list",
-      "mkg.resource.get", "mkg.resource.detail", "mkg.workspace.list",
+      "mkg.resource.get", "mkg.resource.detail", "mkg.data.read",
+      "mkg.workspace.list",
       "mkg.workspace.items",
     ];
     for (const 名 of 只读名) {

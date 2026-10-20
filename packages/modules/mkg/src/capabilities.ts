@@ -384,6 +384,14 @@ export const 能力清单: 能力声明[] = [
     参({ id: { type: "number" }, path: { type: "string" } }),
   ),
 
+  // ===== 索引文本 =====
+  只读(
+    "mkg.data.read",
+    "读取索引文本",
+    "按 nodeId / resourceId / path 读取文件索引文本（优先级 nodeId > resourceId > path）",
+    参({ nodeId: { type: "number" }, resourceId: { type: "number" }, path: { type: "string" } }),
+  ),
+
   // ===== 工作区 =====
   只读(
     "mkg.workspace.list",

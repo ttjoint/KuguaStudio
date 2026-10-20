@@ -660,3 +660,36 @@ describe("磁盘一致性：sha256 校验与载体标记", () => {
     expect(条目.同步时间).toBeNull();
   });
 });
+
+describe("索引文本读取：readContent / readContentByNode（node 维度统一）", () => {
+  it("三种定位方式（nodeId/resourceId/path）读到同一份索引文本", async () => {
+    // 关键 guard：node 与 resource 是两个独立自增序列，id 可能碰巧相同。
+    // 若两者相等，按 node 查询误写成按 resource 查询会假绿。
+    // 故先创建若干 note（只推 node 序列，不推 resource 序列），
+    // 确保后续 file 节点的 node.id > resource.id，两者必然不同。
+    for (let i = 0; i < 5; i++) mkg.createNote(`推进节点序列${i}`, "x");
+    const p = 造文件("索引文本/a.txt", "这是一段被索引的文本");
+    await mkg.index(p, { maxDepth: 0 });
+    const 资源 = mkg.getResource(p)!;
+    const 节点 = mkg.listNodes("file").items.find((n) => n.resourceId === 资源.id)!;
+    expect(节点.id).not.toBe(资源.id);
+    const 按路径 = mkg.readContent(p);
+    const 按资源 = mkg.readContent(资源.id);
+    const 按节点 = mkg.readContentByNode(节点.id);
+    expect(按路径).toBe("这是一段被索引的文本");
+    expect(按资源).toBe(按路径);
+    expect(按节点).toBe(按路径);
+  });
+
+  it("readContentByNode 对不存在的节点返回 null", () => {
+    expect(mkg.readContentByNode(999999)).toBeNull();
+  });
+
+  it("readContent 对无索引文本的资源返回 null", async () => {
+    // 二进制文件（如图片）不会被 indexer 写 text_contents
+    const p = 造文件("索引文本/bin.dat", "\x00\x01\x02");
+    await mkg.index(p, { maxDepth: 0 });
+    const 资源 = mkg.getResource(p)!;
+    expect(mkg.readContent(资源.id)).toBeNull();
+  });
+});

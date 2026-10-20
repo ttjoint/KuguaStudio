@@ -47,6 +47,7 @@ declare module "../index.js" {
     readContent(path: string): string | null;
     readContent(resourceId: number): string | null;
     readContent(idOrPath: number | string): string | null;
+    readContentByNode(nodeId: number): string | null;
     获取扩展名(name: string): string;
     推断MimeType(extension: string): string;
     获取标签路径(tagId: number): string[];
@@ -375,6 +376,18 @@ export function 安装资源域(proto: { [k: string]: unknown }): void {
         WHERE r.path = ?
       `)
       .get(idOrPath) as { content: string } | undefined;
+    return row?.content ?? null;
+  };
+
+  // 按统一内容节点 id 读索引文本（file 类型：node → resource → text_contents）
+  proto.readContentByNode = function (this: 上下文, nodeId: number): string | null {
+    const 资源 = this.db
+      .prepare("SELECT id FROM resources WHERE node_id = ?")
+      .get(nodeId) as { id: number } | undefined;
+    if (!资源) return null;
+    const row = this.db
+      .prepare("SELECT content FROM text_contents WHERE resource_id = ?")
+      .get(资源.id) as { content: string } | undefined;
     return row?.content ?? null;
   };
 

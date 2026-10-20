@@ -198,11 +198,32 @@ void 启动模块({
   });
 
   客户端.onRequest("mkg.data.read", (params) => {
-    const { path } = (params ?? {}) as { path?: string };
-    if (!path) throw new Error("缺少 path 参数");
-    const content = mkg.readContent(path);
-    if (content === null) throw new Error(`未找到路径对应的文本内容：${path}`);
-    return { path, content };
+    const { nodeId, resourceId, path } = (params ?? {}) as {
+      nodeId?: number;
+      resourceId?: number;
+      path?: string;
+    };
+    // 优先级：nodeId > resourceId > path（对齐「统一内容节点」主模型）
+    let content: string | null = null;
+    if (nodeId !== undefined) {
+      content = mkg.readContentByNode(nodeId);
+    } else if (resourceId !== undefined) {
+      content = mkg.readContent(resourceId);
+    } else if (path) {
+      content = mkg.readContent(path);
+    } else {
+      throw new Error("缺少 nodeId、resourceId 或 path 参数");
+    }
+    if (content === null) {
+      throw new Error(
+        nodeId !== undefined
+          ? `未找到节点 ${nodeId} 对应的索引文本内容`
+          : resourceId !== undefined
+            ? `未找到资源 ${resourceId} 对应的索引文本内容`
+            : `未找到路径对应的文本内容：${path}`,
+      );
+    }
+    return { nodeId, resourceId, path, content };
   });
 
   客户端.onRequest("mkg.stats", () => {
