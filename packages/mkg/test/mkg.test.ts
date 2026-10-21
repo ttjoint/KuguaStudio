@@ -218,6 +218,58 @@ describe("统一内容节点（listAllContent / listNodes / searchNodes）", () 
     expect(结果.map((x) => x.name)).toContain("番茄");
   });
 
+  it("listAllContent 批量加载：tagPaths / 正文 / 资源字段与逐条查询等价", async () => {
+    // 回归护栏：listAllContent 改用批量预加载（一次 JOIN 代替逐节点查询）后，
+    // 必须与逐条接口（getNodeTags / 获取标签路径 / 获取节点内容）结果一致。
+    const 根 = mkg.createTag("根");
+    const 中 = mkg.createTag("中", 根.id);
+    const 叶 = mkg.createTag("叶", 中.id);
+    const 笔记 = mkg.createNote("多级标签笔记", "笔记正文", [叶.id]);
+    const 片段 = mkg.createSnippet("片段标题", "片段正文", [根.id, 叶.id]);
+    const 文件 = 造文件("资料.txt", "文件里的内容");
+    await mkg.index(文件, { maxDepth: 0 });
+    const 文件节点 = mkg.listNodes("file").items[0];
+
+    const 全 = mkg.listAllContent({ limit: 1000 });
+    const 按id = new Map(全.map((x) => [x.id, x]));
+
+    // 标签路径：多级链必须完整且顺序正确
+    expect(按id.get(笔记.id)!.tagPaths).toEqual([["根", "中", "叶"]]);
+    // 多标签：两个标签各自一条路径
+    expect(按id.get(片段.id)!.tagPaths).toHaveLength(2);
+    expect(按id.get(片段.id)!.tagPaths).toContainEqual(["根"]);
+
+    // 正文：来自各自的 content 表
+    expect(按id.get(笔记.id)!.content).toBe("笔记正文");
+    expect(按id.get(片段.id)!.content).toBe("片段正文");
+
+    // 资源：resourceId / path / realName 都要对得上
+    const 文件条目 = 全.find((x) => x.id === 文件节点.id)!;
+    expect(文件条目).toBeDefined();
+    expect(文件条目.resourceId).not.toBeNull();
+    expect(文件条目.path).toBe(文件);
+    expect(文件条目.realName).toBe("资料.txt");
+    expect(文件条目.载体).toBe("外部文件");
+
+    // 与逐条接口对账（防批量实现偏移）
+    expect(按id.get(笔记.id)!.tagIds.sort()).toEqual(mkg.getNodeTags(笔记.id).map((t) => t.id).sort());
+    expect(按id.get(笔记.id)!.tagPaths[0]).toEqual(mkg.获取标签路径(叶.id));
+  });
+
+  it("listAllContent 磁盘已变更只对返回集检查（limit 后）", async () => {
+    const 文件 = 造文件("a.txt", "原始");
+    await mkg.index(文件, { maxDepth: 0 });
+    const 节点 = mkg.listNodes("file").items[0];
+    // 未改动：不应标记变更
+    let 条目 = mkg.listAllContent().find((x) => x.id === 节点.id)!;
+    expect(条目.磁盘已变更).toBe(false);
+    // 外部改动（mtime 前推）
+    const now = new Date(Date.now() + 60000);
+    utimesSync(文件, now, now);
+    条目 = mkg.listAllContent().find((x) => x.id === 节点.id)!;
+    expect(条目.磁盘已变更).toBe(true);
+  });
+
   it("noTag 只返回无标签内容", () => {
     const a = mkg.createNote("有标签", "x");
     mkg.createNote("无标签", "y");
