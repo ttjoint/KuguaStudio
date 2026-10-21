@@ -284,6 +284,12 @@ export const 能力清单: 能力声明[] = [
     参({}),
   ),
   只读(
+    "mkg.material.listBySourceUrl",
+    "按来源查素材",
+    "按来源 URL 查素材（真列索引，AI 检索素材来源用）",
+    参({ sourceUrl: { type: "string" }, limit: { type: "number" } }, ["sourceUrl"]),
+  ),
+  只读(
     "mkg.material.get",
     "读取素材",
     "按 id 读取素材详情",

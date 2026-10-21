@@ -23,7 +23,14 @@ beforeEach(() => {
 
 afterEach(() => {
   mkg.close();
-  rmSync(目录, { recursive: true, force: true });
+  // 注：不在 close 后立即 rmSync 同一目录——本机 Node 24 + better-sqlite3 在
+  // 关闭连接后立刻删除库文件可能触发原生断言（env != nullptr），与业务逻辑无关。
+  // 临时目录由系统清理，测试本身只依赖 beforeEach 的新建。
+  try {
+    rmSync(目录, { recursive: true, force: true });
+  } catch {
+    // 忽略：目录可能仍被句柄占用
+  }
 });
 
 /** 造一个真实文件，返回路径 */
@@ -319,6 +326,18 @@ describe("笔记：CRUD", () => {
 });
 
 describe("素材：CRUD（含来源 / 图片 URL）", () => {
+  it("真列化：字段落真列，可按 sourceUrl 检索", () => {
+    const m = mkg.createMaterial({
+      title: "真列A", content: "x", kind: "article",
+      sourceUrl: "https://same.com/x", imageUrl: "https://same.com/a.png",
+    });
+    const 命中 = mkg.listMaterialsBySourceUrl("https://same.com/x");
+    expect(命中.map((x) => x.id)).toEqual([m.id]);
+    expect(命中[0].kind).toBe("article");
+    expect(命中[0].imageUrl).toBe("https://same.com/a.png");
+    expect(mkg.listMaterialsBySourceUrl("https://nope.com")).toEqual([]);
+  });
+
   it("创建 / 读取 / 列表 / 更新 / 删除", () => {
     const m = mkg.createMaterial({ title: "素材", content: "描述", sourceUrl: "https://a.com" });
     expect(mkg.getMaterial(m.id)?.title).toBe("素材");
@@ -329,6 +348,10 @@ describe("素材：CRUD（含来源 / 图片 URL）", () => {
     mkg.deleteMaterial(m.id);
     expect(mkg.getMaterial(m.id)).toBeUndefined();
   });
+
+
+
+
 });
 
 describe("文本片段：CRUD", () => {

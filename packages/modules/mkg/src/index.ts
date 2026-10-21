@@ -541,6 +541,13 @@ void 启动模块({
 
   客户端.onRequest("mkg.material.list", () => mkg.listMaterials());
 
+  // 按来源 URL 查素材（真列 + 索引，AI 检索素材来源用）
+  客户端.onRequest("mkg.material.listBySourceUrl", (params) => {
+    const { sourceUrl, limit } = (params ?? {}) as { sourceUrl?: string; limit?: number };
+    if (!sourceUrl) throw new Error("缺少 sourceUrl");
+    return mkg.listMaterialsBySourceUrl(sourceUrl, typeof limit === "number" ? limit : undefined);
+  });
+
   客户端.onRequest("mkg.material.update", (params) => {
     const { id, patch } = (params ?? {}) as {
       id?: number;
