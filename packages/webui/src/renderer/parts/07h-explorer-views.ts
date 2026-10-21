@@ -3,6 +3,7 @@
 import { Explorer } from "./07-explorer";
 import { 渲染标签树 } from "./07j-explorer-tags";
 import { 添加消息 } from "./03-preview";
+import { AI内容面板已打开, 打开AI内容面板 } from "./07n-explorer-aigc-panel";
 
 // ===== 智能视图 / 受管位置（阶段 2）=====
 export async function 加载保存视图(): Promise<void> {
@@ -18,6 +19,18 @@ export function 渲染保存视图(): void {
   const 容器 = document.getElementById("ex-view-list");
   if (!容器) return;
   容器.innerHTML = "";
+
+  // 内置视图：AI 生成内容（固定置顶，不参与用户保存的视图列表）
+  const AI项 = document.createElement("div");
+  AI项.className = "ex-view-item" + (AI内容面板已打开 ? " active" : "");
+  AI项.title = "查看 AI 写入知识库的内容（按来源 agent 分组）";
+  const AI名 = document.createElement("span");
+  AI名.textContent = "🤖 AI 内容";
+  AI名.style.flex = "1";
+  AI项.appendChild(AI名);
+  AI项.addEventListener("click", () => void 打开AI内容面板());
+  容器.appendChild(AI项);
+
   if (Explorer.保存视图列表.length === 0) {
     const 空 = document.createElement("div");
     空.className = "ex-view-item";

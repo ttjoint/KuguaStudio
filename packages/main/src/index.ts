@@ -10,7 +10,8 @@
  */
 
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve as pathResolve, isAbsolute } from "node:path";
+import { dirname, resolve as pathResolve, isAbsolute } from "node:path";
+
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as 创建探测服务器 } from "node:net";
@@ -109,10 +110,14 @@ function 归一工作目录(): void {
     if (值 && !isAbsolute(值)) process.env[键] = pathResolve(原cwd, 值);
   }
   try {
-    // ESM 里没有 __dirname（用了会抛 ReferenceError，而它一旦被 catch 吞掉，
-    // 整个归一化就静默失效）。用 import.meta.url 反推本文件位置，
-    // 再上溯到仓库根：dist/index.js → packages/main/dist → 仓库根。
-    const 本文件 = fileURLToPath(import.meta.url);
+    // ESM 里没有 __dirname（用了会抛 ReferenceError，而它一旦被 catch 吞掉，
+
+    // 整个归一化就静默失效）。用 import.meta.url 反推本文件位置，
+
+    // 再上溯到仓库根：dist/index.js → packages/main/dist → 仓库根。
+
+    const 本文件 = fileURLToPath(import.meta.url);
+
     const 根 = pathResolve(dirname(本文件), "..", "..", "..");
     if (原cwd !== 根) process.chdir(根);
   } catch (err) {
@@ -764,15 +769,23 @@ function 注册内置动作(服务端: NiganeServer): void {
   });
 
   // 统一调用：按能力名路由到提供者模块
+  //
+  // 身份判定（不信任调用方自报）：按**连接名**决定谁是「用户」。
+  // - 发送者 === "webui"：本机用户在界面上的操作 → 视为超级管理员，可用危险能力
+  // - 其他（模块 / AI / 定时任务）：程序自动调用 → 不得碰危险能力
+  //
+  // 为何不信任自报：若让调用方传 `调用者` 参数，AI 入口只要多传一个字段就绕过了，
+  // 拦截就失去意义。连接名由主控在握手时记录，调用方改不了。
   服务端.handle("capability.call", async (params, 发送者) => {
     const { 名称, 参数 } = (params ?? {}) as { 名称?: string; 参数?: unknown };
     if (!名称) throw new Error("缺少 名称");
     const 声明 = 能力表.获取(名称);
+    const 调用者 = 发送者 === "webui" ? "用户" : 发送者;
     return 带审计(
       "capability.call",
       发送者,
       { capability: 名称, module: 声明?.模块 ?? "", action: 声明?.动作 ?? 名称, params: 参数 },
-      () => 能力表.调用(名称, 参数, 主控调用器, "capability.call"),
+      () => 能力表.调用(名称, 参数, 主控调用器, 调用者),
     );
   });
 
@@ -795,7 +808,7 @@ function 注册内置动作(服务端: NiganeServer): void {
           命中.能力.名称,
           { 参数文本: 命中.参数文本, 原文: 文本 },
           主控调用器,
-          "capability.command",
+          发送者 === "webui" ? "用户" : 发送者,
         ),
     );
     return { 命中: true, 能力: 命中.能力.名称, 模块: 命中.能力.模块, 参数文本: 命中.参数文本, 结果 };
