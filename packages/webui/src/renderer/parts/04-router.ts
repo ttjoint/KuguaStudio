@@ -1,7 +1,7 @@
 import { 附件 } from "./02-chat-core";
 import { 添加回应, 添加消息, 开始回复组, 结束回复组, 最近用户消息 } from "./03-preview";
 import { 帮助文本, 格式化输出 } from "./05-format";
-import { 与AI对话 } from "./10-chat-page";
+import { 与AI对话, 与AI任务 } from "./10-chat-page";
 import { 图默认 } from "../image-command-defaults";
 
 // ===== 指令前缀元数据（供左侧指令面板“从路由推断”） =====
@@ -46,6 +46,7 @@ export const 指令前缀表: 指令前缀信息[] = [
   { 命令: "翻译", 需参: true, 写法: "翻译「文本」", 说明: "翻译文本" },
   { 命令: "狗屁不通", 需参: true, 写法: "狗屁不通「主题」", 说明: "狗屁不通文章生成" },
   { 命令: "ai", 需参: true, 写法: "ai 「内容」", 说明: "与 AI 对话（忽略大小写）" },
+  { 命令: "agent", 需参: true, 写法: "agent 「任务」[--写入]", 说明: "智能任务：AI 调用知识库能力（默认只读）" },
   { 命令: "问AI", 需参: true, 写法: "问AI 「内容」", 说明: "与 AI 对话" },
   { 命令: "AI问答", 需参: true, 写法: "AI问答 「内容」", 说明: "与 AI 对话" },
   // —— 可选参数（可直接发送，也可补参）——
@@ -267,6 +268,23 @@ export function 路由指令(文本: string, 附件?: 附件[]): 路由结果 | 
   // 系统监控
   if (文本 === "监控" || 文本 === "系统状态" || 文本 === "资源监控") {
     return { 目标: "monitor", 动作: "monitor.stats", 描述: "系统状态" };
+  }
+
+  // 智能任务（agent）：前缀 `agent` / `智能`，可选 `--写入` 开写入权限
+  // 必须排在 `ai` 之前，避免 prompt 里带 ai 被误匹配
+  const 智能匹配 = 文本.match(/^(?:agent|智能任务|智能)\s+(.+)$/i);
+  if (智能匹配) {
+    let 任务 = 智能匹配[1].trim();
+    let 只读 = true;
+    // 支持行首/尾的 `--写入` 开关
+    if (/\s*--写入$/.test(任务)) {
+      只读 = false;
+      任务 = 任务.replace(/\s*--写入$/, "").trim();
+    } else if (/^--写入\s+/.test(任务)) {
+      只读 = false;
+      任务 = 任务.replace(/^--写入\s+/, "").trim();
+    }
+    return { 目标: "agent", 动作: "agent.run", 参数: { prompt: 任务, 只读 }, 描述: 只读 ? "智能任务（只读）" : "智能任务（可写）" };
   }
 
   // AI 问答 / 图像生成（M6）：前缀 `ai`（忽略大小写）或 `问AI` / `AI问答`
@@ -575,6 +593,9 @@ export async function 处理输入重发(文本: string, 宿主: HTMLDivElement)
       } else if (路由.目标 === "ai" && 路由.动作 === "ai.chat") {
         const p = (路由.参数 ?? {}) as { prompt?: string };
         await 与AI对话(String(p.prompt ?? ""));
+      } else if (路由.目标 === "agent" && 路由.动作 === "agent.run") {
+        const p = (路由.参数 ?? {}) as { prompt?: string; 只读?: boolean };
+        await 与AI任务(String(p.prompt ?? ""), p.只读 !== false);
       } else {
         const 结果 = await window.kugua.request(路由.目标, 路由.动作, 路由.参数);
         格式化输出(路由, 结果);
@@ -599,6 +620,12 @@ export async function 执行路由(路由: 路由结果): Promise<void> {
   if (路由.目标 === "ai" && 路由.动作 === "ai.chat") {
     const p = (路由.参数 ?? {}) as { prompt?: string };
     await 与AI对话(String(p.prompt ?? ""));
+    return;
+  }
+  // 智能任务（agent 工具循环）：耗时较长，走专用通道（不占回复组，自带进度）
+  if (路由.目标 === "agent" && 路由.动作 === "agent.run") {
+    const p = (路由.参数 ?? {}) as { prompt?: string; 只读?: boolean };
+    await 与AI任务(String(p.prompt ?? ""), p.只读 !== false);
     return;
   }
   // 开始一个新的回复组：本次指令产生的所有回复归为一个版本

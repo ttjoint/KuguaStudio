@@ -322,6 +322,64 @@ export async function 与AI对话(文本: string): Promise<void> {
   }
 }
 
+export interface 智能任务结果 {
+  agentId: string;
+  只读模式: boolean;
+  结束: boolean;
+  最终回答: string | null;
+  迭代次数: number;
+  达到上限: boolean;
+  工具数: number;
+  messages?: Array<{ role: string; content: string | null; tool_calls?: unknown[] }>;
+}
+
+/**
+ * 智能任务（agent 工具循环）。
+ *
+ * 工具循环可能跑多轮，耗时远大于普通对话，因此先落一条「进行中」回应，
+ * 完成后就地替换为结果（含工具调用统计）。
+ */
+export async function 与AI任务(任务: string, 只读 = true): Promise<void> {
+  const 标签 = 只读 ? "智能任务（只读）" : "智能任务（可写）";
+  const 占位 = 添加独立回应(
+    `⏳ 正在执行：${任务}\n（模式：${只读 ? "只读——只能读取/搜索知识库" : "可写——可写入 AI 生成内容"}）`,
+    标签,
+  );
+  try {
+    // agentId 复用会话 id，让同一对话里的连续任务共享沙箱（能读到自己上次写的）
+    const d = 当前对话();
+    const agentId = `ui-${d?.id ?? "default"}`;
+    const r = (await window.kugua.request(
+      "agent",
+      "agent.run",
+      { prompt: 任务, agentId, 只读 },
+      600000,
+    )) as 智能任务结果;
+
+    const 工具调用数 = (r.messages ?? []).reduce<number>((n, m) => {
+      if (m.role === "assistant" && Array.isArray(m.tool_calls)) return n + m.tool_calls.length;
+      return n;
+    }, 0);
+    const 统计 = `轮次 ${r.迭代次数} · 工具调用 ${工具调用数} · 可用工具 ${r.工具数} · agent ${r.agentId}`;
+    const 正文 = r.结束
+      ? r.最终回答 || "（AI 未给出文字回答）"
+      : r.达到上限
+        ? `⚠️ 达到工具循环上限（${r.迭代次数} 轮）仍未完成。可把任务拆小后重试。\n\n${r.最终回答 ?? ""}`.trim()
+        : r.最终回答 || "（任务未正常结束）";
+
+    const 文本 = `${正文}\n\n—— ${统计}`;
+    const 内容节点 = 占位.querySelector(".msg-text, .bubble, div:last-child");
+    if (内容节点) 内容节点.textContent = 文本;
+    else 占位.textContent = 文本;
+  } catch (err) {
+    const 内容节点 = 占位.querySelector(".msg-text, .bubble, div:last-child");
+    const 失败文本 = "智能任务失败：" + String(err);
+    if (内容节点) 内容节点.textContent = 失败文本;
+    else 占位.textContent = 失败文本;
+    占位.classList.add("msg-error");
+  }
+}
+
 export function 初始化对话页(): void {
   if (对话已初始化) return;
   对话已初始化 = true;
