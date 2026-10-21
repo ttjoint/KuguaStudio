@@ -111,6 +111,8 @@ export interface 标签节点 {
   name: string;
   parentId: number | null;
   description?: string;
+  /** AI 读访问 opt-in：true 表示该标签下内容允许 AI 读取 */
+  aiPublic?: boolean;
   children: 标签节点[];
 }
 

@@ -180,7 +180,7 @@ export namespace Explorer {
     return r.name;
   }
 
-  /** 节点底层形式（resource/snippet/note/material/directory）的中文名 */
+  /** 节点底层形式（resource/snippet/note/material/directory/aigc）的中文名 */
   export function 节点形式名(type: string): string {
     switch (type) {
       case "resource": return "资源";
@@ -189,6 +189,7 @@ export namespace Explorer {
       case "material": return "素材";
       case "directory": return "目录";
       case "card": return "卡片";
+      case "aigc": return "AI 生成";
       default: return type || "-";
     }
   }
@@ -224,6 +225,10 @@ export namespace Explorer {
       icon.style.background = "";
     } else if (item.category === "文本段") {
       icon.textContent = "📝";
+      icon.style.fontSize = size === "large" ? "2rem" : "0.8rem";
+      icon.style.background = "";
+    } else if (item.type === "aigc") {
+      icon.textContent = "🤖";
       icon.style.fontSize = size === "large" ? "2rem" : "0.8rem";
       icon.style.background = "";
     } else {

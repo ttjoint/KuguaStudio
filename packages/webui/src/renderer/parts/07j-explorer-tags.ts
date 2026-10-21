@@ -218,6 +218,24 @@ export async function 渲染关联标签(): Promise<void> {
   }
 }
 
+/** 切换标签的 AI 可读 opt-in（后端 mkg.tag.setAiPublic） */
+export async function 切换标签AIPublic(tagId: number, aiPublic: boolean): Promise<void> {
+  try {
+    await window.kugua.request("mkg", "mkg.tag.setAiPublic", { tagId, aiPublic });
+    // 更新本地标签树状态
+    const stack: 标签节点[] = [...Explorer.标签树];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n.id === tagId) n.aiPublic = aiPublic;
+      if (n.children) stack.push(...n.children);
+    }
+    渲染标签树();
+    添加消息(aiPublic ? "已开启 AI 可读：" + 找到标签名(tagId) : "已关闭 AI 可读：" + 找到标签名(tagId), "system");
+  } catch (err) {
+    添加消息("切换 AI 可读失败：" + String(err), "error");
+  }
+}
+
 export function 渲染标签树(): void {
   Explorer.标签树容器.innerHTML = "";
 
@@ -256,6 +274,24 @@ export function 渲染标签树(): void {
     nameText.style.overflow = "hidden";
     nameText.style.textOverflow = "ellipsis";
     item.appendChild(nameText);
+
+    // AI 可读开关：点击切换 opt-in（后端 mkg.tag.setAiPublic）
+    const aiBtn = document.createElement("span");
+    aiBtn.className = "ex-tag-ai" + (node.aiPublic ? " on" : "");
+    aiBtn.textContent = "🤖";
+    aiBtn.title = node.aiPublic
+      ? "AI 可读（点击关闭）——该标签下内容允许 AI 读取"
+      : "AI 不可读（点击开启）——开启后该标签下内容允许 AI 读取";
+    aiBtn.style.fontSize = "0.7rem";
+    aiBtn.style.opacity = node.aiPublic ? "1" : "0.35";
+    aiBtn.style.cursor = "pointer";
+    aiBtn.style.marginLeft = "auto";
+    aiBtn.style.flexShrink = "0";
+    aiBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void 切换标签AIPublic(node.id, !node.aiPublic);
+    });
+    item.appendChild(aiBtn);
 
     const childrenDiv = document.createElement("div");
     childrenDiv.className = "ex-tag-children";

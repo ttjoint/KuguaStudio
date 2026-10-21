@@ -40,13 +40,22 @@ describe("agent handlers：能力过滤 + 工具循环接线", () => {
     return 依赖;
   }
 
-  it("agent.tools 只返回 AI 可见能力（危险能力被过滤）", async () => {
+  it("agent.tools 只返回 AI 可见能力（危险能力被过滤，默认只读过滤写入）", async () => {
     const { 客户端, 处理 } = 造客户端();
     注册Agent处理器(客户端 as never, 造依赖());
     const 工具名 = (await 处理("agent.tools", {})) as string[];
     expect(工具名).toContain("mkg.ai.read");
-    expect(工具名).toContain("mkg.ai.write");
     expect(工具名).toContain("ai.chat");
+    expect(工具名).not.toContain("mkg.ai.write"); // 默认只读模式，写入能力被过滤
+    expect(工具名).not.toContain("mkg.tag.delete");
+  });
+
+  it("agent.tools 只读=false 时包含写入能力", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    注册Agent处理器(客户端 as never, 造依赖());
+    const 工具名 = (await 处理("agent.tools", { 只读: false })) as string[];
+    expect(工具名).toContain("mkg.ai.write");
+    expect(工具名).toContain("mkg.ai.read");
     expect(工具名).not.toContain("mkg.tag.delete");
   });
 

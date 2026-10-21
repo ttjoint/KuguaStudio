@@ -404,6 +404,13 @@ void 启动模块({
     return mkg.获取动态标签树();
   });
 
+  // AI 读访问 opt-in：给标签打「AI 可读」标记
+  客户端.onRequest("mkg.tag.setAiPublic", (params) => {
+    const { tagId, aiPublic } = (params ?? {}) as { tagId?: number; aiPublic?: boolean };
+    if (tagId === undefined) throw new Error("缺少 tagId");
+    return mkg.setTagAiPublic(tagId, aiPublic !== false);
+  });
+
   客户端.onRequest("mkg.tag.createTree", (params) => {
     const { names, description } = (params ?? {}) as { names?: string[]; description?: string };
     if (!names || !Array.isArray(names) || names.length === 0) throw new Error("缺少 names 参数（非空数组）");

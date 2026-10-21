@@ -27,6 +27,7 @@ const 能力清单: 能力声明[] = [
         agentId: { type: "string", description: "会话隔离 id（缺省自动生成）" },
         system: { type: "string", description: "自定义系统提示" },
         maxIterations: { type: "number", description: "工具循环上限，默认 8" },
+        只读: { type: "boolean", description: "只读模式（默认 true）：AI 不能写，只能读/搜索" },
       },
       required: ["prompt"],
     },
@@ -36,8 +37,8 @@ const 能力清单: 能力声明[] = [
     名称: "agent.tools",
     模块: "agent",
     标题: "AI 可用工具",
-    说明: "列出 AI 可见的能力（工具）清单",
-    参数: { type: "object", properties: {} },
+    说明: "列出 AI 可见的能力（工具）清单（只读模式默认过滤写入）",
+    参数: { type: "object", properties: { 只读: { type: "boolean", description: "只读模式（默认 true）" } } },
     暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
   },
 ];

@@ -176,6 +176,12 @@ export const 能力清单: 能力声明[] = [
     参({ name: { type: "string" }, parentId: { type: "number" }, description: { type: "string" } }, ["name"]),
   ),
   写入(
+    "mkg.tag.setAiPublic",
+    "设置标签 AI 可读",
+    "切换标签的 AI 读访问 opt-in（打勾后 AI 可读该标签下内容）",
+    参({ tagId: { type: "number" }, aiPublic: { type: "boolean" } }, ["tagId"]),
+  ),
+  写入(
     "mkg.tag.createTree",
     "批量创建标签链",
     "按路径数组一次创建层级标签链",

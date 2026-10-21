@@ -18,16 +18,22 @@ import {
 } from "./pure.js";
 
 /** agent 可用能力：只读 + AI 专属（不含危险、不含写盘） */
-const AI可调用能力过滤 = (声明: 能力声明摘要): boolean => {
+const AI可调用能力过滤 = (声明: 能力声明摘要, 只读模式 = true): boolean => {
   // 仅暴露 mkg.ai.* 与 ai.* 能力；危险能力绝不进工具列表
   if (声明.危险) return false;
-  if (声明.名称.startsWith("mkg.ai.") || 声明.名称.startsWith("ai.")) return true;
-  return false;
+  if (声明.名称.startsWith("ai.")) return true;
+  if (!声明.名称.startsWith("mkg.ai.")) return false;
+  // 只读模式：过滤掉写入能力（mkg.ai.write）——AI 写内容需用户显式允许
+  if (只读模式 && 声明.名称 === "mkg.ai.write") return false;
+  return true;
 };
 
 /** 统一取「AI 可调用能力」：依赖注入返回什么，这里都再兜底过滤一次（安全边界双保险） */
-function 取可调用能力(获取能力: () => Promise<能力声明摘要[]>): Promise<能力声明摘要[]> {
-  return 获取能力().then((列表) => (列表 ?? []).filter(AI可调用能力过滤));
+function 取可调用能力(
+  获取能力: () => Promise<能力声明摘要[]>,
+  只读模式 = true,
+): Promise<能力声明摘要[]> {
+  return 获取能力().then((列表) => (列表 ?? []).filter((c) => AI可调用能力过滤(c, 只读模式)));
 }
 
 export interface 能力声明摘要 {
@@ -65,14 +71,16 @@ export function 注册Agent处理器(
       agentId?: string;
       system?: string;
       maxIterations?: number;
+      只读?: boolean;
     };
     const prompt = typeof p.prompt === "string" ? p.prompt.trim() : "";
     if (!prompt) throw new Error("缺少 prompt");
     const agentId = typeof p.agentId === "string" && p.agentId.trim() ? p.agentId.trim() : `agent-${Date.now()}`;
+    const 只读模式 = p.只读 !== false; // 默认只读：写入能力不进工具列表
     const 系统提示 = typeof p.system === "string" && p.system.trim() ? p.system : 默认代理系统提示;
 
     // 能力 → 工具定义（安全边界双保险：这里再过滤一次危险/非 AI 能力）
-    const 能力 = await 取可调用能力(依赖.获取能力);
+    const 能力 = await 取可调用能力(依赖.获取能力, 只读模式);
     const 工具 = 能力列表转OpenAI工具(能力 as 能力声明[]);
 
     // 初始消息
@@ -95,14 +103,17 @@ export function 注册Agent处理器(
 
     return {
       agentId,
+      只读模式,
       ...结果,
       工具数: 工具.length,
     };
   });
 
   // 列出 AI 可见能力（调试/审查用）
-  客户端.onRequest("agent.tools", async () => {
-    const 能力 = await 取可调用能力(依赖.获取能力);
+  客户端.onRequest("agent.tools", async (参数) => {
+    const p = (参数 ?? {}) as { 只读?: boolean };
+    const 只读模式 = p.只读 !== false;
+    const 能力 = await 取可调用能力(依赖.获取能力, 只读模式);
     return 能力列表转OpenAI工具(能力 as 能力声明[]).map((t) => t.function.name);
   });
 }
