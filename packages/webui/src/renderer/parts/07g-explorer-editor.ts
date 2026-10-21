@@ -6,6 +6,7 @@ import { 取媒体编解码, 打开图片预览弹窗, 添加消息, 清理图�
 import { 显示确认对话框 } from "./06-shell";
 import { 打开点子编辑 } from "./07d-explorer-notes";
 import { 打开素材编辑 } from "./07e-explorer-materials";
+import { 打开AIGC查看 } from "./07m-explorer-aigc";
 
 // ===== 打开内容（文本类用内置编辑器，其他用系统打开） =====
 export async function 打开内容(item: Explorer.内容条目, programPath?: string): Promise<void> {
@@ -17,6 +18,11 @@ export async function 打开内容(item: Explorer.内容条目, programPath?: st
     }
     if (item.type === "material" || item.category === "素材") {
       await 打开素材编辑(item);
+      return;
+    }
+    // AI 生成内容（aigc）：正文在数据库里，用专用查看/编辑对话框
+    if (item.type === "aigc" || item.category === "AI 生成") {
+      await 打开AIGC查看(item);
       return;
     }
     // 片段（文本段）没有物理文件：按文本编辑方式打开，可预览与修改

@@ -923,6 +923,37 @@ void 启动模块({
       }),
     };
   });
+
+  // ===== mkg.aigc.*：用户视角查看/管理 AI 生成内容（不按 agent_id 隔离）=====
+
+  客户端.onRequest("mkg.aigc.get", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    const 内容 = mkg.用户GetAigc(id);
+    if (!内容) throw new Error(`未找到 aigc 节点 ${id}`);
+    return 内容;
+  });
+
+  客户端.onRequest("mkg.aigc.list", (params) => {
+    const { agentId, keyword, limit } = (params ?? {}) as {
+      agentId?: string;
+      keyword?: string;
+      limit?: number;
+    };
+    const items = mkg.用户ListAigc({ agentId, keyword, limit });
+    return { total: items.length, items };
+  });
+
+  客户端.onRequest("mkg.aigc.delete", (params) => {
+    const { id } = (params ?? {}) as { id?: number };
+    if (id === undefined) throw new Error("缺少 id");
+    const 存在 = mkg.用户GetAigc(id);
+    if (!存在) throw new Error(`未找到 aigc 节点 ${id}`);
+    mkg.用户DeleteAigc(id);
+    return { 删除: id };
+  });
+
+  客户端.onRequest("mkg.aigc.agents", () => mkg.列表AigcAgent());
   },
   关闭: () => {
     数据库实例?.close();

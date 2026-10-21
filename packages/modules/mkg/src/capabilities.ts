@@ -648,4 +648,30 @@ export const 能力清单: 能力声明[] = [
     "列出自己 session 的 aigc 节点（按 agent_id 隔离）",
     参({ agentId: { type: "string" } }, ["agentId"]),
   ),
+
+  // ===== mkg.aigc.*：用户视角查看/管理 AI 生成内容（不按 agent_id 隔离，GUI 专用）=====
+  只读(
+    "mkg.aigc.get",
+    "查看 AI 生成内容",
+    "按 id 读取任意 aigc 内容（用户视角，无 agent 隔离）",
+    参({ id: { type: "number" } }, ["id"]),
+  ),
+  只读(
+    "mkg.aigc.list",
+    "列出 AI 生成内容",
+    "列出全部 aigc（可按 agentId / 关键词筛选）",
+    参({ agentId: { type: "string" }, keyword: { type: "string" }, limit: { type: "number" } }),
+  ),
+  只读(
+    "mkg.aigc.agents",
+    "列出 AI 产出来源",
+    "列出所有产生过 aigc 的 agent_id 及内容数（用于 UI 分组）",
+    参({}),
+  ),
+  破坏(
+    "mkg.aigc.delete",
+    "删除 AI 生成内容",
+    "按 id 删除任意 aigc 内容（用户视角）",
+    参({ id: { type: "number" } }, ["id"]),
+  ),
 ];

@@ -15,6 +15,14 @@ declare module "../index.js" {
     listAigcByAgent(agentId: string): AIGC内容[];
     updateAigc(agentId: string, id: number, patch: AIGC更新): AIGC内容 | undefined;
     deleteAigc(agentId: string, id: number): void;
+    /** 用户视角：查看任意 aigc（不按 agent_id 隔离，用户拥有整个知识库） */
+    用户GetAigc(id: number): AIGC内容 | undefined;
+    /** 用户视角：列出全部 aigc（可按 agentId / 关键词筛选） */
+    用户ListAigc(opts?: { agentId?: string; keyword?: string; limit?: number }): AIGC内容[];
+    /** 用户视角：删除任意 aigc */
+    用户DeleteAigc(id: number): void;
+    /** 列出所有产生过 aigc 的 agent_id 及其内容数 */
+    列表AigcAgent(): Array<{ agentId: string; count: number }>;
   }
 }
 
@@ -22,6 +30,7 @@ interface 上下文 {
   db: Database.Database;
   确保AIGC表(): void;
   getAigc(agentId: string, id: number): AIGC内容 | undefined;
+  用户GetAigc(id: number): AIGC内容 | undefined;
 }
 
 export function 安装AIGC域(proto: { [k: string]: unknown }): void {
@@ -140,5 +149,80 @@ export function 安装AIGC域(proto: { [k: string]: unknown }): void {
     this.db
       .prepare("DELETE FROM nodes WHERE id = ? AND type = 'aigc' AND id IN (SELECT node_id FROM aigc_contents WHERE agent_id = ?)")
       .run(id, agentId);
+  };
+
+  // ===== 用户视角（不按 agent_id 隔离）=====
+  // 用户拥有整个知识库，UI 需要看到/管理所有 AI 生成内容。
+
+  /** 按 id 读任意 aigc（用户视角，无隔离） */
+  proto.用户GetAigc = function (this: 上下文, id: number): AIGC内容 | undefined {
+    this.确保AIGC表();
+    const row = this.db
+      .prepare(
+        "SELECT n.id, n.title, n.created_at AS createdAt, n.updated_at AS updatedAt, c.agent_id AS agentId, c.content FROM nodes n LEFT JOIN aigc_contents c ON c.node_id = n.id WHERE n.id = ? AND n.type = 'aigc'",
+      )
+      .get(id) as
+      | {
+          id: number;
+          title: string;
+          createdAt: number;
+          updatedAt: number;
+          agentId: string | null;
+          content: string | null;
+        }
+      | undefined;
+    if (!row) return undefined;
+    const tagIds = (
+      this.db.prepare("SELECT tag_id AS id FROM node_tags WHERE node_id = ?").all(id) as { id: number }[]
+    ).map((r) => r.id);
+    return {
+      id: row.id,
+      agentId: row.agentId ?? "",
+      title: row.title,
+      content: row.content ?? "",
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      tagIds,
+    };
+  };
+
+  /** 列出全部 aigc（用户视角，可按 agentId / 关键词筛选） */
+  proto.用户ListAigc = function (
+    this: 上下文,
+    opts: { agentId?: string; keyword?: string; limit?: number } = {},
+  ): AIGC内容[] {
+    this.确保AIGC表();
+    const 条件: string[] = ["n.type = 'aigc'"];
+    const 参数: unknown[] = [];
+    if (opts.agentId) {
+      条件.push("c.agent_id = ?");
+      参数.push(opts.agentId);
+    }
+    if (opts.keyword) {
+      条件.push("(n.title LIKE ? OR c.content LIKE ?)");
+      参数.push(`%${opts.keyword}%`, `%${opts.keyword}%`);
+    }
+    const limit = Math.max(1, Math.min(opts.limit ?? 200, 2000));
+    const rows = this.db
+      .prepare(
+        `SELECT n.id FROM nodes n JOIN aigc_contents c ON c.node_id = n.id WHERE ${条件.join(" AND ")} ORDER BY n.updated_at DESC, n.id DESC LIMIT ?`,
+      )
+      .all(...参数, limit) as { id: number }[];
+    return rows.map((r) => this.用户GetAigc(r.id)!).filter(Boolean);
+  };
+
+  /** 删除任意 aigc（用户视角；aigc_contents 随外键级联删除） */
+  proto.用户DeleteAigc = function (this: 上下文, id: number): void {
+    this.db.prepare("DELETE FROM nodes WHERE id = ? AND type = 'aigc'").run(id);
+  };
+
+  /** 列出所有产生过 aigc 的 agent_id 及内容数（用于 UI 分组） */
+  proto.列表AigcAgent = function (this: 上下文): Array<{ agentId: string; count: number }> {
+    this.确保AIGC表();
+    return this.db
+      .prepare(
+        "SELECT c.agent_id AS agentId, COUNT(*) AS count FROM aigc_contents c JOIN nodes n ON n.id = c.node_id WHERE n.type = 'aigc' GROUP BY c.agent_id ORDER BY count DESC",
+      )
+      .all() as Array<{ agentId: string; count: number }>;
   };
 }
