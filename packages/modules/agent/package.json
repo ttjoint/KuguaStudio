@@ -1,0 +1,21 @@
+{
+  "name": "@kugua/module-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "智能管理终端：AI 工具循环（能力调用 agent），按 agent_id 沙箱隔离",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@kugua/nigane": "*",
+    "@kugua/capability": "*",
+    "@kugua/module-kit": "*"
+  },
+  "kugua": {
+    "module": true,
+    "autoStart": false,
+    "description": "智能管理终端（AI 工具循环，沙箱 agent_id 隔离）"
+  }
+}

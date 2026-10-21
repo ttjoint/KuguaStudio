@@ -4,6 +4,13 @@
   "token": "",
   "modules": [
     {
+      "name": "agent",
+      "type": "process",
+      "entry": "packages/modules/agent/dist/index.js",
+      "autoStart": false,
+      "description": "智能管理终端（AI 工具循环，沙箱 agent_id 隔离）"
+    },
+    {
       "name": "ai",
       "type": "process",
       "entry": "packages/modules/ai/dist/index.js",

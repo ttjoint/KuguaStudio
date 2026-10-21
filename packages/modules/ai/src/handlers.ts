@@ -50,6 +50,11 @@ export function 注册AI处理器(客户端: NiganeClient): 能力声明[] {
       temperature?: number;
       maxTokens?: number;
       reset?: boolean;
+      tools?: Array<{
+        type: "function";
+        function: { name: string; description?: string; parameters?: Record<string, unknown> };
+      }>;
+      tool_choice?: "auto" | "required" | "none" | string;
     };
     const 系统提示 = typeof p.system === "string" && p.system.trim() ? p.system : 默认系统提示;
     const chatId = typeof p.chatId === "string" && p.chatId.trim() ? p.chatId.trim() : "default";
@@ -67,7 +72,14 @@ export function 注册AI处理器(客户端: NiganeClient): 能力声明[] {
       消息.push({ role: "user", content: 提问 });
     }
 
-    let 结果: { reply: string; model: string; 提供方: string; usage?: unknown };
+    let 结果: {
+      reply: string;
+      model: string;
+      提供方: string;
+      usage?: unknown;
+      tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
+      finish_reason?: string;
+    };
     if (选通道(p.provider, p.model) === "openwebui") {
       const 配置 = 加载AI配置();
       if (!配置.openwebui) throw new Error("未配置 OpenWebUI（ai.openwebui）");
@@ -76,11 +88,20 @@ export function 注册AI处理器(客户端: NiganeClient): 能力声明[] {
         messages: 消息,
         temperature: p.temperature,
         maxTokens: p.maxTokens,
+        tools: p.tools,
+        tool_choice: p.tool_choice,
       });
     } else {
-      结果 = await 聊天(取方(p.provider), { model: p.model, messages: 消息, temperature: p.temperature, maxTokens: p.maxTokens });
+      结果 = await 聊天(取方(p.provider), {
+        model: p.model,
+        messages: 消息,
+        temperature: p.temperature,
+        maxTokens: p.maxTokens,
+        tools: p.tools,
+        tool_choice: p.tool_choice,
+      });
     }
-    消息.push({ role: "assistant", content: 结果.reply });
+    消息.push({ role: "assistant", content: 结果.reply, tool_calls: 结果.tool_calls });
     保存记忆(chatId, 消息.length > 21 ? [消息[0], ...消息.slice(-20)] : 消息);
     return { ...结果, chatId };
   });

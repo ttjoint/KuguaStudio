@@ -20,6 +20,7 @@
     "webui": "npm run build -w @kugua/webui && npm run start -w @kugua/webui",
     "sync:modules": "node scripts/sync-modules.mjs",
     "check:modules": "node scripts/sync-modules.mjs --check",
+    "agent": "node packages/modules/agent/dist/index.js",
     "ai": "node packages/modules/ai/dist/index.js",
     "av": "node packages/modules/av/dist/index.js",
     "avatar": "node packages/modules/avatar/dist/index.js",

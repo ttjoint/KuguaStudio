@@ -1,0 +1,108 @@
+/**
+ * agent 模块处理器：能力发现 + 工具循环入口。
+ *
+ * 设计：
+ * - 能力来源：`capability.list`（主控）里「AI 可见」的能力（本模块暴露 ai.agent.run 给用户）。
+ * - 工具执行：`capability.call`（主控），带 agent_id 沙箱（mkg.ai.* 按 agent_id 隔离）。
+ * - 工具循环：纯逻辑在 pure.ts（已测）；这里只做 IO 接线。
+ */
+
+import type { NiganeClient } from "@kugua/nigane";
+import type { 能力声明 } from "@kugua/capability";
+import {
+  能力列表转OpenAI工具,
+  运行工具循环,
+  默认代理系统提示,
+  type 循环消息,
+  type OpenAI工具,
+} from "./pure.js";
+
+/** agent 可用能力：只读 + AI 专属（不含危险、不含写盘） */
+const AI可调用能力过滤 = (声明: 能力声明摘要): boolean => {
+  // 仅暴露 mkg.ai.* 与 ai.* 能力；危险能力绝不进工具列表
+  if (声明.危险) return false;
+  if (声明.名称.startsWith("mkg.ai.") || 声明.名称.startsWith("ai.")) return true;
+  return false;
+};
+
+/** 统一取「AI 可调用能力」：依赖注入返回什么，这里都再兜底过滤一次（安全边界双保险） */
+function 取可调用能力(获取能力: () => Promise<能力声明摘要[]>): Promise<能力声明摘要[]> {
+  return 获取能力().then((列表) => (列表 ?? []).filter(AI可调用能力过滤));
+}
+
+export interface 能力声明摘要 {
+  名称: string;
+  模块: string;
+  标题?: string;
+  说明?: string;
+  参数?: Record<string, unknown>;
+  危险?: boolean;
+}
+
+/**
+ * 注册 agent 处理器。
+ *
+ * 依赖注入 `聊天` 与 `执行工具` 便于测试；实际运行时接 AI 网关与主控。
+ */
+export function 注册Agent处理器(
+  客户端: NiganeClient,
+  依赖: {
+    /** 发起一次带工具的聊天（实际走 ai 模块的 ai.chat） */
+    聊天: (
+      messages: 循环消息[],
+      tools: OpenAI工具[],
+    ) => Promise<{ content: string | null; tool_calls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>; finish_reason?: string }>;
+    /** 执行一个能力（实际走主控 capability.call） */
+    执行工具: (name: string, 参数: Record<string, unknown>) => Promise<unknown>;
+    /** 获取 AI 可调用能力清单 */
+    获取能力: () => Promise<能力声明摘要[]>;
+  },
+): void {
+  // agent 运行：入口
+  客户端.onRequest("agent.run", async (参数) => {
+    const p = (参数 ?? {}) as {
+      prompt?: string;
+      agentId?: string;
+      system?: string;
+      maxIterations?: number;
+    };
+    const prompt = typeof p.prompt === "string" ? p.prompt.trim() : "";
+    if (!prompt) throw new Error("缺少 prompt");
+    const agentId = typeof p.agentId === "string" && p.agentId.trim() ? p.agentId.trim() : `agent-${Date.now()}`;
+    const 系统提示 = typeof p.system === "string" && p.system.trim() ? p.system : 默认代理系统提示;
+
+    // 能力 → 工具定义（安全边界双保险：这里再过滤一次危险/非 AI 能力）
+    const 能力 = await 取可调用能力(依赖.获取能力);
+    const 工具 = 能力列表转OpenAI工具(能力 as 能力声明[]);
+
+    // 初始消息
+    const messages: 循环消息[] = [
+      { role: "system", content: `${系统提示}\n你的 agent_id 是 ${agentId}，写入时用这个 id。` },
+      { role: "user", content: prompt },
+    ];
+
+    const 结果 = await 运行工具循环(
+      {
+        聊天: (msgs, tools) => 依赖.聊天(msgs, tools),
+        执行工具: (name, 参数) => 依赖.执行工具(name, 参数),
+      },
+      {
+        messages,
+        tools: 工具,
+        maxIterations: typeof p.maxIterations === "number" ? p.maxIterations : 8,
+      },
+    );
+
+    return {
+      agentId,
+      ...结果,
+      工具数: 工具.length,
+    };
+  });
+
+  // 列出 AI 可见能力（调试/审查用）
+  客户端.onRequest("agent.tools", async () => {
+    const 能力 = await 取可调用能力(依赖.获取能力);
+    return 能力列表转OpenAI工具(能力 as 能力声明[]).map((t) => t.function.name);
+  });
+}
