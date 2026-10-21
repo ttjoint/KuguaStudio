@@ -309,16 +309,80 @@ function escapeAttr(s: string): string {
 export async function 与AI对话(文本: string): Promise<void> {
   const d = 当前对话();
   const chatId = d?.id ?? "default";
+
+  // 流式渲染：先落一个空回应，逐块填内容。
+  // 为何不先调再显示：本地模型首字可能要几秒，空回应至少能告诉用户「在跑」。
+  const 流式ID = `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const 块 = 添加独立回应("", "AI（生成中…）");
+  const 内容块 = 块.querySelector(".msg-reply-content") as HTMLDivElement | null;
+  const 发送者块 = 块.querySelector(".msg-reply-sender") as HTMLDivElement | null;
+  let 已收到流 = false;
+
+  // 订阅增量：只处理本次流式ID的事件
+  const 取消订阅 = window.kugua.onBus((action: string, params: unknown) => {
+    if (action !== "ai.chunk") return;
+    const p = (params ?? {}) as {
+      流式ID?: string;
+      增量?: string;
+      累计?: string;
+      思考增量?: string;
+      思考累计?: string;
+      完成?: boolean;
+      错误?: string;
+      model?: string;
+      提供方?: string;
+    };
+    if (p.流式ID !== 流式ID) return;
+    if (p.错误) {
+      内容块 && (内容块.textContent = "AI 调用失败：" + p.错误);
+      块.classList.add("error");
+      return;
+    }
+    // 推理模型的思考阶段：显示「正在思考…」，不把思考内容当回答
+    if (p.思考增量) {
+      if (!已收到流 && 内容块) {
+        内容块.textContent = "（正在思考…）";
+        内容块.style.opacity = "0.6";
+      }
+      return;
+    }
+    if (p.增量 && 内容块) {
+      已收到流 = true;
+      内容块.style.opacity = "";
+      内容块.textContent = p.累计 ?? (内容块.textContent ?? "") + p.增量;
+      聊天日志.scrollTop = 聊天日志.scrollHeight;
+    }
+    if (p.完成 && 发送者块) {
+      发送者块.textContent = `AI（${p.提供方 ?? ""}${p.model ? "/" + p.model : ""}）`;
+    }
+  });
+
   try {
     const r = (await window.kugua.request(
       "ai",
       "ai.chat",
-      { prompt: 文本, chatId, provider: d?.provider || undefined, model: d?.model || undefined },
-      180000,
+      {
+        prompt: 文本,
+        chatId,
+        provider: d?.provider || undefined,
+        model: d?.model || undefined,
+        流式: true,
+        流式ID,
+      },
+      300000,
     )) as { reply: string; model: string; 提供方: string };
-    添加独立回应(r.reply, `AI（${r.提供方}${r.model ? "/" + r.model : ""}）`);
+
+    // 完成后用最终结果兜底（防止事件丢失导致空白）
+    if (内容块) 内容块.textContent = r.reply || 内容块.textContent || "";
+    if (发送者块) 发送者块.textContent = `AI（${r.提供方}${r.model ? "/" + r.model : ""}）`;
   } catch (err) {
-    添加独立回应("AI 调用失败：" + String(err), "AI", true);
+    if (内容块) 内容块.textContent = "AI 调用失败：" + String(err);
+    块.classList.add("error");
+  } finally {
+    取消订阅();
+    // 流式期间未收到任何块（如服务端降级为非流式），不显示「生成中…」
+    if (!已收到流 && 发送者块) 发送者块.textContent = "AI";
+    聊天日志.scrollTop = 聊天日志.scrollHeight;
   }
 }
 
@@ -345,6 +409,57 @@ export async function 与AI任务(任务: string, 只读 = true): Promise<void> 
     `⏳ 正在执行：${任务}\n（模式：${只读 ? "只读——只能读取/搜索知识库" : "可写——可写入 AI 生成内容"}）`,
     标签,
   );
+  const 内容块 = 占位.querySelector(".msg-reply-content") as HTMLDivElement | null;
+  const 设置文本 = (文本: string) => {
+    if (内容块) 内容块.textContent = 文本;
+    else 占位.textContent = 文本;
+  };
+
+  const 进度ID = `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // 进度行：实时追加在正文下方，让用户看到「现在在调什么工具」
+  const 进度行: string[] = [];
+  const 渲染 = (正文: string) => {
+    const 进度 = 进度行.length > 0 ? "\n\n" + 进度行.slice(-6).join("\n") : "";
+    设置文本(正文 + 进度);
+    聊天日志.scrollTop = 聊天日志.scrollHeight;
+  };
+
+  const 取消订阅 = window.kugua.onBus((action: string, params: unknown) => {
+    if (action !== "agent.progress") return;
+    const p = (params ?? {}) as {
+      进度ID?: string;
+      阶段?: string;
+      轮次?: number;
+      工具?: string | string[];
+      错误?: string;
+    };
+    if (p.进度ID !== 进度ID) return;
+    const 轮 = p.轮次 ? `#${p.轮次} ` : "";
+    switch (p.阶段) {
+      case "准备":
+        进度行.push(`· 可用工具 ${(params as { 工具数?: number }).工具数 ?? 0} 个`);
+        break;
+      case "思考":
+        进度行.push(`· ${轮}思考中…`);
+        break;
+      case "决定调用":
+        进度行.push(`· ${轮}决定调用 ${Array.isArray(p.工具) ? p.工具.join(", ") : p.工具 ?? ""}`);
+        break;
+      case "执行工具":
+        进度行.push(`· ${轮}执行 ${p.工具}`);
+        break;
+      case "工具完成":
+        进度行.push(`· ${轮}${p.工具} 完成`);
+        break;
+      case "工具失败":
+        进度行.push(`· ${轮}${p.工具} 失败：${p.错误 ?? "未知"}`);
+        break;
+      case "结束":
+        break;
+    }
+    渲染(`⏳ 正在执行：${任务}`);
+  });
+
   try {
     // agentId 复用会话 id，让同一对话里的连续任务共享沙箱（能读到自己上次写的）
     const d = 当前对话();
@@ -352,7 +467,7 @@ export async function 与AI任务(任务: string, 只读 = true): Promise<void> 
     const r = (await window.kugua.request(
       "agent",
       "agent.run",
-      { prompt: 任务, agentId, 只读 },
+      { prompt: 任务, agentId, 只读, 进度ID },
       600000,
     )) as 智能任务结果;
 
@@ -367,16 +482,13 @@ export async function 与AI任务(任务: string, 只读 = true): Promise<void> 
         ? `⚠️ 达到工具循环上限（${r.迭代次数} 轮）仍未完成。可把任务拆小后重试。\n\n${r.最终回答 ?? ""}`.trim()
         : r.最终回答 || "（任务未正常结束）";
 
-    const 文本 = `${正文}\n\n—— ${统计}`;
-    const 内容节点 = 占位.querySelector(".msg-text, .bubble, div:last-child");
-    if (内容节点) 内容节点.textContent = 文本;
-    else 占位.textContent = 文本;
+    设置文本(`${正文}\n\n—— ${统计}`);
   } catch (err) {
-    const 内容节点 = 占位.querySelector(".msg-text, .bubble, div:last-child");
     const 失败文本 = "智能任务失败：" + String(err);
-    if (内容节点) 内容节点.textContent = 失败文本;
-    else 占位.textContent = 失败文本;
+    设置文本(失败文本);
     占位.classList.add("msg-error");
+  } finally {
+    取消订阅();
   }
 }
 

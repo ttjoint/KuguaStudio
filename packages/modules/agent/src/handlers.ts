@@ -72,6 +72,8 @@ export function 注册Agent处理器(
       system?: string;
       maxIterations?: number;
       只读?: boolean;
+      /** 进度事件标识（前端据此把进度归到对应气泡） */
+      进度ID?: string;
     };
     const prompt = typeof p.prompt === "string" ? p.prompt.trim() : "";
     if (!prompt) throw new Error("缺少 prompt");
@@ -79,9 +81,20 @@ export function 注册Agent处理器(
     const 只读模式 = p.只读 !== false; // 默认只读：写入能力不进工具列表
     const 系统提示 = typeof p.system === "string" && p.system.trim() ? p.system : 默认代理系统提示;
 
+    // 进度推送：工具循环可能跑几十秒，用户需要看到「现在到哪一步」
+    const 进度ID = typeof p.进度ID === "string" && p.进度ID ? p.进度ID : `p-${Date.now()}`;
+    const 推 = (阶段: string, 补充: Record<string, unknown> = {}) => {
+      try {
+        客户端.sendEvent("agent.progress", { 进度ID, 阶段, agentId, ...补充 });
+      } catch {
+        // 推送失败不影响主流程（比如前端已断开）
+      }
+    };
+
     // 能力 → 工具定义（安全边界双保险：这里再过滤一次危险/非 AI 能力）
     const 能力 = await 取可调用能力(依赖.获取能力, 只读模式);
     const 工具 = 能力列表转OpenAI工具(能力 as 能力声明[]);
+    推("准备", { 工具数: 工具.length, 只读模式 });
 
     // 初始消息
     const messages: 循环消息[] = [
@@ -89,10 +102,33 @@ export function 注册Agent处理器(
       { role: "user", content: prompt },
     ];
 
+    let 轮次 = 0;
     const 结果 = await 运行工具循环(
       {
-        聊天: (msgs, tools) => 依赖.聊天(msgs, tools),
-        执行工具: (name, 参数) => 依赖.执行工具(name, 参数),
+        聊天: async (msgs, tools) => {
+          轮次++;
+          推("思考", { 轮次 });
+          const 回复 = await 依赖.聊天(msgs, tools);
+          const 调用数 = 回复.tool_calls?.length ?? 0;
+          if (调用数 > 0) {
+            推("决定调用", {
+              轮次,
+              工具: (回复.tool_calls ?? []).map((t) => t.function.name),
+            });
+          }
+          return 回复;
+        },
+        执行工具: async (name, 参数) => {
+          推("执行工具", { 轮次, 工具: name, 参数 });
+          try {
+            const r = await 依赖.执行工具(name, 参数);
+            推("工具完成", { 轮次, 工具: name });
+            return r;
+          } catch (err) {
+            推("工具失败", { 轮次, 工具: name, 错误: err instanceof Error ? err.message : String(err) });
+            throw err;
+          }
+        },
       },
       {
         messages,
@@ -101,11 +137,18 @@ export function 注册Agent处理器(
       },
     );
 
+    推("结束", {
+      轮次: 结果.迭代次数,
+      结束: 结果.结束,
+      达到上限: 结果.达到上限,
+    });
+
     return {
       agentId,
       只读模式,
       ...结果,
       工具数: 工具.length,
+      进度ID,
     };
   });
 

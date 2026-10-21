@@ -308,6 +308,10 @@ async function 连接苦音(): Promise<void> {
   for (const 动作 of ["capability.changed", "registry.changed", "plugins.changed", "widgets.changed"]) {
     苦音客户端.onEvent(动作, (数据: unknown) => 推送({ type: "bus", action: 动作, params: 数据 }));
   }
+  // AI 流式输出：每收到一段增量就转给浏览器（前端就地渲染）
+  for (const 动作 of ["ai.chunk", "agent.progress"]) {
+    苦音客户端.onEvent(动作, (数据: unknown) => 推送({ type: "bus", action: 动作, params: 数据 }));
+  }
   // 小组件数据推送。
   // 来源取自**载荷**而非信封：插件与 plugins 模块共用一个连接，
   // 信封的 from 永远是 `plugins`，区分不出具体插件。载荷里的 `来源`

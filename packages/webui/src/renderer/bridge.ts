@@ -105,8 +105,11 @@ export interface 苦瓜基础接口 {
 export interface 苦瓜接口 extends 苦瓜基础接口 {
   onLog: (callback: (entry: unknown) => void) => void;
   onReady: (callback: () => void) => void;
-  /** 订阅主控广播的总线事件（如 capability.changed / registry.changed / plugins.changed） */
-  onBus: (callback: (action: string, params: unknown) => void) => void;
+  /**
+   * 订阅主控广播的总线事件（如 capability.changed / registry.changed / plugins.changed）。
+   * 返回取消订阅函数（流式对话等短生命周期监听器必须调用，否则回调会累积）。
+   */
+  onBus: (callback: (action: string, params: unknown) => void) => () => void;
   window: {
     minimize: () => Promise<void>;
     toggleMaximize: () => Promise<boolean>;

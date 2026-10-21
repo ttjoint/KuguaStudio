@@ -24,7 +24,8 @@ const 模型 = "qwen/qwen3.5-9b";
 
 let 可用 = false;
 try {
-  const r = await fetch(`${端点}/models`, { signal: AbortSignal.timeout(2000) });
+  // 全量并发跑时 2s 容易超时（本地模型加载占 CPU），放宽到 8s
+  const r = await fetch(`${端点}/models`, { signal: AbortSignal.timeout(8000) });
   可用 = r.ok;
 } catch {
   可用 = false;

@@ -155,6 +155,151 @@ export async function 聊天(提供方: AI提供方, 参数: 聊天参数): Prom
   };
 }
 
+/**
+ * 流式聊天（SSE）：逐块回调增量文本，结束时返回完整结果。
+ *
+ * 为何需要：本地 9B 模型跑工具循环常需几十秒，非流式下用户只能盯着空白。
+ * 流式让前端能边收边渲染，并有进度感知。
+ *
+ * 注意：带 tools 的请求**不走流式**——工具调用需要完整 JSON 才能解析，
+ * 逐块拼接容易出错（且多数 OpenAI 兼容端在 tool_calls 时不返回增量内容）。
+ * 调用方（agent 工具循环）应继续用非流式的 `聊天()`。
+ */
+export async function 流式聊天(
+  提供方: AI提供方,
+  参数: 聊天参数,
+  回调: {
+    /** 收到一段正文增量 */
+    onChunk?: (增量: string, 累计: string) => void;
+    /**
+     * 收到一段「思考过程」增量（推理模型专有，如 qwen3 的 reasoning_content）。
+     * 思考内容不计入 reply，只用于让前端显示「正在思考…」。
+     */
+    onReasoning?: (增量: string, 累计思考: string) => void;
+    /** 结束（无论成功/失败） */
+    onDone?: (结果: 聊天结果) => void;
+    /** 出错 */
+    onError?: (错误: Error) => void;
+  },
+  /** 外部取消信号（用户点「停止」时用） */
+  取消信号?: AbortSignal,
+): Promise<聊天结果> {
+  const 模型 = await 解析模型(提供方, "chat", 参数.model);
+  const 体: Record<string, unknown> = {
+    model: 模型,
+    messages: 参数.messages,
+    temperature: 参数.temperature,
+    max_tokens: 参数.maxTokens,
+    stream: true,
+  };
+  // 工具调用不走流式（见上方说明）
+  if (参数.tools && 参数.tools.length > 0) {
+    体.tools = 参数.tools;
+    体.tool_choice = 参数.tool_choice ?? "auto";
+  }
+
+  // 组合超时与外部取消
+  const 超时信号 = AbortSignal.timeout(300000);
+  const 信号 = 取消信号 ? AbortSignal.any([超时信号, 取消信号]) : 超时信号;
+
+  let 累计 = "";
+  let 思考累计 = "";
+  let 实际模型 = 模型;
+  let usage: unknown;
+  let finish: string | undefined;
+
+  try {
+    const r = await fetch(`${提供方.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: 请求头(提供方),
+      body: JSON.stringify(体),
+      signal: 信号,
+    });
+    if (!r.ok) throw new Error(`AI 对话返回 ${r.status}：${(await r.text()).slice(0, 300)}`);
+    if (!r.body) throw new Error("AI 响应无 body（无法流式读取）");
+
+    const 读 = r.body.getReader();
+    const 解 = new TextDecoder();
+    let 缓冲 = "";
+
+    for (;;) {
+      const { done, value } = await 读.read();
+      if (done) break;
+      缓冲 += 解.decode(value, { stream: true });
+
+      // SSE 按行切分；只处理 data: 行
+      const 行列表 = 缓冲.split("\n");
+      缓冲 = 行列表.pop() ?? ""; // 最后一段可能不完整，留到下一轮
+      for (const 原行 of 行列表) {
+        const 行 = 原行.trim();
+        if (!行 || !行.startsWith("data:")) continue;
+        const 数据文本 = 行.slice(5).trim();
+        if (数据文本 === "[DONE]") continue;
+        let 块: {
+          model?: string;
+          choices?: Array<{
+            delta?: { content?: unknown; reasoning_content?: unknown };
+            finish_reason?: string;
+          }>;
+          usage?: unknown;
+        };
+        try {
+          块 = JSON.parse(数据文本) as typeof 块;
+        } catch {
+          continue; // 单个坏块不致命
+        }
+        if (块.model) 实际模型 = 块.model;
+        if (块.usage) usage = 块.usage;
+        const 选 = 块.choices?.[0];
+        if (选?.finish_reason) finish = 选.finish_reason;
+        // 推理模型（qwen3 等）先输出 reasoning_content，正文 content 稍后才来。
+        // 两者必须分开处理：思考内容不能混进最终回答。
+        const 思考 = 选?.delta?.reasoning_content;
+        if (typeof 思考 === "string" && 思考) {
+          思考累计 += 思考;
+          回调.onReasoning?.(思考, 思考累计);
+        }
+        const 增量 = 选?.delta?.content;
+        if (typeof 增量 === "string" && 增量) {
+          累计 += 增量;
+          回调.onChunk?.(增量, 累计);
+        }
+      }
+    }
+
+    if (!累计.trim() && !思考累计.trim()) throw new Error("AI 流式响应为空");
+
+    // 推理模型的常见坑：思考过程把 max_tokens 用光，正文一个字都没输出。
+    // 这时 finish_reason 是 "length" 且 content 为空——不能静默返回空串，
+    // 否则前端显示空白，用户以为功能坏了。
+    if (!累计.trim() && finish === "length") {
+      const 提示 =
+        `模型把 ${参数.maxTokens ?? "全部"} token 都用在思考上，正文未输出（finish_reason=length）。` +
+        `请调大 maxTokens（建议 ≥ 2000）或换用非推理模型。`;
+      // 标记已通知，避免外层 catch 重复调用 onError
+      const 错误 = new Error(提示) as Error & { 已通知?: boolean };
+      错误.已通知 = true;
+      回调.onError?.(错误);
+      throw 错误;
+    }
+
+    const 结果: 聊天结果 = { reply: 累计, model: 实际模型, 提供方: 提供方.name, usage, finish_reason: finish };
+    回调.onDone?.(结果);
+    return 结果;
+  } catch (err) {
+    const 错误 = err instanceof Error ? err : new Error(String(err));
+    // 用户主动取消：返回已收到的部分，不当成错误
+    if (错误.name === "AbortError" && 累计) {
+      const 结果: 聊天结果 = { reply: 累计, model: 实际模型, 提供方: 提供方.name, usage, finish_reason: "aborted" };
+      回调.onDone?.(结果);
+      return 结果;
+    }
+    // 已被内层通知过的错误不再重复通知（避免前端收到两条相同报错）
+    if (!(错误 as Error & { 已通知?: boolean }).已通知) 回调.onError?.(错误);
+    throw 错误;
+  }
+}
+
 export interface 图像参数 {
   prompt: string;
   model?: string;

@@ -6,7 +6,7 @@
 import type { NiganeClient } from "@kugua/nigane";
 import type { 能力声明 } from "@kugua/capability";
 import { 加载AI配置, 取提供方 } from "./providers.js";
-import { 聊天, 生成图像, 向量, 列出模型, type 对话消息 } from "./client.js";
+import { 聊天, 流式聊天, 生成图像, 向量, 列出模型, type 对话消息 } from "./client.js";
 import { 默认系统提示, 加载记忆, 保存记忆, 清空记忆 } from "./memory.js";
 import { OWU聊天, OWU探活, 列出OWU模型, 清空OWU缓存, type OWU模型 } from "./openwebui.js";
 
@@ -55,6 +55,10 @@ export function 注册AI处理器(客户端: NiganeClient): 能力声明[] {
         function: { name: string; description?: string; parameters?: Record<string, unknown> };
       }>;
       tool_choice?: "auto" | "required" | "none" | string;
+      /** 流式：每收到一段增量就 sendEvent("ai.chunk", ...) 推给前端 */
+      流式?: boolean;
+      /** 流式会话标识（前端据此把增量归到对应气泡） */
+      流式ID?: string;
     };
     const 系统提示 = typeof p.system === "string" && p.system.trim() ? p.system : 默认系统提示;
     const chatId = typeof p.chatId === "string" && p.chatId.trim() ? p.chatId.trim() : "default";
@@ -80,7 +84,47 @@ export function 注册AI处理器(客户端: NiganeClient): 能力声明[] {
       tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
       finish_reason?: string;
     };
-    if (选通道(p.provider, p.model) === "openwebui") {
+    const 走OpenWebUI = 选通道(p.provider, p.model) === "openwebui";
+
+    // 流式：只在「非 OpenWebUI + 无 tools」时启用。
+    // 原因：工具调用需要完整 JSON 才能解析；OpenWebUI 通道未实现 SSE 透传。
+    const 可流式 = p.流式 === true && !走OpenWebUI && !(p.tools && p.tools.length > 0);
+    if (可流式) {
+      const 流式ID = typeof p.流式ID === "string" && p.流式ID ? p.流式ID : `chat-${Date.now()}`;
+      let 已推字节 = 0;
+      结果 = await 流式聊天(
+        取方(p.provider),
+        {
+          model: p.model,
+          messages: 消息,
+          temperature: p.temperature,
+          maxTokens: p.maxTokens,
+        },
+        {
+          onChunk: (增量, 累计) => {
+            已推字节 += 增量.length;
+            客户端.sendEvent("ai.chunk", { 流式ID, 增量, 累计, chatId });
+          },
+          onReasoning: (增量, 思考累计) => {
+            // 推理模型（qwen3 等）先输出思考过程，正文稍后才来。
+            // 单独推一个事件，前端可显示「正在思考…」而不把思考混进回答。
+            客户端.sendEvent("ai.chunk", { 流式ID, 思考增量: 增量, 思考累计, chatId });
+          },
+          onError: (错误) => {
+            客户端.sendEvent("ai.chunk", { 流式ID, 错误: 错误.message, chatId });
+          },
+        },
+      );
+      客户端.sendEvent("ai.chunk", {
+        流式ID,
+        完成: true,
+        累计: 结果.reply,
+        model: 结果.model,
+        提供方: 结果.提供方,
+        字节: 已推字节,
+        chatId,
+      });
+    } else if (走OpenWebUI) {
       const 配置 = 加载AI配置();
       if (!配置.openwebui) throw new Error("未配置 OpenWebUI（ai.openwebui）");
       结果 = await OWU聊天(配置.openwebui, {

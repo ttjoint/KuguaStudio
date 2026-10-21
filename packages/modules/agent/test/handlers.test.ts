@@ -4,15 +4,23 @@ import type { 循环消息, OpenAI工具 } from "../src/pure.js";
 
 /** 最小 NiganeClient 桩：只记录 onRequest 注册的 handler */
 function 造客户端(): {
-  客户端: { handlers: Map<string, (参数: unknown) => Promise<unknown> | unknown>; onRequest: (a: string, h: (参数: unknown) => unknown) => void };
+  客户端: {
+    handlers: Map<string, (参数: unknown) => Promise<unknown> | unknown>;
+    onRequest: (a: string, h: (参数: unknown) => unknown) => void;
+    sendEvent: (action: string, params?: unknown) => void;
+  };
   处理: (action: string, 参数: unknown) => Promise<unknown>;
+  事件: Array<{ action: string; params: unknown }>;
 } {
   const handlers = new Map<string, (参数: unknown) => unknown>();
+  const 事件: Array<{ action: string; params: unknown }> = [];
   return {
     客户端: {
       handlers,
       onRequest: (action, h) => handlers.set(action, h),
+      sendEvent: (action, params) => 事件.push({ action, params }),
     },
+    事件,
     处理: async (action, 参数) => {
       const h = handlers.get(action);
       if (!h) throw new Error(`无 handler：${action}`);
@@ -117,5 +125,82 @@ describe("agent handlers：能力过滤 + 工具循环接线", () => {
     expect(结果.最终回答).toBe("找到番茄笔记");
     expect(调用.执行工具名).toBe("mkg.ai.search");
     expect(调用.执行参数).toEqual({ keyword: "番茄" });
+  });
+});
+
+describe("agent 进度推送", () => {
+  it("工具循环期间推送 agent.progress 事件（准备/思考/执行/结束）", async () => {
+    const { 客户端, 处理, 事件 } = 造客户端();
+    let 轮次 = 0;
+    注册Agent处理器(客户端 as never, {
+      聊天: async () => {
+        轮次++;
+        if (轮次 === 1) {
+          return {
+            content: null,
+            tool_calls: [{ id: "c1", type: "function", function: { name: "mkg.ai.search", arguments: '{"keyword":"x"}' } }],
+            finish_reason: "tool_calls",
+          };
+        }
+        return { content: "完成", tool_calls: [], finish_reason: "stop" };
+      },
+      执行工具: async () => ({ ok: true }),
+      获取能力: async () => [{ 名称: "mkg.ai.search", 模块: "mkg" }],
+    });
+
+    await 处理("agent.run", { prompt: "搜", agentId: "a", 进度ID: "p1" });
+
+    const 阶段 = 事件.filter((e) => e.action === "agent.progress").map((e) => (e.params as { 阶段: string }).阶段);
+    expect(阶段).toContain("准备");
+    expect(阶段).toContain("思考");
+    expect(阶段).toContain("决定调用");
+    expect(阶段).toContain("执行工具");
+    expect(阶段).toContain("工具完成");
+    expect(阶段).toContain("结束");
+  });
+
+  it("进度事件带同一个 进度ID（前端据此过滤）", async () => {
+    const { 客户端, 处理, 事件 } = 造客户端();
+    注册Agent处理器(客户端 as never, {
+      聊天: async () => ({ content: "好", tool_calls: [], finish_reason: "stop" }),
+      执行工具: async () => ({}),
+      获取能力: async () => [],
+    });
+    const r = (await 处理("agent.run", { prompt: "x", 进度ID: "my-progress" })) as { 进度ID: string };
+    expect(r.进度ID).toBe("my-progress");
+    const ids = 事件
+      .filter((e) => e.action === "agent.progress")
+      .map((e) => (e.params as { 进度ID: string }).进度ID);
+    expect(ids.every((id) => id === "my-progress")).toBe(true);
+  });
+
+  it("工具失败时推送「工具失败」但循环仍能结束（错误被吞）", async () => {
+    const { 客户端, 处理, 事件 } = 造客户端();
+    let 轮次 = 0;
+    注册Agent处理器(客户端 as never, {
+      聊天: async () => {
+        轮次++;
+        if (轮次 === 1) {
+          return {
+            content: null,
+            tool_calls: [{ id: "c1", type: "function", function: { name: "a.fail", arguments: "{}" } }],
+            finish_reason: "tool_calls",
+          };
+        }
+        return { content: "看到错误了", tool_calls: [], finish_reason: "stop" };
+      },
+      执行工具: async () => {
+        throw new Error("炸了");
+      },
+      获取能力: async () => [{ 名称: "a.fail", 模块: "a" }],
+    });
+
+    const r = (await 处理("agent.run", { prompt: "x", 进度ID: "p2" })) as { 最终回答: string };
+    expect(r.最终回答).toBe("看到错误了");
+    const 失败 = 事件.find(
+      (e) => e.action === "agent.progress" && (e.params as { 阶段: string }).阶段 === "工具失败",
+    );
+    expect(失败).toBeDefined();
+    expect((失败!.params as { 错误: string }).错误).toContain("炸了");
   });
 });
