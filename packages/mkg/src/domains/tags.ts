@@ -45,12 +45,41 @@ export function 安装标签域(proto: { [k: string]: unknown }): void {
     description?: string,
   ): 标签 {
     const 当前时间 = Math.floor(Date.now() / 1000);
+    // 标签名全局唯一（tags.name 上有 UNIQUE 约束），所以同名只能有一个。
+    //
+    // ⚠️ 这里**不能**用 ON CONFLICT(name) DO UPDATE SET parent_id = excluded.parent_id：
+    // 那会在「重新创建一个已存在于其它父节点下的同名标签」时，把它从原位置
+    // **搬走**到新父节点下，静默打乱整个标签树。
+    //
+    // 实测复现：
+    //   createTagTree(["种植","番茄"])  → 番茄 parent=种植
+    //   createTagTree(["番茄"])          → 番茄被搬到根（parent=null）
+    //
+    // 正确语义：同名标签已存在就返回它（位置不变），只允许更新描述。
+    const 现有 = this.db
+      .prepare("SELECT id, name, parent_id, description, ai_public FROM tags WHERE name = ?")
+      .get(name) as unknown as
+      | { id: number; name: string; parent_id: number | null; description: string | null; ai_public: number }
+      | undefined;
+
+    if (现有) {
+      // 描述是可选覆盖：显式传了才改，不传保持原值（避免无意清空）
+      if (description !== undefined && description !== null) {
+        this.db.prepare("UPDATE tags SET description = ? WHERE id = ?").run(description, 现有.id);
+        现有.description = description;
+      }
+      return {
+        id: 现有.id,
+        name: 现有.name,
+        parentId: 现有.parent_id ?? null,
+        description: 现有.description,
+        aiPublic: 现有.ai_public === 1,
+      };
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO tags (name, parent_id, description, created_at)
       VALUES (?, ?, ?, ?)
-      ON CONFLICT(name) DO UPDATE SET
-        parent_id = excluded.parent_id,
-        description = excluded.description
       RETURNING id, name, parent_id, description, ai_public
     `);
     const row = stmt.get(
