@@ -7,6 +7,7 @@ import { 刷新模块配置, 绑定模块管理事件 } from "./14-plugin-ui";
 import { 初始化指令面板, 加载指令面板数据 } from "./16-cmd-panel";
 import { 初始化小组件 } from "./19-widgets";
 import { 初始化仪表盘设置 } from "./19b-widget-settings";
+import { 初始化审批UI, 刷新待审批 } from "./20-approval";
 
 // ===== 初始化 =====
 
@@ -32,6 +33,10 @@ window.kugua.onBus((action) => {
 
 // 初始化聊天页左侧「指令面板」
 初始化指令面板();
+
+// AI 写操作审批：订阅事件 + 补渲染未决项（agent 模块可选，未启动时静默）
+初始化审批UI();
+void 刷新待审批();
 
 // 初始化设置页「模块管理」
 绑定模块管理事件();

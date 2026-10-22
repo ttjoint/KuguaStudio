@@ -178,3 +178,145 @@ export const 默认代理系统提示 =
   "当问题需要查询或写入知识库时，必须调用对应工具，不要凭空猜测。" +
   "工具结果是你唯一的事实来源，最终回答要基于工具结果。" +
   "你只能通过 mkg.ai.* 工具访问知识库；读不到的内容不要编造。";
+
+// ===== 审批队列（写操作逐次确认）=====
+//
+// 为什么需要：只读/可写是「整场会话」的开关，一旦开到可写，AI 就能连续写任意多条。
+// 用户对「它到底写了什么」没有逐次把关的机会。
+//
+// 设计要点：
+// - 纯内存 + Promise 阻塞：工具循环的「执行工具」本身就是 async，
+//   所以审批天然可以 await，不需要改造循环结构。
+// - 超时自动拒绝：避免前端关闭/断线导致循环永久挂起。
+// - 队列不持久化：进程重启后未决的审批自然作废（AI 的写入也随之失败），这是可接受语义。
+
+/** 一条待审批的写操作 */
+export interface 审批请求 {
+  id: string;
+  agentId: string;
+  工具: string;
+  参数: Record<string, unknown>;
+  /** 给用户看的摘要（如「新建 aigc：番茄育苗小结」） */
+  摘要: string;
+  创建时间: number;
+}
+
+/** 审批决议 */
+export type 审批决议 =
+  | { 通过: true; 备注?: string }
+  | { 通过: false; 原因?: string };
+
+interface 待决项 {
+  请求: 审批请求;
+  解决: (决议: 审批决议) => void;
+  定时器: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * 审批队列：登记待审批请求，等用户决议。
+ *
+ * 使用方式：
+ * ```ts
+ * const 决议 = await 队列.等待({ agentId, 工具, 参数, 摘要 }, 120000);
+ * if (!决议.通过) throw new Error("用户拒绝了该操作");
+ * ```
+ */
+export class 审批队列 {
+  private 待决 = new Map<string, 待决项>();
+  private 序号 = 0;
+
+  constructor(
+    /** 登记新请求时的回调（用于推送给前端） */
+    private 选项: {
+      通知登记?: (请求: 审批请求) => void;
+      通知解决?: (id: string, 决议: 审批决议) => void;
+    } = {},
+  ) {}
+
+  /** 当前待审批列表（前端刷新用） */
+  列表(): 审批请求[] {
+    return [...this.待决.values()].map((x) => x.请求).sort((a, b) => a.创建时间 - b.创建时间);
+  }
+
+  /** 是否有待审批 */
+  get 有待审批(): boolean {
+    return this.待决.size > 0;
+  }
+
+  /** 生成请求 id（单调递增，便于前端排序/去重） */
+  生成ID(): string {
+    this.序号 += 1;
+    return `ap-${Date.now()}-${this.序号}`;
+  }
+
+  /**
+   * 登记并等待决议。
+   *
+   * @param 请求 待审批请求（id 由调用方用 生成ID() 生成）
+   * @param 超时毫秒 超时后自动拒绝（默认 120s）
+   */
+  等待(请求: 审批请求, 超时毫秒 = 120000): Promise<审批决议> {
+    return new Promise<审批决议>((解决) => {
+      const 定时器 = setTimeout(() => {
+        // 超时：视为拒绝，并清理
+        const 项 = this.待决.get(请求.id);
+        if (!项) return;
+        this.待决.delete(请求.id);
+        解决({ 通过: false, 原因: "审批超时（用户未响应）" });
+        this.选项.通知解决?.(请求.id, { 通过: false, 原因: "审批超时" });
+      }, Math.max(1000, 超时毫秒));
+
+      this.待决.set(请求.id, { 请求, 解决, 定时器 });
+      this.选项.通知登记?.(请求);
+    });
+  }
+
+  /** 用户决议：批准 */
+  批准(id: string, 备注?: string): boolean {
+    return this.解决(id, { 通过: true, 备注 });
+  }
+
+  /** 用户决议：拒绝 */
+  拒绝(id: string, 原因?: string): boolean {
+    return this.解决(id, { 通过: false, 原因 });
+  }
+
+  /** 内部：解决一条待决项 */
+  private 解决(id: string, 决议: 审批决议): boolean {
+    const 项 = this.待决.get(id);
+    if (!项) return false;
+    this.待决.delete(id);
+    clearTimeout(项.定时器);
+    项.解决(决议);
+    this.选项.通知解决?.(id, 决议);
+    return true;
+  }
+
+  /** 清空全部（拒绝所有待决；进程退出/停止模块时用） */
+  清空(原因 = "队列已清空"): void {
+    for (const [id, 项] of [...this.待决]) {
+      this.待决.delete(id);
+      clearTimeout(项.定时器);
+      项.解决({ 通过: false, 原因 });
+      this.选项.通知解决?.(id, { 通过: false, 原因 });
+    }
+  }
+}
+
+/** 哪些工具需要审批：写操作 + 删除类 */
+export function 需要审批(工具名: string): boolean {
+  // 目前只有 mkg.ai.write 是 AI 可用的写能力。
+  // 用「后缀/前缀匹配」而非硬编码单值，将来加 mkg.ai.update 等无需改这里。
+  return /\.write$|\.update$|\.delete$|\.create$/.test(工具名);
+}
+
+/** 从工具调用生成给人看的摘要 */
+export function 生成审批摘要(工具: string, 参数: Record<string, unknown>): string {
+  const 标题 = typeof 参数.title === "string" ? 参数.title : "";
+  const id = 参数.id;
+  const 内容 = typeof 参数.content === "string" ? 参数.content : "";
+  if (/\.delete$/.test(工具)) return `删除内容 ${id ?? ""}`;
+  if (id !== undefined) return `修改内容 ${id}${标题 ? `「${标题}」` : ""}`;
+  const 预览 = 内容.replace(/\s+/g, " ").slice(0, 60);
+  return `新建内容${标题 ? `「${标题}」` : ""}${预览 ? `：${预览}${内容.length > 60 ? "…" : ""}` : ""}`;
+}

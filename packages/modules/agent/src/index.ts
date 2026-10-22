@@ -12,6 +12,7 @@
 
 import { 启动模块 } from "@kugua/module-kit";
 import { 注册Agent处理器 } from "./handlers.js";
+import { 审批队列 } from "./pure.js";
 import type { 能力声明 } from "@kugua/capability";
 
 const 能力清单: 能力声明[] = [
@@ -34,6 +35,34 @@ const 能力清单: 能力声明[] = [
     暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
   },
   {
+    名称: "agent.approvals",
+    模块: "agent",
+    标题: "待审批列表",
+    说明: "列出等待用户批准的 AI 写操作（可写模式下逐次确认）",
+    参数: { type: "object", properties: {} },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
+  },
+  {
+    名称: "agent.approve",
+    模块: "agent",
+    标题: "批准 AI 写操作",
+    说明: "批准一条待审批的写操作，AI 将继续执行",
+    参数: { type: "object", properties: { id: { type: "string" }, 备注: { type: "string" } }, required: ["id"] },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
+  },
+  {
+    名称: "agent.reject",
+    模块: "agent",
+    标题: "拒绝 AI 写操作",
+    说明: "拒绝一条待审批的写操作，AI 会收到拒绝原因",
+    参数: {
+      type: "object",
+      properties: { id: { type: "string" }, 原因: { type: "string" } },
+      required: ["id"],
+    },
+    暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
+  },
+  {
     名称: "agent.tools",
     模块: "agent",
     标题: "AI 可用工具",
@@ -48,7 +77,26 @@ void 启动模块({
   version: "0.1.0",
   能力: 能力清单,
   注册: (客户端) => {
+    // 审批队列：写操作逐次确认。事件推给前端（WebUI 转发 agent.approval）。
+    const 审批 = new 审批队列({
+      通知登记: (请求) => {
+        try {
+          客户端.sendEvent("agent.approval", { 类型: "登记", 请求 });
+        } catch {
+          /* 前端未连接时忽略 */
+        }
+      },
+      通知解决: (id, 决议) => {
+        try {
+          客户端.sendEvent("agent.approval", { 类型: "解决", id, 决议 });
+        } catch {
+          /* 忽略 */
+        }
+      },
+    });
+
     注册Agent处理器(客户端, {
+      审批,
       // 聊天：走 ai 模块的 ai.chat（带 tools）
       async 聊天(messages, tools) {
         const 回复 = (await 客户端.request("ai", "ai.chat", {

@@ -406,7 +406,7 @@ export interface 智能任务结果 {
 export async function 与AI任务(任务: string, 只读 = true): Promise<void> {
   const 标签 = 只读 ? "智能任务（只读）" : "智能任务（可写）";
   const 占位 = 添加独立回应(
-    `⏳ 正在执行：${任务}\n（模式：${只读 ? "只读——只能读取/搜索知识库" : "可写——可写入 AI 生成内容"}）`,
+    `⏳ 正在执行：${任务}\n（模式：${只读 ? "只读——只能读取/搜索知识库" : "可写——每次写入会请你确认"}）`,
     标签,
   );
   const 内容块 = 占位.querySelector(".msg-reply-content") as HTMLDivElement | null;

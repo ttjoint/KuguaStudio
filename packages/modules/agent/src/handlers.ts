@@ -13,8 +13,12 @@ import {
   能力列表转OpenAI工具,
   运行工具循环,
   默认代理系统提示,
+  需要审批,
+  生成审批摘要,
+  审批队列,
   type 循环消息,
   type OpenAI工具,
+  type 审批请求,
 } from "./pure.js";
 
 /** agent 可用能力：只读 + AI 专属（不含危险、不含写盘） */
@@ -62,8 +66,12 @@ export function 注册Agent处理器(
     执行工具: (name: string, 参数: Record<string, unknown>) => Promise<unknown>;
     /** 获取 AI 可调用能力清单 */
     获取能力: () => Promise<能力声明摘要[]>;
+    /** 审批队列（写操作逐次确认）；不传则不审批（兼容旧调用/测试） */
+    审批?: 审批队列;
   },
 ): void {
+  /** 审批队列（供 agent.approvals / agent.approve / agent.reject 共用） */
+  const 审批 = 依赖.审批 ?? null;
   // agent 运行：入口
   客户端.onRequest("agent.run", async (参数) => {
     const p = (参数 ?? {}) as {
@@ -119,6 +127,26 @@ export function 注册Agent处理器(
           return 回复;
         },
         执行工具: async (name, 参数) => {
+          // 写操作逐次审批：入队 → 推送事件 → 阻塞等用户决议
+          // 注意：只有可写模式下才有写工具可用；只读模式根本不会走到这里。
+          if (审批 && 需要审批(name)) {
+            const 请求: 审批请求 = {
+              id: 审批.生成ID(),
+              agentId,
+              工具: name,
+              参数,
+              摘要: 生成审批摘要(name, 参数),
+              创建时间: Date.now(),
+            };
+            推("等待审批", { 轮次, 工具: name, 审批ID: 请求.id, 摘要: 请求.摘要 });
+            const 决议 = await 审批.等待(请求);
+            if (!决议.通过) {
+              推("审批拒绝", { 轮次, 工具: name, 审批ID: 请求.id, 原因: 决议.原因 });
+              // 作为工具结果回传给模型，让它知道被拒绝（而不是抛错中断循环）
+              return { 已拒绝: true, 原因: 决议.原因 ?? "用户拒绝" };
+            }
+            推("审批通过", { 轮次, 工具: name, 审批ID: 请求.id });
+          }
           推("执行工具", { 轮次, 工具: name, 参数 });
           try {
             const r = await 依赖.执行工具(name, 参数);
@@ -158,5 +186,30 @@ export function 注册Agent处理器(
     const 只读模式 = p.只读 !== false;
     const 能力 = await 取可调用能力(依赖.获取能力, 只读模式);
     return 能力列表转OpenAI工具(能力 as 能力声明[]).map((t) => t.function.name);
+  });
+
+  // ===== 审批（写操作逐次确认）=====
+
+  // 列出待审批请求（前端打开面板/重连时拉取）
+  客户端.onRequest("agent.approvals", () => (审批 ? 审批.列表() : []));
+
+  // 用户批准
+  客户端.onRequest("agent.approve", (参数) => {
+    if (!审批) throw new Error("审批队列未启用");
+    const { id, 备注 } = (参数 ?? {}) as { id?: string; 备注?: string };
+    if (!id) throw new Error("缺少 id");
+    const 成功 = 审批.批准(id, 备注);
+    if (!成功) throw new Error(`未找到待审批请求 ${id}（可能已超时或已处理）`);
+    return { 已批准: id };
+  });
+
+  // 用户拒绝
+  客户端.onRequest("agent.reject", (参数) => {
+    if (!审批) throw new Error("审批队列未启用");
+    const { id, 原因 } = (参数 ?? {}) as { id?: string; 原因?: string };
+    if (!id) throw new Error("缺少 id");
+    const 成功 = 审批.拒绝(id, 原因);
+    if (!成功) throw new Error(`未找到待审批请求 ${id}（可能已超时或已处理）`);
+    return { 已拒绝: id };
   });
 }

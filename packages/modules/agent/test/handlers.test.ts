@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { 注册Agent处理器 } from "../src/handlers.js";
+import { 审批队列 } from "../src/pure.js";
 import type { 循环消息, OpenAI工具 } from "../src/pure.js";
 
 /** 最小 NiganeClient 桩：只记录 onRequest 注册的 handler */
@@ -202,5 +203,173 @@ describe("agent 进度推送", () => {
     );
     expect(失败).toBeDefined();
     expect((失败!.params as { 错误: string }).错误).toContain("炸了");
+  });
+});
+
+describe("agent 审批队列集成", () => {
+  /** 造一个会调用 write 的聊天剧本 */
+  function 造写剧本() {
+    let 轮次 = 0;
+    return async () => {
+      轮次++;
+      if (轮次 === 1) {
+        return {
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function" as const,
+              function: { name: "mkg.ai.write", arguments: '{"title":"番茄小结","content":"温度20度"}' },
+            },
+          ],
+          finish_reason: "tool_calls",
+        };
+      }
+      return { content: "写完了", tool_calls: [], finish_reason: "stop" };
+    };
+  }
+
+  it("可写模式下写操作需审批：批准后执行", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 审批 = new 审批队列();
+    const 已执行: string[] = [];
+
+    注册Agent处理器(客户端 as never, {
+      聊天: 造写剧本(),
+      执行工具: async (name) => {
+        已执行.push(name);
+        return { id: 1, title: "番茄小结" };
+      },
+      获取能力: async () => [{ 名称: "mkg.ai.write", 模块: "mkg" }],
+      审批,
+    });
+
+    // 后台跑 agent.run；主线程负责批准
+    const 任务 = 处理("agent.run", { prompt: "写笔记", agentId: "a", 只读: false });
+    // 等审批登记出现
+    await new Promise((r) => setTimeout(r, 20));
+    const 待审 = 审批.列表();
+    expect(待审).toHaveLength(1);
+    expect(待审[0].工具).toBe("mkg.ai.write");
+    expect(待审[0].摘要).toContain("番茄小结");
+
+    审批.批准(待审[0].id);
+    const r = (await 任务) as { 最终回答: string };
+    expect(r.最终回答).toBe("写完了");
+    expect(已执行).toEqual(["mkg.ai.write"]);
+  });
+
+  it("拒绝后不执行工具，且模型收到「已拒绝」", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 审批 = new 审批队列();
+    const 已执行: string[] = [];
+    let 收到的工具结果 = "";
+
+    注册Agent处理器(客户端 as never, {
+      聊天: async (messages) => {
+        // 第二轮时检查 tool 消息内容
+        const tool消息 = messages.filter((m) => m.role === "tool").pop();
+        if (tool消息) {
+          收到的工具结果 = String(tool消息.content ?? "");
+          return { content: "用户拒绝了，我不写了", tool_calls: [], finish_reason: "stop" };
+        }
+        return {
+          content: null,
+          tool_calls: [
+            {
+              id: "c1",
+              type: "function" as const,
+              function: { name: "mkg.ai.write", arguments: '{"title":"不该写"}' },
+            },
+          ],
+          finish_reason: "tool_calls",
+        };
+      },
+      执行工具: async (name) => {
+        已执行.push(name);
+        return {};
+      },
+      获取能力: async () => [{ 名称: "mkg.ai.write", 模块: "mkg" }],
+      审批,
+    });
+
+    const 任务 = 处理("agent.run", { prompt: "写", agentId: "a", 只读: false });
+    await new Promise((r) => setTimeout(r, 20));
+    审批.拒绝(审批.列表()[0].id, "内容不对");
+    const r = (await 任务) as { 最终回答: string };
+
+    expect(已执行).toEqual([]); // 关键：没有真的执行
+    expect(收到的工具结果).toContain("已拒绝");
+    expect(r.最终回答).toContain("拒绝");
+  });
+
+  it("只读模式下根本不会触发审批（写工具不在工具列表）", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 审批 = new 审批队列();
+
+    注册Agent处理器(客户端 as never, {
+      聊天: async () => ({ content: "只读完成", tool_calls: [], finish_reason: "stop" }),
+      执行工具: async () => ({}),
+      获取能力: async () => [
+        { 名称: "mkg.ai.read", 模块: "mkg" },
+        { 名称: "mkg.ai.write", 模块: "mkg" },
+      ],
+      审批,
+    });
+
+    await 处理("agent.run", { prompt: "读", agentId: "a", 只读: true });
+    expect(审批.列表()).toHaveLength(0);
+  });
+
+  it("审批超时 → 工具不执行，循环继续（模型收到超时原因）", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 审批 = new 审批队列();
+    const 已执行: string[] = [];
+
+    注册Agent处理器(客户端 as never, {
+      聊天: 造写剧本(),
+      执行工具: async (name) => {
+        已执行.push(name);
+        return {};
+      },
+      获取能力: async () => [{ 名称: "mkg.ai.write", 模块: "mkg" }],
+      审批,
+    });
+
+    // 不批准，让它超时（用默认 120s 太久，这里直接手动清空模拟超时）
+    const 任务 = 处理("agent.run", { prompt: "写", agentId: "a", 只读: false });
+    await new Promise((r) => setTimeout(r, 20));
+    审批.清空("测试超时");
+    const r = (await 任务) as { 最终回答: string };
+
+    expect(已执行).toEqual([]);
+    expect(r.最终回答).toBe("写完了");
+  });
+
+  it("agent.approve / agent.reject 对未知 id 报错", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    注册Agent处理器(客户端 as never, {
+      聊天: async () => ({ content: "", tool_calls: [], finish_reason: "stop" }),
+      执行工具: async () => ({}),
+      获取能力: async () => [],
+      审批: new 审批队列(),
+    });
+    await expect(处理("agent.approve", { id: "nope" })).rejects.toThrow(/未找到待审批请求/);
+    await expect(处理("agent.reject", { id: "nope" })).rejects.toThrow(/未找到待审批请求/);
+  });
+
+  it("未传审批队列时，写操作直接执行（向后兼容）", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 已执行: string[] = [];
+    注册Agent处理器(客户端 as never, {
+      聊天: 造写剧本(),
+      执行工具: async (name) => {
+        已执行.push(name);
+        return {};
+      },
+      获取能力: async () => [{ 名称: "mkg.ai.write", 模块: "mkg" }],
+    });
+    await 处理("agent.run", { prompt: "写", agentId: "a", 只读: false });
+    expect(已执行).toEqual(["mkg.ai.write"]);
   });
 });

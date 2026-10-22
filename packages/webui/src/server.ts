@@ -309,7 +309,7 @@ async function 连接苦音(): Promise<void> {
     苦音客户端.onEvent(动作, (数据: unknown) => 推送({ type: "bus", action: 动作, params: 数据 }));
   }
   // AI 流式输出：每收到一段增量就转给浏览器（前端就地渲染）
-  for (const 动作 of ["ai.chunk", "agent.progress"]) {
+  for (const 动作 of ["ai.chunk", "agent.progress", "agent.approval"]) {
     苦音客户端.onEvent(动作, (数据: unknown) => 推送({ type: "bus", action: 动作, params: 数据 }));
   }
   // 小组件数据推送。
