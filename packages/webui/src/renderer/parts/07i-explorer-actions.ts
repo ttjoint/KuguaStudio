@@ -1,45 +1,29 @@
 // ===== 右键菜单 / 批量操作 / 内联编辑 / 框选 =====
 // 由 07-explorer.ts 拆分而来。
+//
+// 注意：菜单的**渲染与全局接管**已统一到 21-context-menu.ts。
+// 这里保留同名导出是为了不打断现有调用点（内容列表、标签树、看板等处）。
+// 新代码请直接用 21-context-menu 的 显示菜单 / 注册右键菜单。
 import { Explorer } from "./07-explorer";
 import { 更新内容信息面板 } from "./07j-explorer-tags";
 import { 添加消息 } from "./03-preview";
 import { 刷新统计 } from "./06-shell";
+import { 显示菜单, 隐藏菜单 } from "./21-context-menu";
 
 export function 显示右键菜单(x: number, y: number): void {
+  // 无菜单项的“空菜单”没意义；保留此函数仅为兼容旧调用
   Explorer.右键菜单.style.left = x + "px";
   Explorer.右键菜单.style.top = y + "px";
   Explorer.右键菜单.classList.remove("hidden");
 }
 
 export function 隐藏右键菜单(): void {
-  Explorer.右键菜单.classList.add("hidden");
+  隐藏菜单();
 }
 
-// ===== 动态右键菜单 =====
+// ===== 动态右键菜单（委托给统一实现）=====
 export function 显示上下文菜单(x: number, y: number, items: Array<Explorer.菜单项 | null>): void {
-  Explorer.右键菜单.innerHTML = "";
-  for (const it of items) {
-    if (it === null) {
-      const sep = document.createElement("div");
-      sep.className = "cm-sep";
-      Explorer.右键菜单.appendChild(sep);
-      continue;
-    }
-    const div = document.createElement("div");
-    div.className = "cm-item" + (it.danger ? " danger" : "");
-    div.textContent = (it.icon ? it.icon + " " : "") + it.label;
-    div.addEventListener("click", () => {
-      隐藏右键菜单();
-      it.onClick();
-    });
-    Explorer.右键菜单.appendChild(div);
-  }
-  // 边界保护：避免菜单超出视口
-  const 宽 = Math.min(240, Explorer.右键菜单.offsetWidth);
-  const 高 = Explorer.右键菜单.offsetHeight;
-  Explorer.右键菜单.style.left = Math.min(x, window.innerWidth - 宽 - 4) + "px";
-  Explorer.右键菜单.style.top = Math.min(y, window.innerHeight - 高 - 4) + "px";
-  Explorer.右键菜单.classList.remove("hidden");
+  显示菜单(x, y, items as Parameters<typeof 显示菜单>[2]);
 }
 
 /** 复制文本到剪贴板 */

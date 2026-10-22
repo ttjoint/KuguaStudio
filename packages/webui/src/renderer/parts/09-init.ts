@@ -8,6 +8,7 @@ import { 初始化指令面板, 加载指令面板数据 } from "./16-cmd-panel"
 import { 初始化小组件 } from "./19-widgets";
 import { 初始化仪表盘设置 } from "./19b-widget-settings";
 import { 初始化审批UI, 刷新待审批 } from "./20-approval";
+import { 初始化右键菜单, 注册文本区菜单 } from "./21-context-menu";
 
 // ===== 初始化 =====
 
@@ -37,6 +38,18 @@ window.kugua.onBus((action) => {
 // AI 写操作审批：订阅事件 + 补渲染未决项（agent 模块可选，未启动时静默）
 初始化审批UI();
 void 刷新待审批();
+
+// 全局右键菜单接管：屏蔽浏览器默认菜单，改为平台自己的菜单
+初始化右键菜单();
+
+// 为只读文本区注册「复制」菜单（这些区域用户几乎只需要复制）
+注册文本区菜单(document.getElementById("chat-log"), "聊天记录");
+注册文本区菜单(document.getElementById("jobs-log"), "作业日志");
+注册文本区菜单(document.getElementById("logs-pane-bus"), "总线日志");
+注册文本区菜单(document.getElementById("logs-pane-sys"), "系统日志");
+注册文本区菜单(document.getElementById("ex-info-preview"), "内容预览");
+注册文本区菜单(document.getElementById("preview-content"), "预览内容");
+注册文本区菜单(document.getElementById("tools-output"), "工具输出");
 
 // 初始化设置页「模块管理」
 绑定模块管理事件();

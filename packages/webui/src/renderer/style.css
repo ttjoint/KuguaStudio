@@ -3674,3 +3674,17 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
 .approval-card .mini-btn:hover {
   opacity: 1;
 }
+
+/* ===== 右键菜单（统一接管后）===== */
+.context-menu {
+  animation: cm-in 0.1s ease-out;
+}
+@keyframes cm-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+/* 菜单项禁用态（将来可用） */
+.cm-item.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}

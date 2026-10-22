@@ -1,4 +1,5 @@
 import { 聊天日志 } from "./02-chat-core";
+import { 显示菜单 } from "./21-context-menu";
 import { 媒体编解码实现 } from "../media-codec";
 import type { 地理信息, 图片信息, GIF补丁, GIF解码结果, 媒体编解码 } from "../media-codec";
 
@@ -256,28 +257,10 @@ export async function 复制剪贴板文本(文本: string): Promise<void> {
   }
 }
 
+// 菜单渲染已统一到 21-context-menu.ts（全局接管 + 视口翻转 + 剪贴板兜底）。
+// 保留此函数名仅为兼容现有调用点（聊天图片、预览等）。
 export function 显示顶层右键菜单(x: number, y: number, items: Array<{ label: string; icon?: string; onClick: () => void } | null>): void {
-  const 菜单 = document.getElementById("context-menu") as HTMLDivElement;
-  菜单.innerHTML = "";
-  for (const it of items) {
-    if (it === null) {
-      const sep = document.createElement("div");
-      sep.className = "cm-sep";
-      菜单.appendChild(sep);
-      continue;
-    }
-    const div = document.createElement("div");
-    div.className = "cm-item";
-    div.textContent = (it.icon ? it.icon + " " : "") + it.label;
-    div.addEventListener("click", () => {
-      菜单.classList.add("hidden");
-      it.onClick();
-    });
-    菜单.appendChild(div);
-  }
-  菜单.style.left = Math.max(4, Math.min(x, window.innerWidth - 250)) + "px";
-  菜单.style.top = Math.max(4, Math.min(y, window.innerHeight - 50)) + "px";
-  菜单.classList.remove("hidden");
+  显示菜单(x, y, items);
 }
 
 /** 聊天图片信息收集：data / kugua-file / file / http 各异 */
