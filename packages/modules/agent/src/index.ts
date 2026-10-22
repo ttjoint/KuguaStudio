@@ -32,6 +32,8 @@ const 能力清单: 能力声明[] = [
       },
       required: ["prompt"],
     },
+    // 工具循环是长任务：走 capability.call 时给 600s 超时（而非默认 60s）
+    长任务: true,
     暴露: { 指令: false, GUI: true, 定时: false, MCP: false },
   },
   {
@@ -75,6 +77,9 @@ const 能力清单: 能力声明[] = [
 void 启动模块({
   name: "agent",
   version: "0.1.0",
+  // 工具循环是长任务：本地 9B 模型单轮可达 40s+，多轮叠加远超默认 30s。
+  // 不调大这里会表现为「处理超时（30000ms）：agent.run」，而实际 AI 还在跑。
+  请求超时毫秒: 900000,
   能力: 能力清单,
   注册: (客户端) => {
     // 审批队列：写操作逐次确认。事件推给前端（WebUI 转发 agent.approval）。
@@ -99,12 +104,14 @@ void 启动模块({
       审批,
       // 聊天：走 ai 模块的 ai.chat（带 tools）
       async 聊天(messages, tools) {
+        // 超时必须显式给：默认 10s 对本地 9B 模型远远不够（实测单轮可达 40s+）。
+        // 这里是工具循环的每一轮，超时设 300s 与前端 agent.run 的超时匹配。
         const 回复 = (await 客户端.request("ai", "ai.chat", {
           messages,
           tools,
           tool_choice: "auto",
           chatId: "agent",
-        })) as {
+        }, 300000)) as {
           reply?: string;
           tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
           finish_reason?: string;

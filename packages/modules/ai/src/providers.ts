@@ -95,12 +95,28 @@ export function 加载AI配置(): AI配置 {
   const openwebui = 加载OpenWebUI配置() ?? undefined;
   const 节 = 读配置节();
   if (Array.isArray(节.providers) && 节.providers.length > 0) {
-    const providers = 节.providers.map((p) => ({
-      name: String(p.name),
-      baseUrl: String(p.baseUrl ?? "").replace(/\/+$/, ""),
-      apiKey: String(p.apiKey ?? ""),
-      models: p.models ?? {},
-    }));
+    const providers = 节.providers.map((p) => {
+      // 字段契约：配置声明（declaration.ts 的 提供方列）用的是**扁平字段**
+      // （chatModel / imageModel / embedModel），而运行时模型是嵌套的 models.chat。
+      // 两种都要兼容：手写配置可能用嵌套，UI 写入的是扁平。
+      // 声明用扁平字段（chatModel/imageModel/embedModel），运行时是 models.chat。
+      const 原始 = p as unknown as {
+        chatModel?: string;
+        imageModel?: string;
+        embedModel?: string;
+      };
+      const 嵌套 = (p.models ?? {}) as { chat?: string; image?: string; embed?: string };
+      return {
+        name: String(p.name),
+        baseUrl: String(p.baseUrl ?? "").replace(/\/+$/, ""),
+        apiKey: String(p.apiKey ?? ""),
+        models: {
+          chat: String(原始.chatModel ?? 嵌套.chat ?? "") || undefined,
+          image: String(原始.imageModel ?? 嵌套.image ?? "") || undefined,
+          embed: String(原始.embedModel ?? 嵌套.embed ?? "") || undefined,
+        },
+      };
+    });
     return { providers, default: String(节.default ?? providers[0].name), openwebui };
   }
   // 环境变量回退（单提供方 default）
