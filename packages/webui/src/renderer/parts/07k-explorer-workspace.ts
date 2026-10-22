@@ -4,6 +4,7 @@
 import { Explorer } from "./07-explorer";
 import { 打开内容 } from "./07g-explorer-editor";
 import { 添加消息 } from "./03-preview";
+import { 显示菜单 } from "./21-context-menu";
 
 // ---- 类型 ----
 interface 工作区 {
@@ -79,35 +80,14 @@ function 渲染工作区侧栏(): void {
   }
 }
 
+/** 工作区菜单：委托统一实现 */
 function 显示工作区菜单(x: number, y: number, ws: 工作区): void {
-  document.querySelectorAll(".ws-simple-menu").forEach((n) => n.remove());
-  const menu = document.createElement("div");
-  menu.className = "ws-simple-menu";
-  menu.style.left = x + "px";
-  menu.style.top = y + "px";
-  const 项: Array<{ label: string; danger?: boolean; onClick: () => void }> = [
-    { label: "重命名", onClick: () => void 重命名工作区(ws) },
-    { label: "清空摆放", onClick: () => void 清空工作区(ws) },
-    { label: "删除工作区", danger: true, onClick: () => void 删除工作区(ws) },
-  ];
-  for (const it of 项) {
-    const b = document.createElement("div");
-    b.className = "ws-simple-menu-item" + (it.danger ? " danger" : "");
-    b.textContent = it.label;
-    b.addEventListener("click", () => {
-      menu.remove();
-      it.onClick();
-    });
-    menu.appendChild(b);
-  }
-  document.body.appendChild(menu);
-  const 关闭 = (ev: MouseEvent): void => {
-    if (!menu.contains(ev.target as Node)) {
-      menu.remove();
-      document.removeEventListener("mousedown", 关闭, true);
-    }
-  };
-  setTimeout(() => document.addEventListener("mousedown", 关闭, true), 0);
+  显示菜单(x, y, [
+    { label: "重命名", icon: "✏️", onClick: () => void 重命名工作区(ws) },
+    { label: "清空摆放", icon: "🧹", onClick: () => void 清空工作区(ws) },
+    null,
+    { label: "删除工作区", icon: "🗑️", danger: true, onClick: () => void 删除工作区(ws) },
+  ]);
 }
 
 async function 新建工作区(): Promise<void> {
@@ -327,36 +307,15 @@ function 渲染放置卡(canvas: HTMLDivElement, it: 放置项): void {
   canvas.appendChild(el);
 }
 
+/** 放置项菜单：委托统一实现（样式/边界保护/关闭行为与其他菜单一致） */
 function 显示放置项菜单(x: number, y: number, it: 放置项): void {
-  document.querySelectorAll(".ws-simple-menu").forEach((n) => n.remove());
-  const menu = document.createElement("div");
-  menu.className = "ws-simple-menu";
-  menu.style.left = x + "px";
-  menu.style.top = y + "px";
-  const 项: Array<{ label: string; danger?: boolean; onClick: () => void }> = [
-    { label: "打开", onClick: () => { const c = 节点信息表.get(it.nodeId); if (c) void 打开内容(c); } },
-    { label: "编辑备注", onClick: () => void 编辑放置项备注(it) },
-    { label: "设置颜色", onClick: () => void 设置放置项颜色(it) },
-    { label: "移除摆放", danger: true, onClick: () => void 移除放置项(it) },
-  ];
-  for (const 菜单项 of 项) {
-    const b = document.createElement("div");
-    b.className = "ws-simple-menu-item" + (菜单项.danger ? " danger" : "");
-    b.textContent = 菜单项.label;
-    b.addEventListener("click", () => {
-      menu.remove();
-      菜单项.onClick();
-    });
-    menu.appendChild(b);
-  }
-  document.body.appendChild(menu);
-  const 关闭 = (ev: MouseEvent): void => {
-    if (!menu.contains(ev.target as Node)) {
-      menu.remove();
-      document.removeEventListener("mousedown", 关闭, true);
-    }
-  };
-  setTimeout(() => document.addEventListener("mousedown", 关闭, true), 0);
+  显示菜单(x, y, [
+    { label: "打开", icon: "📂", onClick: () => { const c = 节点信息表.get(it.nodeId); if (c) void 打开内容(c); } },
+    { label: "编辑备注", icon: "📝", onClick: () => void 编辑放置项备注(it) },
+    { label: "设置颜色", icon: "🎨", onClick: () => void 设置放置项颜色(it) },
+    null,
+    { label: "移除摆放", icon: "➖", danger: true, onClick: () => void 移除放置项(it) },
+  ]);
 }
 
 async function 编辑放置项备注(it: 放置项): Promise<void> {

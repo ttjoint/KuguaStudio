@@ -1,6 +1,7 @@
 // ===== 看板视图 =====
 // 由 07-explorer.ts 拆分而来。
 import { Explorer } from "./07-explorer";
+import { 显示菜单 } from "./21-context-menu";
 import { 卡片, 看板列 } from "./01-types";
 import { 添加消息 } from "./03-preview";
 import { 格式化时间 } from "./08-logs";
@@ -246,30 +247,9 @@ function 开始内联重命名列(span: HTMLSpanElement, col: 看板列): void {
 }
 
 /** 简易右键菜单（看板专用，不依赖 Explorer 的右键菜单 DOM） */
+/** 看板菜单：委托统一实现（21-context-menu），获得一致的样式/边界保护/关闭行为 */
 function 显示简单菜单(x: number, y: number, 项目: Array<{ label: string; danger?: boolean; onClick: () => void }>): void {
-  document.querySelectorAll(".ebc-simple-menu").forEach((n) => n.remove());
-  const menu = document.createElement("div");
-  menu.className = "ebc-simple-menu";
-  menu.style.left = x + "px";
-  menu.style.top = y + "px";
-  for (const it of 项目) {
-    const b = document.createElement("div");
-    b.className = "ebc-simple-menu-item" + (it.danger ? " danger" : "");
-    b.textContent = it.label;
-    b.addEventListener("click", () => {
-      menu.remove();
-      it.onClick();
-    });
-    menu.appendChild(b);
-  }
-  document.body.appendChild(menu);
-  const 关闭 = (ev: MouseEvent): void => {
-    if (!menu.contains(ev.target as Node)) {
-      menu.remove();
-      document.removeEventListener("mousedown", 关闭, true);
-    }
-  };
-  setTimeout(() => document.addEventListener("mousedown", 关闭, true), 0);
+  显示菜单(x, y, 项目);
 }
 
 function 打开列对话框(编辑: boolean): void {

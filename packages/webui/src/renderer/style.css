@@ -2282,16 +2282,7 @@ body {
 .card-color-swatch[data-color=""] { position: relative; }
 .card-color-swatch[data-color=""]::after { content: "×"; color: var(--text-dim); font-size: 0.75rem; }
 .card-color-swatch.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(90, 169, 230, 0.35); }
-.ebc-simple-menu, .ws-simple-menu {
-  position: fixed; z-index: 3000; min-width: 140px;
-  background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 8px;
-  padding: 0.25rem; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
-}
-.ebc-simple-menu-item, .ws-simple-menu-item {
-  padding: 0.35rem 0.6rem; font-size: 0.78rem; color: var(--text); border-radius: 5px; cursor: pointer;
-}
-.ebc-simple-menu-item:hover, .ws-simple-menu-item:hover { background: var(--bg-hover); }
-.ebc-simple-menu-item.danger, .ws-simple-menu-item.danger { color: #e06c75; }
+/* 看板/工作区菜单已统一到 #context-menu（见 21-context-menu.ts），此处样式废弃 */
 
 /* ===== 工作区 ===== */
 .ex-pane-workspace { flex-direction: column; flex: 1; min-height: 0; }
@@ -2441,6 +2432,12 @@ body {
 }
 /* 模块列表天然很高：让它独占整行，否则会把旁边那列拉出一大片空白 */
 #settings-view .oc-section:has(#settings-module-list) {
+  grid-column: 1 / -1;
+}
+/* 「关于」是页脚型区块：只有一行文字，半宽排列会在右边留出一大块空白，
+   看起来像被压到了一侧。让它独占整行（与模块管理一样通栏）。
+   用专用 class 而不是 :has() 结构匹配——后者脆弱，区块内容一变就失效。 */
+#settings-view .oc-section-full {
   grid-column: 1 / -1;
 }
 /* 单行设置内部再限一次宽：极宽屏下（如 2560）一列仍可能很宽，
