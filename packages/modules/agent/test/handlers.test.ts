@@ -373,3 +373,111 @@ describe("agent 审批队列集成", () => {
     expect(已执行).toEqual(["mkg.ai.write"]);
   });
 });
+
+describe("模型选择透传（曾导致「界面选了免费模型却用默认付费模型报 402」）", () => {
+  it("provider/model 透传到聊天依赖的第三参", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 收到的选项: Array<{ provider?: string; model?: string } | undefined> = [];
+
+    注册Agent处理器(客户端 as never, {
+      聊天: async (_msgs, _tools, 选项) => {
+        收到的选项.push(选项);
+        return { content: "好", tool_calls: [], finish_reason: "stop" };
+      },
+      执行工具: async () => ({}),
+      获取能力: async () => [],
+    });
+
+    await 处理("agent.run", {
+      prompt: "x",
+      provider: "openwebui",
+      model: "硅基流动.Qwen/Qwen3-8B",
+    });
+
+    expect(收到的选项).toHaveLength(1);
+    expect(收到的选项[0]).toEqual({ provider: "openwebui", model: "硅基流动.Qwen/Qwen3-8B" });
+  });
+
+  it("多轮工具循环中每轮都带同样的模型选择", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 每轮选项: Array<{ provider?: string; model?: string } | undefined> = [];
+    let 轮次 = 0;
+
+    注册Agent处理器(客户端 as never, {
+      聊天: async (_msgs, _tools, 选项) => {
+        每轮选项.push(选项);
+        轮次++;
+        if (轮次 === 1) {
+          return {
+            content: null,
+            tool_calls: [{ id: "c1", type: "function", function: { name: "mkg.ai.search", arguments: "{}" } }],
+            finish_reason: "tool_calls",
+          };
+        }
+        return { content: "完成", tool_calls: [], finish_reason: "stop" };
+      },
+      执行工具: async () => ({ ok: true }),
+      获取能力: async () => [{ 名称: "mkg.ai.search", 模块: "mkg" }],
+    });
+
+    await 处理("agent.run", { prompt: "x", provider: "lmstudio", model: "qwen/qwen3.5-9b" });
+
+    expect(每轮选项.length).toBe(2);
+    expect(每轮选项.every((o) => o?.provider === "lmstudio" && o?.model === "qwen/qwen3.5-9b")).toBe(true);
+  });
+
+  it("未传 provider/model 时为 undefined（用配置默认值，不硬编码）", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 收到的选项: Array<{ provider?: string; model?: string } | undefined> = [];
+
+    注册Agent处理器(客户端 as never, {
+      聊天: async (_msgs, _tools, 选项) => {
+        收到的选项.push(选项);
+        return { content: "好", tool_calls: [], finish_reason: "stop" };
+      },
+      执行工具: async () => ({}),
+      获取能力: async () => [],
+    });
+
+    await 处理("agent.run", { prompt: "x" });
+
+    expect(收到的选项[0]?.provider).toBeUndefined();
+    expect(收到的选项[0]?.model).toBeUndefined();
+  });
+
+  it("返回值回显 provider/model（便于排查实际用了哪个模型）", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    注册Agent处理器(客户端 as never, {
+      聊天: async () => ({ content: "好", tool_calls: [], finish_reason: "stop" }),
+      执行工具: async () => ({}),
+      获取能力: async () => [],
+    });
+
+    const r = (await 处理("agent.run", {
+      prompt: "x",
+      provider: "openwebui",
+      model: "m1",
+    })) as { provider: string | null; model: string | null };
+
+    expect(r.provider).toBe("openwebui");
+    expect(r.model).toBe("m1");
+  });
+
+  it("空串/空白 provider 视为未指定（不传给下游）", async () => {
+    const { 客户端, 处理 } = 造客户端();
+    const 收到的选项: Array<{ provider?: string; model?: string } | undefined> = [];
+
+    注册Agent处理器(客户端 as never, {
+      聊天: async (_msgs, _tools, 选项) => {
+        收到的选项.push(选项);
+        return { content: "好", tool_calls: [], finish_reason: "stop" };
+      },
+      执行工具: async () => ({}),
+      获取能力: async () => [],
+    });
+
+    await 处理("agent.run", { prompt: "x", provider: "   ", model: "" });
+    expect(收到的选项[0]?.provider).toBeUndefined();
+    expect(收到的选项[0]?.model).toBeUndefined();
+  });
+});

@@ -57,10 +57,16 @@ export interface 能力声明摘要 {
 export function 注册Agent处理器(
   客户端: NiganeClient,
   依赖: {
-    /** 发起一次带工具的聊天（实际走 ai 模块的 ai.chat） */
+    /**
+     * 发起一次带工具的聊天（实际走 ai 模块的 ai.chat）。
+     *
+     * 模型选择必须逐次透传：`聊天选项` 里的 provider/model 来自本次请求，
+     * 不能省——否则 ai 模块回退到配置默认值，用户在界面上选的模型不生效。
+     */
     聊天: (
       messages: 循环消息[],
       tools: OpenAI工具[],
+      聊天选项?: { provider?: string; model?: string },
     ) => Promise<{ content: string | null; tool_calls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>; finish_reason?: string }>;
     /** 执行一个能力（实际走主控 capability.call） */
     执行工具: (name: string, 参数: Record<string, unknown>) => Promise<unknown>;
@@ -82,12 +88,19 @@ export function 注册Agent处理器(
       只读?: boolean;
       /** 进度事件标识（前端据此把进度归到对应气泡） */
       进度ID?: string;
+      /** 提供方名（缺省用 ai 配置默认值）。必须透传，否则界面选的模型不生效 */
+      provider?: string;
+      /** 模型名（缺省用提供方默认模型） */
+      model?: string;
     };
     const prompt = typeof p.prompt === "string" ? p.prompt.trim() : "";
     if (!prompt) throw new Error("缺少 prompt");
     const agentId = typeof p.agentId === "string" && p.agentId.trim() ? p.agentId.trim() : `agent-${Date.now()}`;
     const 只读模式 = p.只读 !== false; // 默认只读：写入能力不进工具列表
     const 系统提示 = typeof p.system === "string" && p.system.trim() ? p.system : 默认代理系统提示;
+    // 模型选择：透传给 ai.chat。空串视为未指定（用配置默认值）。
+    const provider = typeof p.provider === "string" && p.provider.trim() ? p.provider.trim() : undefined;
+    const model = typeof p.model === "string" && p.model.trim() ? p.model.trim() : undefined;
 
     // 进度推送：工具循环可能跑几十秒，用户需要看到「现在到哪一步」
     const 进度ID = typeof p.进度ID === "string" && p.进度ID ? p.进度ID : `p-${Date.now()}`;
@@ -116,7 +129,7 @@ export function 注册Agent处理器(
         聊天: async (msgs, tools) => {
           轮次++;
           推("思考", { 轮次 });
-          const 回复 = await 依赖.聊天(msgs, tools);
+          const 回复 = await 依赖.聊天(msgs, tools, { provider, model });
           const 调用数 = 回复.tool_calls?.length ?? 0;
           if (调用数 > 0) {
             推("决定调用", {
@@ -174,6 +187,9 @@ export function 注册Agent处理器(
     return {
       agentId,
       只读模式,
+      // 回显实际请求的模型：排查「界面选了 A 却用了 B」时看这个字段
+      provider: provider ?? null,
+      model: model ?? null,
       ...结果,
       工具数: 工具.length,
       进度ID,

@@ -29,6 +29,10 @@ const 能力清单: 能力声明[] = [
         system: { type: "string", description: "自定义系统提示" },
         maxIterations: { type: "number", description: "工具循环上限，默认 8" },
         只读: { type: "boolean", description: "只读模式（默认 true）：AI 不能写，只能读/搜索" },
+        // 模型选择必须透传：否则 ai 模块回退到配置默认值，
+        // 用户在界面上选的模型完全不生效（曾导致「选了本地模型却报 OpenWebUI 余额不足」）
+        provider: { type: "string", description: "提供方名（缺省用 ai 配置默认值）" },
+        model: { type: "string", description: "模型名（缺省用提供方默认模型）" },
       },
       required: ["prompt"],
     },
@@ -103,14 +107,19 @@ void 启动模块({
     注册Agent处理器(客户端, {
       审批,
       // 聊天：走 ai 模块的 ai.chat（带 tools）
-      async 聊天(messages, tools) {
+      async 聊天(messages, tools, 选项) {
         // 超时必须显式给：默认 10s 对本地 9B 模型远远不够（实测单轮可达 40s+）。
         // 这里是工具循环的每一轮，超时设 300s 与前端 agent.run 的超时匹配。
+        //
+        // provider/model 必须透传：否则 ai 模块按配置默认值选通道，
+        // 用户在右上角选的模型完全不生效（曾导致「选了免费模型却用默认付费模型报 402」）。
         const 回复 = (await 客户端.request("ai", "ai.chat", {
           messages,
           tools,
           tool_choice: "auto",
           chatId: "agent",
+          ...(选项?.provider ? { provider: 选项.provider } : {}),
+          ...(选项?.model ? { model: 选项.model } : {}),
         }, 300000)) as {
           reply?: string;
           tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;

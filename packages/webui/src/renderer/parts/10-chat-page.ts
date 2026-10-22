@@ -394,6 +394,10 @@ export interface 智能任务结果 {
   迭代次数: number;
   达到上限: boolean;
   工具数: number;
+  /** 实际请求的提供方（null = 未指定，用配置默认值） */
+  provider?: string | null;
+  /** 实际请求的模型（null = 未指定） */
+  model?: string | null;
   messages?: Array<{ role: string; content: string | null; tool_calls?: unknown[] }>;
 }
 
@@ -464,10 +468,16 @@ export async function 与AI任务(任务: string, 只读 = true): Promise<void> 
     // agentId 复用会话 id，让同一对话里的连续任务共享沙箱（能读到自己上次写的）
     const d = 当前对话();
     const agentId = `ui-${d?.id ?? "default"}`;
+    // 模型选择：必须把右上角选的值传下去。不传则 ai 模块用配置默认值，
+    // 表现为「界面上选了 A 模型，实际用了 B」（曾导致选免费模型却报付费模型 402）。
+    const 模型参数 = {
+      ...(d?.provider ? { provider: d.provider } : {}),
+      ...(d?.model ? { model: d.model } : {}),
+    };
     const r = (await window.kugua.request(
       "agent",
       "agent.run",
-      { prompt: 任务, agentId, 只读, 进度ID },
+      { prompt: 任务, agentId, 只读, 进度ID, ...模型参数 },
       600000,
     )) as 智能任务结果;
 
@@ -476,13 +486,15 @@ export async function 与AI任务(任务: string, 只读 = true): Promise<void> 
       return n;
     }, 0);
     const 统计 = `轮次 ${r.迭代次数} · 工具调用 ${工具调用数} · 可用工具 ${r.工具数} · agent ${r.agentId}`;
+    // 模型信息：显示实际用的模型，方便一眼看出「是不是我选的那个」
+    const 模型行 = r.model ? ` · 模型 ${r.provider ? r.provider + "/" : ""}${r.model}` : "";
     const 正文 = r.结束
       ? r.最终回答 || "（AI 未给出文字回答）"
       : r.达到上限
         ? `⚠️ 达到工具循环上限（${r.迭代次数} 轮）仍未完成。可把任务拆小后重试。\n\n${r.最终回答 ?? ""}`.trim()
         : r.最终回答 || "（任务未正常结束）";
 
-    设置文本(`${正文}\n\n—— ${统计}`);
+    设置文本(`${正文}\n\n—— ${统计}${模型行}`);
   } catch (err) {
     const 失败文本 = "智能任务失败：" + String(err);
     设置文本(失败文本);
