@@ -202,11 +202,27 @@
         <div class="ex-pane ex-pane-workspace hidden">
           <div class="ws-layout">
             <aside class="ws-sidebar">
-              <div class="ws-sidebar-head">
-                <span>工作区</span>
-                <button id="ws-add" class="ex-link-btn" title="新建工作区">&#xFF0B;</button>
+              <!-- 左侧栏双标签：工作区列表 / 库内资源（拖拽源）。
+                   资源列表内联常驻（不再弹浮窗），提示「从左侧拖入」才成立。 -->
+              <div class="ws-side-tabs" role="group">
+                <button class="ws-side-tab active" data-wstab="workspaces">工作区</button>
+                <button class="ws-side-tab" data-wstab="palette">资源</button>
               </div>
-              <div id="ws-list" class="ws-list"></div>
+              <!-- 工作区列表页 -->
+              <div class="ws-side-page" data-wspage="workspaces">
+                <div class="ws-sidebar-head">
+                  <span>工作区</span>
+                  <button id="ws-add" class="ex-link-btn" title="新建工作区">&#xFF0B;</button>
+                </div>
+                <div id="ws-list" class="ws-list"></div>
+              </div>
+              <!-- 资源列表页（拖拽源） -->
+              <div class="ws-side-page hidden" data-wspage="palette">
+                <div class="ws-palette-search">
+                  <input type="text" id="ws-search" class="ex-search-input" placeholder="搜索库内资源...">
+                </div>
+                <div id="ws-palette-list" class="ws-palette-list"></div>
+              </div>
             </aside>
             <div class="ws-main">
               <div class="ex-toolbar">
@@ -223,12 +239,9 @@
               </div>
               <div id="ws-canvas-wrap" class="ws-canvas-wrap">
                 <div id="ws-canvas" class="ws-canvas"></div>
-                <div id="ws-empty" class="ws-empty">从左侧搜索并拖入库内资源，或先选择一个工作区</div>
+                <div id="ws-empty" class="ws-empty">从左侧「资源」标签页拖入画布，或双击资源项直接添加</div>
               </div>
-              <aside id="ws-palette" class="ws-palette hidden">
-                <div class="ws-palette-head"><span>库内资源</span><button id="ws-palette-close" class="ex-link-btn">&#x2715;</button></div>
-                <div id="ws-palette-list" class="ws-palette-list"></div>
-              </aside>
+              <!-- 旧浮动资源面板已移除：改为左侧栏「资源」标签页内联展示 -->
             </div>
           </div>
         </div>

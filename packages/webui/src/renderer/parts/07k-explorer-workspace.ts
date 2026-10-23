@@ -355,11 +355,19 @@ function 更新标题(): void {
   if (el) el.textContent = 当前工作区 ? 当前工作区.name : "未选择工作区";
 }
 
-/** 打开「库内资源」面板，便于拖入画布 */
+/** 切换左侧栏标签页（workspaces / palette） */
+function 切换侧栏标签页(页: "workspaces" | "palette"): void {
+  document.querySelectorAll<HTMLButtonElement>(".ws-side-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.wstab === 页);
+  });
+  document.querySelectorAll<HTMLElement>(".ws-side-page").forEach((el) => {
+    el.classList.toggle("hidden", el.dataset.wspage !== 页);
+  });
+}
+
+/** 打开「库内资源」（切到资源标签页），便于拖入画布 */
 async function 打开资源面板(): Promise<void> {
-  const palette = document.getElementById("ws-palette") as HTMLElement | null;
-  if (!palette) return;
-  palette.classList.remove("hidden");
+  切换侧栏标签页("palette");
   await 渲染资源面板((document.getElementById("ws-search") as HTMLInputElement | null)?.value ?? "");
 }
 
@@ -455,7 +463,18 @@ export function 绑定工作区事件(): void {
   document.getElementById("ws-search")?.addEventListener("input", (e) => {
     void 渲染资源面板((e.target as HTMLInputElement).value);
   });
-  document.getElementById("ws-search")?.addEventListener("focus", () => void 打开资源面板());
+  // 聚焦搜索框时自动切到资源页（搜索框就在资源页内，此处保证初始态正确）
+  document.getElementById("ws-search")?.addEventListener("focus", () => 切换侧栏标签页("palette"));
+
+  // 左侧栏标签切换
+  document.querySelectorAll<HTMLButtonElement>(".ws-side-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const 页 = btn.dataset.wstab as "workspaces" | "palette" | undefined;
+      if (!页) return;
+      切换侧栏标签页(页);
+      if (页 === "palette") void 渲染资源面板((document.getElementById("ws-search") as HTMLInputElement | null)?.value ?? "");
+    });
+  });
 
   // 画布接收拖拽
   wrap?.addEventListener("dragover", (e) => {

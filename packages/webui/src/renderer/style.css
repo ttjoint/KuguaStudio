@@ -2342,12 +2342,13 @@ body {
   background: var(--accent); color: #fff;
 }
 .ws-card-note { font-size: 0.7rem; color: var(--text-dim); white-space: pre-wrap; }
+/* 资源列表现在是左侧栏「资源」标签页的内联内容（不再浮动） */
 .ws-palette {
-  position: absolute; right: 0.75rem; top: 3rem; width: 240px; max-height: 70%;
-  display: flex; flex-direction: column; z-index: 20;
-  background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45); overflow: hidden;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
 }
+.ws-palette-search { padding: 0.5rem 0.55rem 0.3rem; }
+.ws-palette-search .ex-search-input { width: 100%; }
 .ws-palette-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.45rem 0.6rem; font-size: 0.75rem; font-weight: 600; color: var(--text-bright);
@@ -3884,3 +3885,39 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   gap: 0.45rem;
   margin-top: 0.2rem;
 }
+
+/* ===== 工作区左侧栏：工作区/资源 双标签 ===== */
+.ws-side-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0.45rem 0.5rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.ws-side-tab {
+  flex: 1;
+  padding: 0.28rem 0.3rem;
+  font-size: 0.72rem;
+  background: var(--bg-terminal);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.ws-side-tab:hover { background: var(--bg-hover); color: var(--text); }
+.ws-side-tab.active {
+  background: var(--accent-dim, rgba(90, 140, 200, 0.25));
+  border-color: var(--accent);
+  color: var(--text-bright, var(--text));
+  font-weight: 600;
+}
+.ws-side-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ws-side-page.hidden { display: none; }
+.ws-side-page .ws-palette-list { flex: 1; }

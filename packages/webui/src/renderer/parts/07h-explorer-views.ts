@@ -31,6 +31,37 @@ export function 渲染保存视图(): void {
   AI项.addEventListener("click", () => void 打开AI内容面板());
   容器.appendChild(AI项);
 
+  // 内置单类型浏览：后端 note.list / snippet.list / material.list 已就绪，
+  // 但此前没有任何入口（被统一浏览掩盖）。按类型快速过滤用。
+  const 内置类型: Array<{ 图标: string; 类型: string; 说明: string }> = [
+    { 图标: "💡", 类型: "点子", 说明: "全部点子（note）" },
+    { 图标: "✂️", 类型: "文本段", 说明: "全部文本片段（snippet）" },
+    { 图标: "📎", 类型: "素材", 说明: "全部素材（material）" },
+  ];
+  for (const t of 内置类型) {
+    const 项 = document.createElement("div");
+    项.className = "ex-view-item";
+    项.title = t.说明;
+    const 名 = document.createElement("span");
+    名.textContent = `${t.图标} ${t.类型}`;
+    名.style.flex = "1";
+    项.appendChild(名);
+    项.addEventListener("click", () => {
+      // 复用类型筛选：设为该类型并清空其它筛选，让列表只显示此类
+      Explorer.类型筛选 = t.类型;
+      Explorer.搜索关键词 = "";
+      const 搜 = document.getElementById("ex-search") as HTMLInputElement | null;
+      if (搜) 搜.value = "";
+      const 类 = document.getElementById("ex-type-filter") as HTMLSelectElement | null;
+      if (类) 类.value = t.类型;
+      void Explorer.加载所有内容();
+      // 高亮当前内置视图
+      容器.querySelectorAll(".ex-view-item").forEach((el) => el.classList.remove("active"));
+      项.classList.add("active");
+    });
+    容器.appendChild(项);
+  }
+
   if (Explorer.保存视图列表.length === 0) {
     const 空 = document.createElement("div");
     空.className = "ex-view-item";
