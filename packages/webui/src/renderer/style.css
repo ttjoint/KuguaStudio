@@ -4002,3 +4002,36 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   color: var(--text-dim);
   opacity: 0.85;
 }
+
+/* ===== 批量打标签对话框 ===== */
+.batch-tag-hint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.batch-tag-list {
+  flex: 1;
+  min-height: 160px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-terminal);
+  padding: 0.25rem 0;
+}
+.batch-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  user-select: none;
+}
+.batch-tag-row:hover { background: var(--bg-hover); }
+.batch-tag-row input[type="checkbox"] { cursor: pointer; }
+.batch-tag-count {
+  margin-right: auto;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}

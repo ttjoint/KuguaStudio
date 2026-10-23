@@ -229,6 +229,18 @@ export const 能力清单: 能力声明[] = [
     "设置某节点的全部标签（覆盖）",
     参({ nodeId: { type: "number" }, tagIds: { type: "array", items: { type: "number" } } }, ["nodeId", "tagIds"]),
   ),
+  写入(
+    "mkg.node.addTags",
+    "批量追加标签",
+    "给多个节点追加标签（不覆盖原有标签）",
+    参({ nodeIds: { type: "array" }, tagIds: { type: "array" } }, ["nodeIds", "tagIds"]),
+  ),
+  写入(
+    "mkg.node.removeTags",
+    "批量移除标签",
+    "从多个节点移除指定标签（其它标签保留）",
+    参({ nodeIds: { type: "array" }, tagIds: { type: "array" } }, ["nodeIds", "tagIds"]),
+  ),
 
   // ===== 节点关系 =====
   只读(

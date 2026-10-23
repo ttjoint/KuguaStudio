@@ -722,6 +722,20 @@ void 启动模块({
     return mkg.setNodeTags(nodeId, tagIds);
   });
 
+  客户端.onRequest("mkg.node.addTags", (params) => {
+    const { nodeIds, tagIds } = (params ?? {}) as { nodeIds?: number[]; tagIds?: number[] };
+    if (!Array.isArray(nodeIds) || nodeIds.length === 0) throw new Error("缺少 nodeIds（非空数组）");
+    if (!Array.isArray(tagIds) || tagIds.length === 0) throw new Error("缺少 tagIds（非空数组）");
+    return mkg.addNodeTags(nodeIds.map(Number), tagIds.map(Number));
+  });
+
+  客户端.onRequest("mkg.node.removeTags", (params) => {
+    const { nodeIds, tagIds } = (params ?? {}) as { nodeIds?: number[]; tagIds?: number[] };
+    if (!Array.isArray(nodeIds) || nodeIds.length === 0) throw new Error("缺少 nodeIds（非空数组）");
+    if (!Array.isArray(tagIds) || tagIds.length === 0) throw new Error("缺少 tagIds（非空数组）");
+    return mkg.removeNodeTags(nodeIds.map(Number), tagIds.map(Number));
+  });
+
   客户端.onRequest("mkg.node.listAll", (params) => {
     const p = (params ?? {}) as {
       keyword?: string;

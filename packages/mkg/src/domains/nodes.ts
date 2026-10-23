@@ -23,6 +23,16 @@ declare module "../index.js" {
     untagNode(nodeId: number, tagId: number): void;
     getNodeTags(nodeId: number): 标签[];
     setNodeTags(nodeId: number, tagIds: number[]): 标签[];
+    /**
+     * 批量给多个节点**追加**标签（不覆盖原有标签）。
+     *
+     * 为什么需要 setNodeTags 不够：它是覆盖式（先 DELETE 全部再插入）。
+     * 多选 10 条内容想统一打个标签时，用覆盖式会把它们各自的原有标签
+     * 全冲掉——这是数据损坏，不是便利性问题。
+     */
+    addNodeTags(nodeIds: number[], tagIds: number[]): { 更新: number; 跳过: number };
+    /** 批量从多个节点移除标签（不动其它标签） */
+    removeNodeTags(nodeIds: number[], tagIds: number[]): { 更新: number; 跳过: number };
     listNodes(type?: 节点类型, options?: 搜索选项): 搜索结果<节点详情>;
     searchNodes(keyword: string, options?: 搜索选项): 搜索结果<节点详情>;
     listAllContent(opts?: {
@@ -136,6 +146,72 @@ export function 安装节点域(proto: { [k: string]: unknown }): void {
     );
     for (const tid of tagIds) ins.run(nodeId, tid, now);
     return this.getNodeTags(nodeId);
+  };
+
+  /**
+   * 批量追加标签。
+   *
+   * @returns 更新了几个节点、跳过几个（节点不存在）
+   */
+  proto.addNodeTags = function (
+    this: 上下文,
+    nodeIds: number[],
+    tagIds: number[],
+  ): { 更新: number; 跳过: number } {
+    const 节点 = Array.from(new Set(nodeIds)).filter((id) => Number.isInteger(id) && id > 0);
+    const 标签们 = Array.from(new Set(tagIds)).filter((id) => Number.isInteger(id) && id > 0);
+    if (节点.length === 0 || 标签们.length === 0) return { 更新: 0, 跳过: 节点.length };
+
+    const now = Math.floor(Date.now() / 1000);
+    const 查存在 = this.db.prepare("SELECT 1 as x FROM nodes WHERE id = ?");
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO node_tags (node_id, tag_id, created_at) VALUES (?, ?, ?)",
+    );
+    let 更新 = 0;
+    let 跳过 = 0;
+    // 整个批量放进一个事务：要么全成，要么全不成，避免半截状态
+    const tx = this.db.transaction(() => {
+      for (const nid of 节点) {
+        if (!查存在.get(nid)) {
+          跳过++;
+          continue;
+        }
+        for (const tid of 标签们) ins.run(nid, tid, now);
+        更新++;
+      }
+    });
+    tx();
+    return { 更新, 跳过 };
+  };
+
+  /**
+   * 批量移除标签（只移除指定标签，其它标签保留）。
+   */
+  proto.removeNodeTags = function (
+    this: 上下文,
+    nodeIds: number[],
+    tagIds: number[],
+  ): { 更新: number; 跳过: number } {
+    const 节点 = Array.from(new Set(nodeIds)).filter((id) => Number.isInteger(id) && id > 0);
+    const 标签们 = Array.from(new Set(tagIds)).filter((id) => Number.isInteger(id) && id > 0);
+    if (节点.length === 0 || 标签们.length === 0) return { 更新: 0, 跳过: 节点.length };
+
+    const 查存在 = this.db.prepare("SELECT 1 as x FROM nodes WHERE id = ?");
+    const del = this.db.prepare("DELETE FROM node_tags WHERE node_id = ? AND tag_id = ?");
+    let 更新 = 0;
+    let 跳过 = 0;
+    const tx = this.db.transaction(() => {
+      for (const nid of 节点) {
+        if (!查存在.get(nid)) {
+          跳过++;
+          continue;
+        }
+        for (const tid of 标签们) del.run(nid, tid);
+        更新++;
+      }
+    });
+    tx();
+    return { 更新, 跳过 };
   };
 
   proto.listNodes = function (

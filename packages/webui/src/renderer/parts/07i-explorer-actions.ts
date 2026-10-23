@@ -6,6 +6,7 @@
 // 新代码请直接用 21-context-menu 的 显示菜单 / 注册右键菜单。
 import { Explorer } from "./07-explorer";
 import { 显示确认对话框 } from "./06-shell";
+import { 更新批量标签按钮 } from "./07p-explorer-batch-tags";
 import { 更新内容信息面板 } from "./07j-explorer-tags";
 import { 添加消息 } from "./03-preview";
 import { 刷新统计 } from "./06-shell";
@@ -40,6 +41,10 @@ export async function 复制文本(文本: string): Promise<void> {
 
 /** 更新批量删除按钮（选中数） */
 export function 更新批量删除按钮(): void {
+  // 批量标签按钮与删除按钮的可见性完全同步（都依赖选中数），
+  // 在这里一并更新，避免每个调用点都要记得调两次。
+  更新批量标签按钮();
+
   const btn = document.getElementById("ex-btn-delete-selected") as HTMLButtonElement | null;
   if (!btn) return;
   const 计数 = document.getElementById("ex-delete-count") as HTMLSpanElement | null;
