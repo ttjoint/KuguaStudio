@@ -1239,7 +1239,16 @@ function 注册退出(): void {
 }
 
 注册退出();
-主流程().catch((err) => {
-  console.error("[WebUI] 启动失败：", err);
-  process.exit(1);
-});
+
+// 只在「直接运行本文件」时启动服务。
+// 测试文件 import 本模块（如取 允许读取的路径）时不应触发启动——
+// 否则测试环境里端口被占/依赖缺失会走 process.exit(1)，
+// vitest 报 Unhandled Rejection（曾误报成测试失败）。
+// dist/server.js 被直接执行时 argv[1] 以 server.js 结尾。
+const 直接运行 = (process.argv[1] ?? "").split(/[\\/]/).pop() === "server.js";
+if (直接运行) {
+  void 主流程().catch((err) => {
+    console.error("[WebUI] 启动失败：", err);
+    process.exit(1);
+  });
+}
