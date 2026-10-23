@@ -403,11 +403,35 @@ async function 渲染资源面板(关键词: string): Promise<void> {
   }
 }
 
-async function 添加节点到画布(nodeId: number): Promise<void> {
-  if (!当前工作区) {
-    添加消息("请先选择或新建一个工作区", "error");
-    return;
+/**
+ * 确保有当前工作区；没有就自动新建一个。
+ *
+ * 使用者视角：双击/拖入 = 「我想把这块内容放进画布」。
+ * 只报错的话，用户得自己想到「先切回工作区页 → 新建 → 再回来」，
+ * 一条转瞬即逝的 toast 指引不了这个流程。直接带办。
+ *
+ * @returns 是否可用（false = 新建失败，调用方应中止）
+ */
+async function 确保有工作区(): Promise<boolean> {
+  if (当前工作区) return true;
+  const 名称 = "工作区 " + (工作区列表.length + 1);
+  try {
+    const ws = (await window.kugua.request("mkg", "mkg.workspace.create", { name: 名称 })) as 工作区;
+    await 加载工作区列表();
+    当前工作区 = 工作区列表.find((w) => w.id === ws.id) ?? 当前工作区;
+    渲染工作区侧栏();
+    await 加载当前工作区();
+    添加消息("已自动新建工作区：" + ws.name, "system");
+    return !!当前工作区;
+  } catch (err) {
+    添加消息("自动新建工作区失败，请先在左侧「工作区」页手动新建：" + String(err), "error");
+    return false;
   }
+}
+
+async function 添加节点到画布(nodeId: number): Promise<void> {
+  if (!(await 确保有工作区())) return;
+  const 工作区ID = 当前工作区!.id;
   // 若已存在则不再重复添加
   if (当前放置项.some((it) => it.nodeId === nodeId)) {
     添加消息("该资源已在当前工作区中", "system");
@@ -417,7 +441,7 @@ async function 添加节点到画布(nodeId: number): Promise<void> {
     const x = Math.round(-平移X / 缩放 + 40 + (当前放置项.length % 5) * 30);
     const y = Math.round(-平移Y / 缩放 + 40 + (当前放置项.length % 5) * 30);
     await window.kugua.request("mkg", "mkg.workspace.itemAdd", {
-      workspaceId: 当前工作区.id,
+      workspaceId: 工作区ID,
       nodeId,
       x,
       y,
@@ -487,11 +511,9 @@ export function 绑定工作区事件(): void {
     if (!data) return;
     const nodeId = Number(data);
     if (!Number.isFinite(nodeId) || nodeId <= 0) return;
-    if (!当前工作区) {
-      添加消息("请先选择或新建一个工作区", "error");
-      return;
-    }
     void (async () => {
+      if (!(await 确保有工作区())) return;
+      const 工作区ID = 当前工作区!.id;
       if (当前放置项.some((it) => it.nodeId === nodeId)) {
         添加消息("该资源已在当前工作区中", "system");
         return;
@@ -501,7 +523,7 @@ export function 绑定工作区事件(): void {
         const x = Math.round((e.clientX - rect.left - 平移X) / 缩放);
         const y = Math.round((e.clientY - rect.top - 平移Y) / 缩放);
         await window.kugua.request("mkg", "mkg.workspace.itemAdd", {
-          workspaceId: 当前工作区.id,
+          workspaceId: 工作区ID,
           nodeId,
           x,
           y,

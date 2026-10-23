@@ -91,3 +91,23 @@ describe("标签可移动", () => {
     expect(读("../modules/mkg/src/capabilities.ts")).toContain('"mkg.tag.move"');
   });
 });
+
+describe("画板：无工作区时自动新建（一键带办）", () => {
+  it("有 确保有工作区 辅助函数", () => {
+    expect(读("src/renderer/parts/07k-explorer-workspace.ts")).toContain("async function 确保有工作区");
+  });
+
+  it("双击与拖放两条路径都走它", () => {
+    const 源 = 读("src/renderer/parts/07k-explorer-workspace.ts");
+    const 次数 = (源.match(/await 确保有工作区\(\)/g) ?? []).length;
+    expect(次数).toBeGreaterThanOrEqual(2);
+  });
+
+  it("只报错不带办的旧文案已移除", () => {
+    expect(读("src/renderer/parts/07k-explorer-workspace.ts")).not.toContain("请先选择或新建一个工作区");
+  });
+
+  it("新建失败时给出手动路径指引", () => {
+    expect(读("src/renderer/parts/07k-explorer-workspace.ts")).toContain("请先在左侧「工作区」页手动新建");
+  });
+});
