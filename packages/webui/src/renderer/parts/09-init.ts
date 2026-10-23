@@ -9,6 +9,7 @@ import { 初始化小组件 } from "./19-widgets";
 import { 初始化仪表盘设置 } from "./19b-widget-settings";
 import { 初始化审批UI, 刷新待审批 } from "./20-approval";
 import { 初始化右键菜单, 注册文本区菜单 } from "./21-context-menu";
+import { 绑定关联事件 } from "./07o-explorer-relations";
 
 // ===== 初始化 =====
 
@@ -41,6 +42,9 @@ void 刷新待审批();
 
 // 全局右键菜单接管：屏蔽浏览器默认菜单，改为平台自己的菜单
 初始化右键菜单();
+
+// 详情栏「建立关联」按钮
+绑定关联事件();
 
 // 为只读文本区注册「复制」菜单（这些区域用户几乎只需要复制）
 注册文本区菜单(document.getElementById("chat-log"), "聊天记录");

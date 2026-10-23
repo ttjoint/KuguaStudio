@@ -4,6 +4,7 @@ import { Explorer } from "./07-explorer";
 import { 打开方式配置, 标签节点, 素材 } from "./01-types";
 import { 渲染Markdown } from "./02-chat-core";
 import { 添加消息 } from "./03-preview";
+import { 渲染关联, 清空关联 } from "./07o-explorer-relations";
 import { 渲染位置列表, 渲染保存视图 } from "./07h-explorer-views";
 import { 复制文本, 开始内联编辑名称, 开始内联编辑真实文件名, 显示上下文菜单 } from "./07i-explorer-actions";
 import { 转义HTML } from "./08-logs";
@@ -47,6 +48,7 @@ export function 导航到标签(tagId: number): void {
 export function 更新内容信息面板(): void {
   if (!Explorer.选中内容) {
     Explorer.文件信息面板.classList.add("hidden");
+    清空关联();
     return;
   }
   Explorer.文件信息面板.classList.remove("hidden");
@@ -166,6 +168,9 @@ export function 更新内容信息面板(): void {
       void 内联保存标签();
     },
   });
+
+  // 关联区块：知识库的核心价值不只是「找得到」，更是「连得上」
+  void 渲染关联(f.id);
 }
 
 /** 渲染本标签及一串关联标签（基于共现频率） */

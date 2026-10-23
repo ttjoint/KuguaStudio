@@ -99,7 +99,20 @@
                     <input type="text" id="ex-info-tag-input" placeholder="输入标签，用逗号分隔，回车添加">
                     <button class="ex-link-btn" id="ex-info-tag-add-btn">添加</button>
                   </div>
-                  <div id="ex-info-tag-tree" class="import-tag-tree"></div>
+                  <!-- 此处原有第二棵完整标签树（ex-info-tag-tree）已移除：
+                       左侧导航区已有完整标签树，同一界面两棵树容易混淆，
+                       且该输入框曾是“标签被搬家”bug 的触发点。 -->
+                </div>
+
+                <!-- 关联：知识库的核心价值是“连得上”，而不仅是“找得到” -->
+                <div class="ex-info-relations-section">
+                  <div class="ex-info-tags-header">
+                    <div class="ex-info-label">🔗 关联</div>
+                    <button class="ex-link-btn" id="ex-info-relation-add" title="建立与其它内容的关联">＋</button>
+                  </div>
+                  <div id="ex-info-relations" class="ex-info-relations">
+                    <div class="ex-info-relation-empty">加载中…</div>
+                  </div>
                 </div>
               </div>
             </div>

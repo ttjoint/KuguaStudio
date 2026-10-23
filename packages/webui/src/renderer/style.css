@@ -3728,3 +3728,151 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   border-radius: 2px;
   padding: 0 1px;
 }
+
+/* ===== 详情栏：关联区块 ===== */
+.ex-info-relations-section {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.ex-info-relations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+.ex-info-relation-empty {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding: 0.25rem 0;
+}
+.ex-info-relation-group {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.ex-info-relation-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.74rem;
+  background: var(--bg-hover);
+  cursor: pointer;
+  user-select: none;
+}
+.ex-info-relation-head:hover { background: var(--bg-active, var(--bg-hover)); }
+.ex-info-relation-body { display: flex; flex-direction: column; }
+.ex-info-relation-body.hidden { display: none; }
+.ex-info-relation-item {
+  padding: 0.22rem 0.45rem 0.22rem 1.1rem;
+  font-size: 0.74rem;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ex-info-relation-item:hover { background: var(--bg-hover); color: var(--accent); }
+
+/* ===== 建立关联对话框 ===== */
+.rel-dialog-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4000;
+}
+.rel-dialog {
+  width: min(460px, 92vw);
+  max-height: 82vh;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.rel-dialog-title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rel-dialog-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 0.15rem;
+}
+.rel-dialog-input {
+  background: var(--bg-terminal);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.35rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  width: 100%;
+}
+.rel-dialog-input:focus { border-color: var(--accent); outline: none; }
+.rel-dialog-candidates {
+  flex: 1;
+  min-height: 120px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-terminal);
+}
+.rel-dialog-candidate {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rel-dialog-candidate:last-child { border-bottom: none; }
+.rel-dialog-candidate:hover { background: var(--bg-hover); }
+.rel-dialog-candidate.active {
+  background: var(--accent-dim, rgba(90, 140, 200, 0.25));
+  color: var(--text-bright, var(--text));
+}
+.rel-dialog-empty {
+  padding: 0.8rem;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+.rel-dialog-types { display: flex; gap: 0.35rem; }
+.rel-dialog-type {
+  flex: 1;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.75rem;
+  background: var(--bg-terminal);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.rel-dialog-type:hover { background: var(--bg-hover); color: var(--text); }
+.rel-dialog-type.active {
+  background: var(--accent-dim, rgba(90, 140, 200, 0.25));
+  border-color: var(--accent);
+  color: var(--text-bright, var(--text));
+  font-weight: 600;
+}
+.rel-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+}
