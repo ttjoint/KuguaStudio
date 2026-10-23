@@ -262,6 +262,28 @@ void 启动模块({
     return { success: true };
   });
 
+  客户端.onRequest("mkg.tag.move", (params) => {
+    const { tagId, newParentId } = (params ?? {}) as { tagId?: number; newParentId?: number | null };
+    if (tagId === undefined) throw new Error("缺少 tagId");
+    // newParentId 显式允许 null（移到根），所以只校验 undefined
+    if (newParentId === undefined) throw new Error("缺少 newParentId（移到根请传 null）");
+    return mkg.moveTag(tagId, newParentId);
+  });
+
+  客户端.onRequest("mkg.relation.remove", (params) => {
+    const { fromNodeId, toNodeId, relationType } = (params ?? {}) as {
+      fromNodeId?: number;
+      toNodeId?: number;
+      relationType?: 节点关系类型;
+    };
+    if (fromNodeId === undefined || toNodeId === undefined || !relationType) {
+      throw new Error("缺少 fromNodeId、toNodeId 或 relationType");
+    }
+    const 已删除 = mkg.removeRelation(fromNodeId, toNodeId, relationType);
+    if (!已删除) throw new Error("该关联不存在（可能已被删除）");
+    return { success: true };
+  });
+
   客户端.onRequest("mkg.relation.list", (params) => {
     const { nodeId, relationType } = (params ?? {}) as {
       nodeId?: number;

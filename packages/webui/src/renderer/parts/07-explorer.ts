@@ -340,9 +340,55 @@ export namespace Explorer {
     return items;
   }
 
+  /** 空结果提示（搜索/筛选无命中时给出可操作的建议） */
+  function 渲染空状态(空: boolean): void {
+    let el = document.getElementById("ex-empty-state");
+    if (!空) {
+      el?.classList.add("hidden");
+      return;
+    }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "ex-empty-state";
+      el.className = "ex-empty-state";
+      // 放在列表容器之前（两个视图共用一处提示）
+      const 父 = 大图标容器.parentElement;
+      if (父) 父.insertBefore(el, 大图标容器);
+      else document.body.appendChild(el);
+    }
+    el.classList.remove("hidden");
+
+    const 词 = 搜索关键词.trim();
+    const 有筛选 = 词 || 类型筛选 !== "all" || typeof 当前标签ID === "number" || 当前位置ID != null;
+    if (!有筛选) {
+      el.innerHTML = '<div class="ex-empty-title">知识库还是空的</div><div class="ex-empty-hint">导入文件、新建点子，或用 <b>agent</b> 指令让 AI 帮你整理。</div>';
+      return;
+    }
+    // 分层检索下，无命中要提示「换模式试试」——这是最常见的困惑点
+    const 建议: string[] = [];
+    if (词 && 检索模式 === "title") 建议.push("切到「全文」能搜正文内容");
+    if (词 && 检索模式 === "tag") 建议.push("「标签」模式只匹配标签名，可切到「全文」");
+    if (词 && 检索模式 === "full") 建议.push("试试更短的关键词，或切到「标题」精确匹配");
+    if (typeof 当前标签ID === "number") 建议.push("当前有标签筛选，可点「清除筛选」");
+    el.innerHTML =
+      `<div class="ex-empty-title">没有找到${词 ? `「${转义文本(词)}」` : "内容"}</div>` +
+      (建议.length ? `<div class="ex-empty-hint">${建议.map((x) => "· " + 转义文本(x)).join("<br>")}</div>` : "");
+  }
+
+  /** 极简 HTML 转义（空状态里插用户输入的关键词） */
+  function 转义文本(t: string): string {
+    return t.replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+    );
+  }
+
   export function 渲染内容列表(): void {
     const files = 筛选内容();
     状态栏计数.textContent = files.length + " 个项目";
+
+    // 空结果提示：之前列表为空就是一片空白，用户会以为「搜索坏了」。
+    // 这里明确说明为什么空、以及可以怎么做。
+    渲染空状态(files.length === 0);
 
     大图标容器.innerHTML = "";
     for (const file of files) {

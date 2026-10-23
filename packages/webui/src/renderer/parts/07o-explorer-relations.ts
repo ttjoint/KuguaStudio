@@ -11,6 +11,7 @@
 import { Explorer } from "./07-explorer";
 import { 添加消息 } from "./03-preview";
 import { 更新内容信息面板 } from "./07j-explorer-tags";
+import { 显示菜单 } from "./21-context-menu";
 
 type 关系类型 = "contains" | "references" | "similar";
 
@@ -74,6 +75,16 @@ export async function 渲染关联(nodeId: number): Promise<void> {
 
   容器.innerHTML = "";
 
+  // 若有跳转历史，给一个返回入口（避免「跳过去就回不来」）
+  if (有跳转历史()) {
+    const 返回 = document.createElement("div");
+    返回.className = "ex-info-relation-back";
+    返回.textContent = "← 返回上一处";
+    返回.title = "回到跳转前查看的内容";
+    返回.addEventListener("click", () => void 返回上一跳转());
+    容器.appendChild(返回);
+  }
+
   if (列表.length === 0) {
     const 空 = document.createElement("div");
     空.className = "ex-info-relation-empty";
@@ -110,15 +121,42 @@ export async function 渲染关联(nodeId: number): Promise<void> {
     const 组体 = document.createElement("div");
     组体.className = "ex-info-relation-body";
     for (const 目标ID of 目标列表) {
-      const 项 = document.createElement("div");
-      项.className = "ex-info-relation-item";
-      项.dataset.nodeId = String(目标ID);
-      项.textContent = `#${目标ID}`;
-      项.title = "点击跳转到该内容";
-      项.addEventListener("click", () => void 跳转并选中(目标ID));
-      组体.appendChild(项);
+      const 行 = document.createElement("div");
+      行.className = "ex-info-relation-item";
+      行.dataset.nodeId = String(目标ID);
+      行.title = "点击跳转到该内容；右键可删除此关联";
+
+      const 名 = document.createElement("span");
+      名.className = "ex-info-relation-name";
+      名.textContent = `#${目标ID}`;
+      行.appendChild(名);
+
+      // 删除按钮（悬停显示）：关联建错了要能撤销，否则只能删内容重建
+      const 删 = document.createElement("span");
+      删.className = "ex-info-relation-del";
+      删.textContent = "✕";
+      删.title = "删除此关联（不影响内容本身）";
+      删.addEventListener("click", (e) => {
+        e.stopPropagation(); // 别触发跳转
+        void 删除关联(nodeId, 目标ID, 类型);
+      });
+      行.appendChild(删);
+
+      行.addEventListener("click", () => void 跳转并选中(目标ID));
+      // 右键也给一个删除入口（与全局右键菜单共存：这里 stopPropagation 优先）
+      行.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        显示菜单(e.clientX, e.clientY, [
+          { label: "跳转到该内容", icon: "↗", onClick: () => void 跳转并选中(目标ID) },
+          null,
+          { label: "删除此关联", icon: "🗑", danger: true, onClick: () => void 删除关联(nodeId, 目标ID, 类型) },
+        ]);
+      });
+
+      组体.appendChild(行);
       // 名称异步补（批量接口没有，逐条取；数量通常很小）
-      void 补名称(项, 目标ID, nodeId);
+      void 补名称(名, 目标ID, nodeId);
     }
     组盒.appendChild(组体);
 
@@ -129,6 +167,21 @@ export async function 渲染关联(nodeId: number): Promise<void> {
     });
 
     容器.appendChild(组盒);
+  }
+}
+
+/** 删除一条关联（不删内容本身） */
+async function 删除关联(来源ID: number, 目标ID: number, 类型: 关系类型): Promise<void> {
+  try {
+    await window.kugua.request("mkg", "mkg.relation.remove", {
+      fromNodeId: 来源ID,
+      toNodeId: 目标ID,
+      relationType: 类型,
+    });
+    添加消息("已删除关联");
+    void 渲染关联(来源ID);
+  } catch (err) {
+    添加消息("删除关联失败：" + String(err), "error");
   }
 }
 
@@ -147,25 +200,70 @@ async function 补名称(元素: HTMLElement, 目标ID: number, 当前ID: number
   }
 }
 
+/**
+ * 跳转来源栈：记录「从哪条内容跳过来的」，支持返回。
+ *
+ * 为什么需要：关联跳转原来会把标签筛选强制重置为「全部」，
+ * 用户跳过去之后回不到原来的浏览位置，只能重新点标签。
+ * 现在只把目标插到列表最前（不清筛选），并记下来源供返回。
+ */
+const 跳转来源栈: number[] = [];
+
 /** 跳转到某条内容并选中它 */
 async function 跳转并选中(nodeId: number): Promise<void> {
   try {
     // 用 node.get（返回完整内容条目），而不是 mkg.query——
-    // 查询条件的 查询条件 接口没有 nodeIds 字段，用它取不到。
+    // 查询条件 接口没有 nodeIds 字段，用它取不到。
     const 命中 = (await window.kugua.request("mkg", "mkg.node.get", { id: nodeId })) as Explorer.内容条目 | null;
     if (!命中) {
       添加消息(`未找到内容 #${nodeId}（可能已被删除）`, "error");
       return;
     }
-    // 切换到全部标签，确保目标可见
-    Explorer.当前标签ID = "all";
+    // 记住来源（用于「返回」），不清空用户当前的标签/搜索筛选
+    const 原ID = Explorer.选中内容?.id;
+    if (原ID !== undefined && 原ID !== nodeId) {
+      跳转来源栈.push(原ID);
+      if (跳转来源栈.length > 20) 跳转来源栈.shift();
+    }
+    // 只把目标插到列表最前，保证它在当前筛选下可见（不重置筛选）
     Explorer.选中内容 = 命中;
-    Explorer.所有内容 = [命中, ...Explorer.所有内容.filter((x) => x.id !== nodeId)];
+    if (!Explorer.所有内容.some((x) => x.id === nodeId)) {
+      Explorer.所有内容 = [命中, ...Explorer.所有内容];
+    }
     Explorer.渲染内容列表();
     更新内容信息面板();
   } catch (err) {
     添加消息("跳转失败：" + String(err), "error");
   }
+}
+
+/** 返回上一个跳转来源（关联跳转的撤销） */
+export async function 返回上一跳转(): Promise<void> {
+  const 上一个 = 跳转来源栈.pop();
+  if (上一个 === undefined) {
+    添加消息("没有可返回的历史");
+    return;
+  }
+  try {
+    const 命中 = (await window.kugua.request("mkg", "mkg.node.get", { id: 上一个 })) as Explorer.内容条目 | null;
+    if (!命中) {
+      添加消息("来源内容已不存在");
+      return;
+    }
+    Explorer.选中内容 = 命中;
+    if (!Explorer.所有内容.some((x) => x.id === 上一个)) {
+      Explorer.所有内容 = [命中, ...Explorer.所有内容];
+    }
+    Explorer.渲染内容列表();
+    更新内容信息面板();
+  } catch (err) {
+    添加消息("返回失败：" + String(err), "error");
+  }
+}
+
+/** 是否可返回（供 UI 决定是否显示返回入口） */
+export function 有跳转历史(): boolean {
+  return 跳转来源栈.length > 0;
 }
 
 /** 打开「建立关联」对话框 */

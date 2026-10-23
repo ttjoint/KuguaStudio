@@ -85,7 +85,69 @@ function 进程存活(pid: number): boolean {
     return true;
   } catch (err) {
     // EPERM 说明进程存在但无权限；ESRCH 说明不存在
-    return (err as NodeJS.ErrnoException).code === "EPERM";
+    if ((err as NodeJS.ErrnoException).code === "EPERM") return true;
+  }
+  return false;
+}
+
+/**
+ * 判断锁里的 pid 是否**真的是**本平台的进程。
+ *
+ * 为什么光靠 `process.kill(pid, 0)` 不够：
+ * Windows 上 PID 会被系统快速复用。旧实例异常退出后，同一个 pid 可能已被
+ * 无关进程（浏览器、编辑器…）占用，`kill(pid,0)` 返回成功 → 误判「已有实例
+ * 在运行」→ 新实例直接退出，用户看到「检测到已有实例（pid=xxx）」但那个
+ * 进程根本不是苦瓜工作室，且无端口在监听。实测踩过这个坑。
+ *
+ * 这里在 POSIX 上用 `ps` 校验命令行含本平台标识；Windows 上用
+ * `wmic`/`tasklist` 同样校验。都拿不到信息时**保守返回 true**（宁可让用户
+ * 手动删锁，也不要误杀别的进程）。
+ */
+export function 是本平台进程(pid: number, 标识: string): boolean {
+  // 非法 pid 直接判否（避免把 0/-1 当成有效目标）
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  // 先确认进程存在；不存在就没必要再查命令行
+  if (!进程存活(pid)) return false;
+
+  const 命令 = 取命令行(pid);
+  // 拿不到命令行（无 ps/PowerShell、权限不足）：**信任存活判定**。
+  // 不能因为探测工具缺失就把存活进程判为死——那会让正常实例互相抢占锁。
+  if (命令 === null) return true;
+  // 拿到了命令行：必须像 node 进程（防 Windows PID 复用给无关程序）
+  return /node(\.exe)?/i.test(命令) || 命令.includes(标识);
+}
+
+/**
+ * 取进程命令行；拿不到返回 null。
+ *
+ * 注意：Windows 11 已移除 wmic（实测 `wmic: command not found`），
+ * 必须用 PowerShell 的 Get-CimInstance。这一步约 1s，只在启动时执行一次。
+ */
+function 取命令行(pid: number): string | null {
+  try {
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+    if (process.platform === "win32") {
+      const 输出 = execFileSync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`,
+        ],
+        { encoding: "utf-8", timeout: 6000, windowsHide: true },
+      );
+      const 文本 = String(输出 ?? "").trim();
+      return 文本 || null;
+    }
+    const 输出 = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+    });
+    const 文本 = String(输出 ?? "").trim();
+    return 文本 || null;
+  } catch {
+    return null;
   }
 }
 
@@ -148,7 +210,8 @@ export function 读取单实例锁(锁路径: string): 锁信息 | null {
   try {
     if (!existsSync(锁路径)) return null;
     const 信息 = JSON.parse(readFileSync(锁路径, "utf-8")) as 锁信息;
-    return 进程存活(信息.pid) ? 信息 : null;
+    // 存活 + 确实是本平台进程（防 Windows PID 复用导致的误判）
+    return 进程存活(信息.pid) && 是本平台进程(信息.pid, 信息.标识 ?? "studio") ? 信息 : null;
   } catch {
     return null;
   }

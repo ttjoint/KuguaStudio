@@ -3921,3 +3921,73 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
 }
 .ws-side-page.hidden { display: none; }
 .ws-side-page .ws-palette-list { flex: 1; }
+
+/* ===== 内容列表空状态 ===== */
+.ex-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+.ex-empty-state.hidden { display: none; }
+.ex-empty-title {
+  font-size: 0.92rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.ex-empty-hint {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.ex-empty-hint b {
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+}
+
+/* 关联区块：返回上一处 */
+.ex-info-relation-back {
+  font-size: 0.72rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0.15rem 0;
+  user-select: none;
+}
+.ex-info-relation-back:hover { text-decoration: underline; }
+
+/* 关联项：名称 + 悬停删除按钮 */
+.ex-info-relation-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.ex-info-relation-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ex-info-relation-del {
+  flex-shrink: 0;
+  opacity: 0;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  padding: 0 0.2rem;
+  border-radius: 3px;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.ex-info-relation-item:hover .ex-info-relation-del { opacity: 1; }
+.ex-info-relation-del:hover { color: #e06c75; background: rgba(224, 108, 117, 0.15); }
+
+/* 标签拖拽移动 */
+.ex-tag-item.dragging { opacity: 0.45; }
+.ex-tag-item.drop-target {
+  background: var(--accent-dim, rgba(90, 140, 200, 0.3));
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}

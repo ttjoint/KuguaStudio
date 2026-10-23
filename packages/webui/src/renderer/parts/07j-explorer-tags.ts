@@ -241,6 +241,23 @@ export async function 切换标签AIPublic(tagId: number, aiPublic: boolean): Pr
   }
 }
 
+/**
+ * 移动标签到新父节点（拖拽/右键「移到根」都走这里）。
+ *
+ * 后端 moveTag 会拦两类错误：移到自己下面、移到自己的子孙下面（循环）。
+ * 这里只负责调用与刷新，错误信息直接给用户看。
+ */
+async function 移动标签(tagId: number, newParentId: number | null): Promise<void> {
+  try {
+    await window.kugua.request("mkg", "mkg.tag.move", { tagId, newParentId });
+    await Explorer.加载标签树();
+    渲染标签树();
+    添加消息(newParentId === null ? "已移到根标签" : "已移动标签");
+  } catch (err) {
+    添加消息("移动标签失败：" + String(err), "error");
+  }
+}
+
 export function 渲染标签树(): void {
   Explorer.标签树容器.innerHTML = "";
 
@@ -319,6 +336,50 @@ export function 渲染标签树(): void {
     item.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).classList.contains("ex-tag-expand")) return;
       导航到标签(node.id);
+    });
+
+    // ===== 拖拽移动标签（拖到另一个标签上 = 成为它的子标签）=====
+    // 为什么需要：标签原来只能新建/删除，挂错位置只能删掉重建（丢内容关联）。
+    item.draggable = true;
+    item.addEventListener("dragstart", (e) => {
+      e.dataTransfer?.setData("application/x-kugua-tag", String(node.id));
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      item.classList.add("dragging");
+    });
+    item.addEventListener("dragend", () => {
+      item.classList.remove("dragging");
+      document.querySelectorAll(".ex-tag-item.drop-target").forEach((el) => el.classList.remove("drop-target"));
+    });
+    item.addEventListener("dragover", (e) => {
+      // 只接受标签拖拽（资源拖拽是另一套 MIME，不能混）
+      if (!e.dataTransfer?.types.includes("application/x-kugua-tag")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      item.classList.add("drop-target");
+    });
+    item.addEventListener("dragleave", () => item.classList.remove("drop-target"));
+    item.addEventListener("drop", (e) => {
+      const 源ID = Number(e.dataTransfer?.getData("application/x-kugua-tag"));
+      if (!Number.isFinite(源ID) || 源ID <= 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      item.classList.remove("drop-target");
+      if (源ID === node.id) return; // 拖到自己身上：忽略
+      void 移动标签(源ID, node.id);
+    });
+
+    // 右键菜单：移到根（拖拽之外的另一种方式，触屏/精确操作用）
+    item.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const 项: Array<Explorer.菜单项 | null> = [
+        { label: "筛选此标签", icon: "🔍", onClick: () => 导航到标签(node.id) },
+      ];
+      if (node.parentId != null) {
+        项.push({ label: "移到根标签", icon: "⬆️", onClick: () => void 移动标签(node.id, null) });
+      }
+      显示上下文菜单(e.clientX, e.clientY, 项);
     });
 
     parent.appendChild(item);
@@ -546,7 +607,11 @@ export function 渲染筛选摘要(): void {
   }
   if (typeof Explorer.当前标签ID === "number") 项.push("标签：" + 找到标签名(Explorer.当前标签ID));
   if (Explorer.类型筛选 !== "all") 项.push("类型：" + Explorer.类型筛选);
-  if (Explorer.搜索关键词.trim()) 项.push("搜索：" + Explorer.搜索关键词.trim());
+  if (Explorer.搜索关键词.trim()) {
+    // 带上检索模式：否则用户看不出「标签」模式搜不到正文是正常的
+    const 模式名 = Explorer.检索模式 === "full" ? "全文" : Explorer.检索模式 === "title" ? "标题" : "标签";
+    项.push(`搜索（${模式名}）：` + Explorer.搜索关键词.trim());
+  }
   if (Explorer.当前视图ID != null) {
     const v = Explorer.保存视图列表.find((x) => x.id === Explorer.当前视图ID);
     if (v) 项.push("视图：" + v.name);

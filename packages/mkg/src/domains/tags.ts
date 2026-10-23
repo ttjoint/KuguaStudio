@@ -24,6 +24,8 @@ declare module "../index.js" {
     removeResourceTags(resourceId: number, tagIds: number[]): 标签[];
     获取标签路径(tagId: number): string[];
     setTagAiPublic(tagId: number, aiPublic: boolean): 标签;
+    /** 移动标签到新父节点（null = 移到根）。返回移动后的标签。 */
+    moveTag(tagId: number, newParentId: number | null): 标签;
   }
 }
 
@@ -135,8 +137,14 @@ export function 安装标签域(proto: { [k: string]: unknown }): void {
             ai_public: number;
           }[])
         : (this.db
-            .prepare("SELECT id, name, parent_id, description, ai_public FROM tags WHERE parent_id = ?")
-            .all(parentId) as unknown as {
+            // parentId === null 时不能用 `parent_id = NULL`（SQL 里 NULL 比较恒为 unknown，
+            // 永远匹配不到）。要查根标签必须用 IS NULL。
+            .prepare(
+              parentId === null
+                ? "SELECT id, name, parent_id, description, ai_public FROM tags WHERE parent_id IS NULL"
+                : "SELECT id, name, parent_id, description, ai_public FROM tags WHERE parent_id = ?",
+            )
+            .all(...(parentId === null ? [] : [parentId])) as unknown as {
             id: number;
             name: string;
             parent_id: number | null;
@@ -306,6 +314,53 @@ export function 安装标签域(proto: { [k: string]: unknown }): void {
       .filter((c) => 标签表.has(c.tagId))
       .slice(0, limit)
       .map((c) => ({ tag: 标签表.get(c.tagId)!, 共现: c.co, 相关度: c.score }));
+  };
+
+  /**
+   * 移动标签到新父节点。
+   *
+   * 为什么需要：标签只能新建/删除，不能改父节点。历史上 createTag 的
+   * ON CONFLICT bug 会把标签挂错位置，用户只能删掉重建（会丢内容关联）。
+   *
+   * 必须防的两件事：
+   * 1. **循环引用**：不能把父标签移到自己的子孙下面（否则树变成环，
+   *    路径回溯会无限递归）。
+   * 2. **不存在/自身**：目标父节点必须存在，且不能是自己。
+   */
+  proto.moveTag = function (this: 上下文, tagId: number, newParentId: number | null): 标签 {
+    const 自身 = this.db
+      .prepare("SELECT id, name, parent_id, description, ai_public FROM tags WHERE id = ?")
+      .get(tagId) as unknown as
+      | { id: number; name: string; parent_id: number | null; description: string | null; ai_public: number }
+      | undefined;
+    if (!自身) throw new Error(`标签不存在：${tagId}`);
+
+    if (newParentId !== null) {
+      if (newParentId === tagId) throw new Error("不能把标签移到自己下面");
+      const 父 = this.db.prepare("SELECT id FROM tags WHERE id = ?").get(newParentId);
+      if (!父) throw new Error(`目标父标签不存在：${newParentId}`);
+      // 检查 newParentId 是否是 tagId 的子孙（向上回溯）
+      let 当前: number | null = newParentId;
+      let 步数 = 0;
+      while (当前 !== null) {
+        if (当前 === tagId) throw new Error("不能把标签移到自己的子孙下面（会造成循环）");
+        const 行: { parent_id: number | null } | undefined = this.db
+          .prepare("SELECT parent_id FROM tags WHERE id = ?")
+          .get(当前) as { parent_id: number | null } | undefined;
+        当前 = 行?.parent_id ?? null;
+        // 防御：数据异常时避免死循环
+        if (++步数 > 1000) throw new Error("标签树层级异常，已中止移动");
+      }
+    }
+
+    this.db.prepare("UPDATE tags SET parent_id = ? WHERE id = ?").run(newParentId, tagId);
+    return {
+      id: 自身.id,
+      name: 自身.name,
+      parentId: newParentId,
+      description: 自身.description,
+      aiPublic: 自身.ai_public === 1,
+    };
   };
 
   proto.createTagTree = function (this: 上下文, names: string[], description?: string): 标签 {

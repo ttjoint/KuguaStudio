@@ -28,6 +28,8 @@ declare module "../index.js" {
     searchByContent(keyword: string, options?: 搜索选项): 搜索结果<资源 & { snippet: string }>;
     addRelation(fromNodeId: number, toNodeId: number, relationType: 节点关系类型): void;
     getRelations(nodeId: number, relationType?: 节点关系类型): { toNodeId: number; relationType: 节点关系类型 }[];
+    /** 删除一条关联（建错了能撤销） */
+    removeRelation(fromNodeId: number, toNodeId: number, relationType: 节点关系类型): boolean;
     createResource(
       path: string,
       name: string,
@@ -178,6 +180,26 @@ export function 安装资源域(proto: { [k: string]: unknown }): void {
     return this.db
       .prepare("SELECT to_node_id as toNodeId, relation_type as relationType FROM node_relations WHERE from_node_id = ?")
       .all(nodeId) as { toNodeId: number; relationType: 节点关系类型 }[];
+  };
+
+  /**
+   * 删除一条关联。
+   *
+   * 为什么需要：原来只有 addRelation，建错了无法撤销——用户只能删掉整条内容
+   * 再重建，代价太大。
+   *
+   * @returns 是否真的删掉了一行（false 表示该关联本来就不存在）
+   */
+  proto.removeRelation = function (
+    this: 上下文,
+    fromNodeId: number,
+    toNodeId: number,
+    relationType: 节点关系类型,
+  ): boolean {
+    const r = this.db
+      .prepare("DELETE FROM node_relations WHERE from_node_id = ? AND to_node_id = ? AND relation_type = ?")
+      .run(fromNodeId, toNodeId, relationType);
+    return r.changes > 0;
   };
 
   proto.createResource = function (
