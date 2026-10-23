@@ -250,6 +250,12 @@ export const 能力清单: 能力声明[] = [
     "把标签移到另一个父标签下（null = 移到根）",
     参({ tagId: { type: "number" }, newParentId: { type: ["number", "null"] } }, ["tagId", "newParentId"]),
   ),
+  只读(
+    "mkg.relation.incoming",
+    "反向关联",
+    "查询哪些内容引用了该节点（谁引用了我）",
+    参({ nodeId: { type: "number" }, relationType: { type: "string" } }, ["nodeId"]),
+  ),
   破坏(
     "mkg.relation.remove",
     "删除节点关系",

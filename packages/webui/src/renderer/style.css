@@ -3991,3 +3991,14 @@ textarea.cfg-input { resize: vertical; min-height: 60px; }
   outline-offset: -1px;
   border-radius: 4px;
 }
+
+/* 反向关联（被引用）：用左侧色条区分「我引用的」与「引用我的」 */
+.ex-info-relation-group.incoming {
+  border-left: 2px solid var(--accent);
+}
+.ex-info-relation-type {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  opacity: 0.85;
+}

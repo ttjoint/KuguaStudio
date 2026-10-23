@@ -270,6 +270,15 @@ void 启动模块({
     return mkg.moveTag(tagId, newParentId);
   });
 
+  客户端.onRequest("mkg.relation.incoming", (params) => {
+    const { nodeId, relationType } = (params ?? {}) as {
+      nodeId?: number;
+      relationType?: 节点关系类型;
+    };
+    if (nodeId === undefined) throw new Error("缺少 nodeId");
+    return mkg.getIncomingRelations(nodeId, relationType);
+  });
+
   客户端.onRequest("mkg.relation.remove", (params) => {
     const { fromNodeId, toNodeId, relationType } = (params ?? {}) as {
       fromNodeId?: number;

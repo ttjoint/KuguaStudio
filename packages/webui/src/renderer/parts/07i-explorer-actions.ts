@@ -5,6 +5,7 @@
 // 这里保留同名导出是为了不打断现有调用点（内容列表、标签树、看板等处）。
 // 新代码请直接用 21-context-menu 的 显示菜单 / 注册右键菜单。
 import { Explorer } from "./07-explorer";
+import { 显示确认对话框 } from "./06-shell";
 import { 更新内容信息面板 } from "./07j-explorer-tags";
 import { 添加消息 } from "./03-preview";
 import { 刷新统计 } from "./06-shell";
@@ -51,12 +52,58 @@ export function 更新批量删除按钮(): void {
   btn.title = n > 0 ? `删除选中的 ${n} 项（从知识库移除，不影响物理文件）` : "删除选中的内容";
 }
 
+/**
+ * 查询一组节点被多少处引用（删除前警告用）。
+ *
+ * 为什么要查：node_relations 的 to_node_id 有 ON DELETE CASCADE，
+ * 删除被引用的内容时，那些引用会**静默消失**，引用方不会收到任何提示。
+ * 用户必须在删除前知道这件事。
+ */
+async function 统计被引用数(ids: number[]): Promise<{ 总数: number; 涉及: number }> {
+  let 总数 = 0;
+  let 涉及 = 0;
+  // 逐条查（通常一次只删 1~几项；并行请求会打满总线）
+  for (const id of ids) {
+    try {
+      const 列表 = (await window.kugua.request("mkg", "mkg.relation.incoming", { nodeId: id })) as unknown[];
+      const n = Array.isArray(列表) ? 列表.length : 0;
+      if (n > 0) {
+        涉及++;
+        总数 += n;
+      }
+    } catch {
+      /* 查询失败不阻塞删除，只是少一次警告 */
+    }
+  }
+  return { 总数, 涉及 };
+}
+
 /** 从知识库批量移除选中内容（物理文件不受影响） */
 export async function 删除选中内容(): Promise<void> {
   const ids = [...Explorer.选中节点ID];
   if (ids.length === 0) return;
-  // 直接处理，不弹确认框
   (document.activeElement as HTMLElement)?.blur?.();
+
+  // 有外部引用时先确认——避免静默删掉别人正在依赖的内容
+  const 引用 = await 统计被引用数(ids);
+  if (引用.总数 > 0) {
+    显示确认对话框(
+      `选中的 ${ids.length} 项里有 ${引用.涉及} 项正被其它内容引用（共 ${引用.总数} 处）。
+` +
+        `继续删除会同时移除这些引用，引用方不会收到提示。
+
+确定要删除吗？`,
+      (ok) => {
+        if (ok) void 执行删除选中内容(ids);
+      },
+    );
+    return;
+  }
+  await 执行删除选中内容(ids);
+}
+
+/** 真正执行批量删除 */
+async function 执行删除选中内容(ids: number[]): Promise<void> {
   try {
     await window.kugua.request("mkg", "mkg.node.removeMany", { nodeIds: ids });
     添加消息(`已从知识库移除 ${ids.length} 项（物理文件未受影响）`, "system", "批量删除");
@@ -79,8 +126,28 @@ export async function 删除到回收站(item: Explorer.内容条目): Promise<v
     添加消息("该内容不是文件，仅支持从知识库移除", "system");
     return;
   }
-  // 直接处理，不弹确认框
   (document.activeElement as HTMLElement)?.blur?.();
+
+  // 被引用时先确认
+  const 引用 = await 统计被引用数([item.id]);
+  if (引用.总数 > 0) {
+    显示确认对话框(
+      `「${item.name}」正被 ${引用.总数} 处内容引用。
+` +
+        `删除会同时移除这些引用，引用方不会收到提示。
+
+确定要删除吗？`,
+      (ok) => {
+        if (ok) void 执行删除到回收站(item);
+      },
+    );
+    return;
+  }
+  await 执行删除到回收站(item);
+}
+
+/** 真正执行「删除到回收站」 */
+async function 执行删除到回收站(item: Explorer.内容条目): Promise<void> {
   try {
     const r = (await window.kugua.request("mkg", "mkg.node.trash", { nodeId: item.id })) as {
       trashed: boolean;

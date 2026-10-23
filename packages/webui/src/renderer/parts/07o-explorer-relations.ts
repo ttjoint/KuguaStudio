@@ -88,9 +88,10 @@ export async function 渲染关联(nodeId: number): Promise<void> {
   if (列表.length === 0) {
     const 空 = document.createElement("div");
     空.className = "ex-info-relation-empty";
-    空.textContent = "暂无关联。点右上角 ＋ 建立引用/包含/相似关系。";
+    空.textContent = "暂无正向关联。点右上角 ＋ 建立引用/包含/相似关系。";
     容器.appendChild(空);
-    return;
+    // 注意：这里**不能 return** —— 正向为空不代表反向也为空。
+    // 「我引用了谁」为空，但「谁引用了我」可能有内容，必须继续渲染。
   }
 
   // 按类型分组
@@ -168,6 +169,71 @@ export async function 渲染关联(nodeId: number): Promise<void> {
 
     容器.appendChild(组盒);
   }
+
+  // 反向关联：谁引用了我（用同一容器，但用不同视觉区分）
+  await 渲染反向关联(nodeId, 容器);
+}
+
+/**
+ * 渲染「被引用」区块。
+ *
+ * 为什么重要：正向关联只说明「我引用了谁」。若 B 被 A 引用，
+ * B 的作者看不到——而 B 一旦被删除，A 对它的引用会被外键级联
+ * 静默删除。用户必须能提前看到这个风险。
+ */
+async function 渲染反向关联(nodeId: number, 容器: HTMLElement): Promise<void> {
+  let 列表: Array<{ fromNodeId: number; relationType: 关系类型 }> = [];
+  try {
+    列表 = (await window.kugua.request("mkg", "mkg.relation.incoming", { nodeId })) as typeof 列表;
+  } catch {
+    return; // 反向查询失败不影响正向展示
+  }
+  if (渲染中的节点ID !== nodeId) return;
+  if (列表.length === 0) return;
+
+  const 组盒 = document.createElement("div");
+  组盒.className = "ex-info-relation-group incoming";
+
+  const 组头 = document.createElement("div");
+  组头.className = "ex-info-relation-head";
+  组头.title = "这些内容引用了本条。删除本条会同时删除这些引用。";
+  const 折叠 = document.createElement("span");
+  折叠.className = "ex-toggle";
+  折叠.textContent = "▼";
+  组头.appendChild(折叠);
+  const 组名 = document.createElement("span");
+  组名.textContent = `↩️ 被引用 (${列表.length})`;
+  组头.appendChild(组名);
+  组盒.appendChild(组头);
+
+  const 组体 = document.createElement("div");
+  组体.className = "ex-info-relation-body";
+  for (const r of 列表) {
+    const 行 = document.createElement("div");
+    行.className = "ex-info-relation-item";
+    const 名 = document.createElement("span");
+    名.className = "ex-info-relation-name";
+    名.textContent = `#${r.fromNodeId}`;
+    行.appendChild(名);
+    const 类型标记 = document.createElement("span");
+    类型标记.className = "ex-info-relation-type";
+    const 元 = 关系元信息[r.relationType];
+    类型标记.textContent = 元 ? `${元.图标}${元.名称}` : r.relationType;
+    类型标记.title = `对方以「${元?.名称 ?? r.relationType}」关系引用了本条`;
+    行.appendChild(类型标记);
+    行.title = "点击跳转到引用方";
+    行.addEventListener("click", () => void 跳转并选中(r.fromNodeId));
+    组体.appendChild(行);
+    void 补名称(名, r.fromNodeId, nodeId);
+  }
+  组盒.appendChild(组体);
+
+  组头.addEventListener("click", () => {
+    const 收起 = 组体.classList.toggle("hidden");
+    折叠.textContent = 收起 ? "▶" : "▼";
+  });
+
+  容器.appendChild(组盒);
 }
 
 /** 删除一条关联（不删内容本身） */

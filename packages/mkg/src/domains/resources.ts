@@ -30,6 +30,16 @@ declare module "../index.js" {
     getRelations(nodeId: number, relationType?: 节点关系类型): { toNodeId: number; relationType: 节点关系类型 }[];
     /** 删除一条关联（建错了能撤销） */
     removeRelation(fromNodeId: number, toNodeId: number, relationType: 节点关系类型): boolean;
+    /**
+     * 反向关联：谁引用了这个节点。
+     *
+     * 为什么需要：getRelations 只查 from_node_id，看不到「谁引用了我」。
+     * 知识库的核心场景是「A 引用 B，B 的作者应该知道」，否则 B 被删时
+     * 那些引用会被外键级联静默删除，作者毫无察觉。
+     */
+    getIncomingRelations(nodeId: number, relationType?: 节点关系类型): { fromNodeId: number; relationType: 节点关系类型 }[];
+    /** 反向关联数量（删除前警告用，比取全量轻） */
+    countIncomingRelations(nodeId: number): number;
     createResource(
       path: string,
       name: string,
@@ -180,6 +190,41 @@ export function 安装资源域(proto: { [k: string]: unknown }): void {
     return this.db
       .prepare("SELECT to_node_id as toNodeId, relation_type as relationType FROM node_relations WHERE from_node_id = ?")
       .all(nodeId) as { toNodeId: number; relationType: 节点关系类型 }[];
+  };
+
+  /**
+   * 反向关联：谁引用了这个节点。
+   */
+  proto.getIncomingRelations = function (
+    this: 上下文,
+    nodeId: number,
+    relationType?: 节点关系类型,
+  ): { fromNodeId: number; relationType: 节点关系类型 }[] {
+    if (relationType) {
+      return this.db
+        .prepare(
+          "SELECT from_node_id as fromNodeId, relation_type as relationType FROM node_relations WHERE to_node_id = ? AND relation_type = ?",
+        )
+        .all(nodeId, relationType) as { fromNodeId: number; relationType: 节点关系类型 }[];
+    }
+    return this.db
+      .prepare(
+        "SELECT from_node_id as fromNodeId, relation_type as relationType FROM node_relations WHERE to_node_id = ?",
+      )
+      .all(nodeId) as { fromNodeId: number; relationType: 节点关系类型 }[];
+  };
+
+  /**
+   * 反向关联数量。
+   *
+   * 用 COUNT(*) 而不是取全量再 .length：删除前警告会被频繁调用，
+   * 没必要把所有引用方都读出来。
+   */
+  proto.countIncomingRelations = function (this: 上下文, nodeId: number): number {
+    const 行 = this.db
+      .prepare("SELECT COUNT(*) as c FROM node_relations WHERE to_node_id = ?")
+      .get(nodeId) as { c: number } | undefined;
+    return 行?.c ?? 0;
   };
 
   /**
