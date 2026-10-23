@@ -938,11 +938,19 @@ body {
   min-width: 220px;
   max-width: 360px;
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border);
+  /* 详情栏放右侧（检视区）：主内容在左、属性在右，符合直觉。
+     order: 1 让它排在内容列表之后，DOM 顺序不变（JS 不依赖位置）。 */
+  order: 1;
+  border-left: 1px solid var(--border);
+  border-right: none;
   overflow-y: auto;
   flex-shrink: 0;
 }
 .ex-file-info.hidden { display: none; }
+/* 详情栏在右侧后，内容列表需要占满左侧剩余空间 */
+.explorer-content {
+  order: 0;
+}
 .explorer-content {
   flex: 1;
   display: flex;
