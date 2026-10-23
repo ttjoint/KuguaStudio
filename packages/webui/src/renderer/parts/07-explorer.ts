@@ -65,6 +65,16 @@ export namespace Explorer {
   let 当前视图模式: "large" | "list" | "details" = "large";
   export let 当前标签ID: number | "all" = "all";
   export let 搜索关键词 = "";
+  /**
+   * 检索模式：决定搜哪里。
+   * - full：FTS5 全文（能搜到正文，按相关度排序）
+   * - title：只搜标题（mkg.query 的 text 条件）
+   * - tag：按标签名搜（先查标签树再筛选）
+   *
+   * 为何要分模式：原来只有一个输入框，走 mkg.query 的 LIKE '%词%'，
+   * 标题里没这几个连续字就搜不到，但全文索引里明明有这段内容。
+   */
+  export let 检索模式: "full" | "title" | "tag" = "full";
   export let 类型筛选: string = "all";
   export let 排序方式: "import" | "name" | "updated" = "import";
   /** 当前智能视图 / 位置筛选（阶段 2） */
@@ -306,10 +316,12 @@ export namespace Explorer {
   export function 筛选内容(): 内容条目[] {
     let items = [...所有内容];
     const kw = 搜索关键词.trim().toLowerCase();
-    if (kw) {
+    // 全文模式：结果已由 FTS5 服务端筛过（命中可能只在正文），
+    // 这里**不能**再用 name/content/path 二次过滤，否则会把正文命中全部滤掉。
+    // 标签模式：结果已由 按标签名筛选() 处理过，同理不再按关键词过滤。
+    if (kw && 检索模式 === "title") {
       items = items.filter((it) =>
         it.name.toLowerCase().includes(kw) ||
-        it.content.toLowerCase().includes(kw) ||
         (it.path ? it.path.toLowerCase().includes(kw) : false),
       );
     }
@@ -490,10 +502,28 @@ export namespace Explorer {
 
   export async function 加载所有内容(重试次数 = 0): Promise<void> {
     try {
+      const 词 = 搜索关键词.trim();
+
+      // 全文模式：走 FTS5（能命中正文，非只匹配标题）
+      // 没有关键词时不走 FTS（空查询无意义），直接走常规查询
+      if (检索模式 === "full" && 词) {
+        const 命中 = (await window.kugua.request("mkg", "mkg.fts.search", {
+          keyword: 词,
+          limit: 1000,
+        })) as 内容条目[];
+        // FTS 只负责“找哪些”，后续的标签/类型/位置筛选仍在本地做，
+        // 保证三个模式的筛选语义一致（用户切模式不会突然丢掉标签筛选）。
+        所有内容 = 应用本地筛选(命中 ?? []);
+        渲染内容列表();
+        渲染筛选摘要();
+        void 渲染关联标签();
+        return;
+      }
+
       const condition: 查询条件 = {
         tags: typeof 当前标签ID === "number" ? [当前标签ID] : undefined,
         type: 类型筛选 === "all" ? undefined : 类型筛选,
-        text: 搜索关键词 || undefined,
+        text: 检索模式 === "tag" ? undefined : 词 || undefined,
         locations: 当前位置ID != null ? [当前位置ID] : undefined,
         sort: 排序方式,
       };
@@ -501,7 +531,8 @@ export namespace Explorer {
         condition,
         limit: 1000,
       })) as 内容条目[];
-      所有内容 = result;
+      // 标签模式：在结果里按标签名再做一道过滤（含子标签路径）
+      所有内容 = 检索模式 === "tag" && 词 ? 按标签名筛选(result ?? [], 词) : (result ?? []);
       渲染内容列表();
       渲染筛选摘要();
       void 渲染关联标签();
@@ -513,6 +544,26 @@ export namespace Explorer {
       所有内容 = [];
       渲染内容列表();
     }
+  }
+
+  /** 对已取回的结果再做本地筛选（供全文检索复用，保证筛选语义一致） */
+  function 应用本地筛选(列表: 内容条目[]): 内容条目[] {
+    let 结果 = 列表;
+    if (类型筛选 !== "all") 结果 = 结果.filter((x) => x.category === 类型筛选);
+    if (typeof 当前标签ID === "number") {
+      结果 = 结果.filter((x) => x.tagIds.includes(当前标签ID as number));
+    }
+    if (排序方式 === "name") 结果 = [...结果].sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    else if (排序方式 === "updated") 结果 = [...结果].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    return 结果;
+  }
+
+  /** 按标签名筛选：匹配标签自身名或其路径任一段（大小写不敏感） */
+  function 按标签名筛选(列表: 内容条目[], 词: string): 内容条目[] {
+    const 小写 = 词.toLowerCase();
+    return 列表.filter((项) =>
+      (项.tagPaths ?? []).some((路径) => 路径.some((段) => 段.toLowerCase().includes(小写))),
+    );
   }
 
   export async function 加载标签树(重试次数 = 0): Promise<void> {
@@ -669,8 +720,27 @@ export namespace Explorer {
       搜索关键词 = 搜索框.value;
       if (搜索防抖) clearTimeout(搜索防抖);
       搜索防抖 = window.setTimeout(() => {
-        渲染内容列表();
-      }, 200);
+        // 全文/标签模式需要重新请求服务端（本地没有完整正文），
+        // 标题模式可本地过滤，但为了行为一致也走重新加载。
+        void 加载所有内容();
+      }, 250);
+    });
+
+    // 检索模式切换
+    document.querySelectorAll<HTMLButtonElement>(".ex-search-mode").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const 模式 = btn.dataset.searchmode as "full" | "title" | "tag" | undefined;
+        if (!模式 || 模式 === 检索模式) return;
+        检索模式 = 模式;
+        // 更新按钮高亮
+        document.querySelectorAll<HTMLButtonElement>(".ex-search-mode").forEach((b) => {
+          b.classList.toggle("active", b.dataset.searchmode === 模式);
+        });
+        // 更新输入框提示，让用户知道在搜什么
+        搜索框.placeholder =
+          模式 === "full" ? "搜索标题与正文..." : 模式 === "title" ? "只搜标题..." : "按标签名搜...";
+        void 加载所有内容();
+      });
     });
 
     document.querySelectorAll<HTMLButtonElement>(".ex-view-btn").forEach((btn) => {

@@ -45,7 +45,14 @@
           <!-- 分类栏（最左，可折叠）：搜索 + 标签树 -->
           <div id="ex-cat-sidebar" class="ex-cat-sidebar">
             <div class="ex-search-box">
-              <input type="text" id="ex-search" placeholder="搜索文件...">
+              <!-- 检索模式：决定搜哪里。全文走 FTS5（能搜到正文），
+                   标题/标签走 mkg.query（结构化筛选）。 -->
+              <div class="ex-search-modes" role="group" title="检索范围">
+                <button class="ex-search-mode active" data-searchmode="full" title="全文检索（搜标题与正文）">全文</button>
+                <button class="ex-search-mode" data-searchmode="title" title="只搜标题">标题</button>
+                <button class="ex-search-mode" data-searchmode="tag" title="按标签名搜">标签</button>
+              </div>
+              <input type="text" id="ex-search" placeholder="搜索标题与正文...">
             </div>
 
             <div class="ex-section">
