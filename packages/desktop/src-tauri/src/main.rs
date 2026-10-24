@@ -335,7 +335,103 @@ fn 字符串字面量(s: &str) -> String {
     输出
 }
 
-/// 建主窗口。
+/// 记录当前窗口几何到磁盘。
+///
+/// 设计要点：
+/// - **最大化时不覆盖普通尺寸**：用户最大化后关闭，下次取消最大化应该
+///   回到他原来的窗口大小，而不是一个铺满屏幕的"普通窗口"。
+///   具体逻辑在 窗口状态::更新 里。
+/// - 忽略轻微抖动：拖动窗口会连续触发 Moved，每次都写盘太浪费。
+///   只有变化超过阈值才写（坐标 2px / 尺寸 2px）。
+fn 记录窗口几何(窗口: &tauri::Window) {
+    use std::sync::Mutex;
+    static 上次写入: Mutex<Option<窗口状态::几何>> = Mutex::new(None);
+
+    // 缩放系数：Tauri 的 position/size 是物理像素，持久化要逻辑像素，
+    // 否则在 125%/150% 缩放的屏幕上，每次重启窗口都会越来越大。
+    let 缩放 = 窗口.scale_factor().unwrap_or(1.0);
+    let 位置 = 窗口
+        .outer_position()
+        .ok()
+        .map(|p| ((p.x as f64 / 缩放).round() as i32, (p.y as f64 / 缩放).round() as i32));
+    let 尺寸 = 窗口
+        .inner_size()
+        .ok()
+        .map(|s| ((s.width as f64 / 缩放).round() as u32, (s.height as f64 / 缩放).round() as u32));
+
+    // 是否最大化：**同时**看状态位与「是否贴合屏幕工作区」。
+    //
+    // 为什么不能只信 is_maximized()：实测时序是 OS 先发 Resized、
+    // 之后才更新最大化状态位。那一次 Resized 里 is_maximized() 返回
+    // false，于是全屏尺寸被当成"用户的普通尺寸"写进磁盘，之前的
+    // 1100×750 永久丢失（诊断日志实证两次）。
+    //
+    // 为什么用 work_area 而不是显示器全尺寸：最大化时窗口贴合的是
+    // 工作区（屏幕减去任务栏），在本机是 2560×1392 而屏幕是 2560×1440。
+    // 用全尺寸比较会永远不相等，判断失效。
+    let 状态最大化 = 窗口.is_maximized().unwrap_or(false);
+    let 贴工作区 = match (尺寸, 窗口.current_monitor().ok().flatten()) {
+        (Some((宽, 高)), Some(屏)) => {
+            let 缩放 = 窗口.scale_factor().unwrap_or(1.0);
+            let 区 = 屏.work_area();
+            let 区宽 = (区.size.width as f64 / 缩放).round() as u32;
+            let 区高 = (区.size.height as f64 / 缩放).round() as u32;
+            // 允许 8px 误差：DPI 取整、边框阴影各有几像素出入
+            宽.abs_diff(区宽) <= 8 && 高.abs_diff(区高) <= 8
+        }
+        _ => false,
+    };
+    let 最大化 = 状态最大化 || 贴工作区;
+
+    // 最大化时**什么都不写**：磁盘里保留的仍是最后一次非最大化值。
+    // 关闭窗口时另走 记录关闭状态（那里才写 maximized 标记）。
+    if 最大化 {
+        return;
+    }
+
+    let 已有 = 上次写入
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .or_else(窗口状态::读取)
+        .unwrap_or_else(窗口状态::几何::默认);
+
+    let 新值 = 窗口状态::更新(&已有, 位置, 尺寸, false);
+
+    // 变化太小就不写盘（拖动会连续触发 Moved，每次都写太浪费）
+    let 需要写 = match 上次写入.lock().ok().and_then(|g| g.clone()) {
+        None => true,
+        Some(旧) => {
+            (旧.x - 新值.x).abs() > 2
+                || (旧.y - 新值.y).abs() > 2
+                || 旧.宽.abs_diff(新值.宽) > 2
+                || 旧.高.abs_diff(新值.高) > 2
+                || 旧.最大化 != 新值.最大化
+        }
+    };
+    if !需要写 {
+        return;
+    }
+
+    窗口状态::保存(&新值);
+    if let Ok(mut 锁) = 上次写入.lock() {
+        *锁 = Some(新值);
+    }
+}
+
+/// 关闭窗口时记录：这里**需要**把最大化标志写进去。
+///
+/// 与 记录窗口几何 的区别：那个只管普通状态，这个管"下次打开时的形态"。
+/// 尺寸仍然沿用磁盘里最后一次非最大化的值，只翻转 maximized 标记。
+fn 记录关闭状态(窗口: &tauri::Window) {
+    let 最大化 = 窗口.is_maximized().unwrap_or(false);
+    let 已有 = 窗口状态::读取().unwrap_or_else(窗口状态::几何::默认);
+    let mut 新值 = 已有;
+    新值.最大化 = 最大化;
+    窗口状态::保存(&新值);
+}
+
+/// 建主窗口。/// 建主窗口。
 ///
 /// 后端已经能应答了才调它——主窗口一加载就是正确内容。
 /// 窗口创建必须在主线程，调用方负责用 `run_on_main_thread` 排队。
@@ -352,14 +448,30 @@ fn 建主窗口(应用: &tauri::AppHandle, 地址: &str) -> Result<tauri::Webvie
         // 去掉系统标题栏：页面顶栏已经自绘了一套（含拖拽区与最小化/最大化/
         // 关闭），再叠一层 Windows 原生标题栏就是两排一模一样的按钮。
         .decorations(false)
-        .inner_size(1440.0, 900.0)
         .min_inner_size(900.0, 600.0)
-        .center()
         // 先隐藏：等页面首帧渲染完自己调 show_window 显示。
         // 那时屏幕上出现的第一个画面就已经是完整界面，没有白屏。
-        .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .visible(false);
+
+    // 恢复上次的窗口几何。没有记录（首次启动）就用默认 1440×900 居中。
+    let 上次 = 窗口状态::读取();
+    let 窗 = match &上次 {
+        Some(几何) => 窗
+            .inner_size(几何.宽 as f64, 几何.高 as f64)
+            .position(几何.x as f64, 几何.y as f64),
+        None => 窗.inner_size(1440.0, 900.0).center(),
+    }
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    // 上次是最大化 → 这次也最大化。
+    // 要在 build 之后单独调：builder 没有 .maximized() 方法，
+    // 而且最大化必须在窗口存在之后才有意义。
+    if let Some(几何) = &上次 {
+        if 几何.最大化 {
+            let _ = 窗.maximize();
+        }
+    }
 
     // 超时兜底：页面若加载失败就没人调 show_window，窗口永远不出现，
     // 而闪屏会一直在旁边转圈。8 秒后强制收场。
@@ -474,6 +586,306 @@ fn is_maximized(窗口: tauri::Window) -> Result<bool, String> {
     窗口.is_maximized().map_err(|e| e.to_string())
 }
 
+
+/// 窗口状态持久化：记住上次的位置 / 大小 / 是否最大化。
+///
+/// **为什么需要**：原来 `inner_size(1440.0, 900.0)` 是硬编码的，每次启动
+/// 都回到同一个默认尺寸。用户把窗口拖大、挪到第二块屏幕、最大化——下次
+/// 打开全忘了，得重新摆一遍。
+///
+/// **为什么手写 JSON 而不是加 serde**：整个桌面壳只存 4 个数字 + 1 个布尔，
+/// 引入 serde/serde_json 会让 release 体积和编译时间都涨一截（本项目开了
+/// lto + opt-level=s，很在意体积）。字段固定、没有嵌套，手写解析足够可靠：
+/// 逐行找 `"键": 值`，值不是合法数字就当作没有这一项，退回到默认值。
+///
+/// 存储位置：与单例锁同目录（`%LOCALAPPDATA%\KuguaStudio`），
+/// 这样卸载/清缓存时能和其它本地状态一起处理。
+mod 窗口状态 {
+    use std::path::PathBuf;
+
+    /// 持久化的窗口几何信息
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct 几何 {
+        pub x: i32,
+        pub y: i32,
+        pub 宽: u32,
+        pub 高: u32,
+        pub 最大化: bool,
+    }
+
+    impl 几何 {
+        /// 默认窗口：居中 1440×900（与改动前行为一致）
+        pub fn 默认() -> Self {
+            几何 {
+                x: 0,
+                y: 0,
+                宽: 1440,
+                高: 900,
+                最大化: false,
+            }
+        }
+
+        /// 尺寸是否是合理的正数。用来挡掉"文件损坏写成 0×0"这类情况——
+        /// 真把 0 宽窗口建出来，用户会看到一条线，且没法拖，只能改文件。
+        pub fn 尺寸合理(&self) -> bool {
+            self.宽 >= 400 && self.高 >= 300 && self.宽 <= 10000 && self.高 <= 10000
+        }
+    }
+
+    /// 状态目录：`%LOCALAPPDATA%\KuguaStudio`
+    ///
+    /// 与单例互斥体不同，窗口状态必须落到磁盘才能跨进程保留。
+    /// 放 LOCALAPPDATA 而不是程序目录：程序可能装在 Program Files（无写权限），
+    /// 也可能用户在只读盘上运行。
+    fn 状态目录() -> Option<PathBuf> {
+        let 基 = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| {
+                // 非 Windows 或环境变量缺失的兜底
+                std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"))
+            })?;
+        Some(基.join("KuguaStudio"))
+    }
+
+    /// 状态文件路径
+    pub fn 路径() -> Option<PathBuf> {
+        Some(状态目录()?.join("window.json"))
+    }
+
+    /// 读取上次保存的几何信息；文件不存在/损坏/尺寸不合理都返回 None。
+    pub fn 读取() -> Option<几何> {
+        let 路径 = 路径()?;
+        let 文本 = std::fs::read_to_string(&路径).ok()?;
+        let 值 = 解析(&文本)?;
+        if !值.尺寸合理() {
+            return None; // 坏数据当作没有，用默认值
+        }
+        Some(值)
+    }
+
+    /// 保存几何信息（静默失败：存不下来不该影响程序运行）
+    pub fn 保存(值: &几何) {
+        let Some(路径) = 路径() else { return };
+        if let Some(父) = 路径.parent() {
+            let _ = std::fs::create_dir_all(父);
+        }
+        let _ = std::fs::write(&路径, 序列化(值));
+    }
+
+    /// 极简序列化（字段固定，不处理嵌套）
+    pub fn 序列化(值: &几何) -> String {
+        format!(
+            "{{\n  \"x\": {},\n  \"y\": {},\n  \"width\": {},\n  \"height\": {},\n  \"maximized\": {}\n}}\n",
+            值.x, 值.y, 值.宽, 值.高, 值.最大化
+        )
+    }
+
+    /// 极简解析：按行找 "键": 值。
+    ///
+    /// 容错策略：任何一个键缺失就用默认值补，因此老版本文件、
+    /// 手工编辑漏字段都能正常读。完全解析不出数字则整体退回默认。
+    pub fn 解析(文本: &str) -> Option<几何> {
+        let mut 值 = 几何::默认();
+        let mut 命中数 = 0;
+
+        // 同时支持多行（本程序写出的格式）和单行
+        // （`{"x":1,"y":2}`——手工编辑、其它工具生成都可能是这种）。
+        // 所以先按行切，再把每行按逗号切成片段：单行里逗号能分开键值。
+        let 片段 = 文本
+            .lines()
+            .flat_map(|行| 行.split(','))
+            .map(|s| s.trim().trim_matches(|c| c == '{' || c == '}').trim());
+
+        for 行 in 片段 {
+            let 行 = 行.trim();
+            let Some(冒号) = 行.find(':') else { continue };
+            let 键 = 行[..冒号].trim().trim_matches('"');
+            // 值部分去掉尾逗号、括号、空白
+            let 原值 = 行[冒号 + 1..]
+                .trim()
+                .trim_end_matches(',')
+                .trim_end_matches('}')
+                .trim();
+            match 键 {
+                "x" => {
+                    // 坐标允许负数（多显示器在左边/上边时是负值）
+                    if let Ok(v) = 原值.parse::<i32>() {
+                        值.x = v;
+                        命中数 += 1;
+                    }
+                }
+                "y" => {
+                    if let Ok(v) = 原值.parse::<i32>() {
+                        值.y = v;
+                        命中数 += 1;
+                    }
+                }
+                "width" => {
+                    if let Ok(v) = 原值.parse::<u32>() {
+                        值.宽 = v;
+                        命中数 += 1;
+                    }
+                }
+                "height" => {
+                    if let Ok(v) = 原值.parse::<u32>() {
+                        值.高 = v;
+                        命中数 += 1;
+                    }
+                }
+                "maximized" => {
+                    let 小写 = 原值.to_ascii_lowercase();
+                    值.最大化 = 小写 == "true";
+                    命中数 += 1;
+                }
+                _ => {}
+            }
+        }
+
+        if 命中数 == 0 {
+            None
+        } else {
+            Some(值)
+        }
+    }
+
+    /// 从窗口当前状态捕获几何信息。
+    ///
+    /// 最大化时**不覆盖**保存的普通尺寸：否则用户最大化后关闭，
+    /// 下次取消最大化就会变成一个铺满屏幕的"普通窗口"。
+    /// 这里的做法是：最大化时保留传入的 `已有`（用来填尺寸），只翻转标记。
+    pub fn 更新(
+        已有: &几何,
+        位置: Option<(i32, i32)>,
+        尺寸: Option<(u32, u32)>,
+        最大化: bool,
+    ) -> 几何 {
+        if 最大化 {
+            // 最大化状态下，位置和尺寸都不可信（是全屏尺寸），沿用旧的
+            let mut 结果 = 已有.clone();
+            结果.最大化 = true;
+            return 结果;
+        }
+        let (宽, 高) = 尺寸.unwrap_or((已有.宽, 已有.高));
+        let (x, y) = 位置.unwrap_or((已有.x, 已有.y));
+        let 候选 = 几何 {
+            x,
+            y,
+            宽,
+            高,
+            最大化: false,
+        };
+        // 尺寸不合理就别存了（可能正处于最小化/异常状态）
+        if 候选.尺寸合理() {
+            候选
+        } else {
+            let mut 兜底 = 已有.clone();
+            兜底.最大化 = false;
+            兜底
+        }
+    }
+
+    #[cfg(test)]
+    mod 测试 {
+        use super::*;
+
+        #[test]
+        fn 序列化再解析能还原() {
+            let 原 = 几何 {
+                x: -1200,
+                y: 40,
+                宽: 1600,
+                高: 1000,
+                最大化: true,
+            };
+            let 文本 = 序列化(&原);
+            let 回 = 解析(&文本).expect("应该能解析");
+            assert_eq!(原, 回);
+        }
+
+        #[test]
+        fn 负坐标能保留_多显示器在左边() {
+            let 文本 = r#"{"x": -1920, "y": -100, "width": 1200, "height": 800, "maximized": false}"#;
+            let 值 = 解析(文本).expect("应该能解析");
+            assert_eq!(值.x, -1920);
+            assert_eq!(值.y, -100);
+        }
+
+        #[test]
+        fn 缺字段用默认值补() {
+            // 只有 width：其它字段应该回落到默认
+            let 值 = 解析(r#"{"width": 1000}"#).expect("应该能解析");
+            let 默认 = 几何::默认();
+            assert_eq!(值.宽, 1000);
+            assert_eq!(值.高, 默认.高);
+            assert_eq!(值.x, 默认.x);
+        }
+
+        #[test]
+        fn 完全无法解析返回_None() {
+            assert!(解析("这不是 JSON").is_none());
+            assert!(解析("").is_none());
+        }
+
+        #[test]
+        fn 尺寸不合理视为无效_防止_0_尺寸窗口() {
+            let 值 = 几何 {
+                x: 0,
+                y: 0,
+                宽: 0,
+                高: 0,
+                最大化: false,
+            };
+            assert!(!值.尺寸合理());
+            let 太小 = 几何 {
+                宽: 100,
+                高: 100,
+                ..几何::默认()
+            };
+            assert!(!太小.尺寸合理());
+            assert!(几何::默认().尺寸合理());
+        }
+
+        #[test]
+        fn 最大化时不覆盖普通尺寸() {
+            let 已有 = 几何 {
+                x: 100,
+                y: 100,
+                宽: 1200,
+                高: 800,
+                最大化: false,
+            };
+            // 最大化时窗口报告的是全屏尺寸，不能存进去
+            let 新 = 更新(&已有, Some((0, 0)), Some((2560, 1440)), true);
+            assert_eq!(新.宽, 1200, "普通尺寸应保留");
+            assert_eq!(新.高, 800);
+            assert_eq!(新.x, 100);
+            assert!(新.最大化);
+        }
+
+        #[test]
+        fn 取消最大化后恢复普通尺寸() {
+            let 最大化中 = 几何 {
+                x: 100,
+                y: 100,
+                宽: 1200,
+                高: 800,
+                最大化: true,
+            };
+            let 新 = 更新(&最大化中, Some((300, 200)), Some((1000, 700)), false);
+            assert_eq!(新.宽, 1000);
+            assert_eq!(新.高, 700);
+            assert!(!新.最大化);
+        }
+
+        #[test]
+        fn 异常小尺寸不写入() {
+            let 已有 = 几何::默认();
+            let 新 = 更新(&已有, Some((0, 0)), Some((0, 0)), false);
+            assert_eq!(新.宽, 已有.宽, "0 宽应被挡掉");
+            assert_eq!(新.高, 已有.高);
+        }
+    }
+}
 
 /// 桌面壳单例守卫。
 ///
@@ -627,6 +1039,22 @@ fn main() {
         // 注意：这里**不要**调 app_handle().exit()——它会在关闭流程中重入事件循环，
         // 导致窗口卡在「已请求关闭但未销毁」的状态（WebView 已退，窗口句柄仍在）。
         .on_window_event(|窗口, 事件| {
+            // ── 窗口几何持久化 ──
+            //
+            // 只处理主窗口：闪屏是临时的，记它没有意义。
+            // 三类事件都会改变"用户期望下次看到的样子"，所以都记：
+            //   Moved   ：拖到别的位置/另一块屏幕
+            //   Resized ：拖边框改变大小
+            //   CloseRequested：关闭前最后存一次（最大化状态在 Resized 里读不到）
+            if 窗口.label() == "main" {
+                match 事件 {
+                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                        记录窗口几何(窗口);
+                    }
+                    _ => {}
+                }
+            }
+
             if let tauri::WindowEvent::CloseRequested { .. } = 事件 {
                 // 只有**主窗口**关闭才结束整个 GUI。
                 //
@@ -635,6 +1063,8 @@ fn main() {
                 if 窗口.label() != "main" {
                     return;
                 }
+                // 关闭前最后存一次：这里要写最大化标记
+                记录关闭状态(窗口);
                 // 用 process::exit 而非 app_handle().exit()：后者要重入事件循环排队，
                 // 而此刻正处于关闭流程中，实测会把进程卡成「WebView 已退、窗口句柄仍在」
                 // 的僵尸。侧车不在退出路径上，直接结束进程是安全的。
