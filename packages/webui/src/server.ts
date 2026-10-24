@@ -755,7 +755,9 @@ async function 写入剪贴板图片(dataUrl: string): Promise<boolean> {
   const 目录 = join(tmpdir(), "kugua-clip");
   mkdirSync(目录, { recursive: true });
   const 文件 = join(目录, `clip-${Date.now()}.png`);
-  writeFileSync(文件, Buffer.from(m[1], "base64"));
+  // 异步写：截图可能很大（多屏拼接），同步写会卡住事件循环
+  const { writeFile: 异步写 } = await import("node:fs/promises");
+  await 异步写(文件, Buffer.from(m[1], "base64"));
   const 脚本 = [
     "Add-Type -AssemblyName System.Windows.Forms,System.Drawing",
     `$img = [System.Drawing.Image]::FromFile('${文件.replace(/'/g, "''")}')`,
@@ -812,7 +814,9 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
       const 清理名 = name.replace(/[\\/:*?"<>|]/g, "_").trim() || `未命名_${Date.now()}`;
       const 文件名 = 清理名 + (清理名.endsWith(ext) ? "" : ext);
       const 文件 = join(目录, 文件名);
-      writeFileSync(文件, Buffer.from(base64, "base64"));
+      // 异步写：拖入大文件（视频/压缩包）时，同步写会阻塞整个事件循环
+      const { writeFile: 异步写文件 } = await import("node:fs/promises");
+      await 异步写文件(文件, Buffer.from(base64, "base64"));
       发送JSON(res, 200, 文件);
       return;
     }
@@ -831,7 +835,17 @@ async function 处理API(req: IncomingMessage, res: ServerResponse, url: URL): P
         发送JSON(res, 200, { base64: "", size: st.size, modified: st.mtimeMs, tooLarge: true });
         return;
       }
-      发送JSON(res, 200, { base64: readFileSync(文件).toString("base64"), size: st.size, modified: st.mtimeMs });
+      // 用异步读 + 异步编码：readFileSync 读 64MB 会让 Node 事件循环停住
+      // 数秒，期间**所有** HTTP 请求（包括界面轮询、其它模块转发）全部卡住。
+      // 这正是"打开一个大视频预览，整个界面失去响应"的成因。
+      try {
+        const { readFile: 异步读文件 } = await import("node:fs/promises");
+        const 缓冲 = await 异步读文件(文件);
+        const base64 = 缓冲.toString("base64");
+        发送JSON(res, 200, { base64, size: st.size, modified: st.mtimeMs });
+      } catch (err) {
+        发送JSON(res, 200, { base64: "", size: st.size, modified: st.mtimeMs, error: String(err) });
+      }
       return;
     }
     if (req.method === "POST" && 路径 === "/api/clipboard/image") {

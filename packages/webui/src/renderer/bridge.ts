@@ -38,11 +38,43 @@ export async function 请求<T = unknown>(路径: string, 体?: unknown): Promis
     // 快速失败：不发请求，也就不会在断线期间堆积一堆注定失败的调用
     throw new Error("已与后台断开，请求未发送。请检查后台是否在运行，恢复后手动刷新页面。");
   }
-  const 响应 = await fetch(路径, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(体 ?? {}),
-  });
+  // 传输层超时：**前端自己必须有上限**。
+  //
+  // 服务端（Nigane）对每个请求有超时，但那只能保证"服务端会放弃等待"。
+  // 如果 HTTP 连接本身半死（服务端进程被冻、网络栈异常、代理吞包），
+  // fetch 会一直挂着——界面就永远停在"加载中"，用户只能刷新页面。
+  //
+  // 取 600s 而不是几秒：agent.run / 长任务本身就要跑几分钟，
+  // 这里防的是"永不返回"，不是"慢"。
+  const 控制器 = new AbortController();
+  const 超时 = Number((体 as { timeoutMs?: number } | undefined)?.timeoutMs) || 600000;
+  const 定时器 = setTimeout(() => 控制器.abort(), 超时 + 15000);
+
+  let 响应: Response;
+  try {
+    响应 = await fetch(路径, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(体 ?? {}),
+      signal: 控制器.signal,
+    });
+  } catch (err) {
+    clearTimeout(定时器);
+    // AbortError 说明是超时，给出可操作的说明而不是裸的 "signal is aborted"
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        `请求超时（${Math.round((超时 + 15000) / 1000)} 秒未响应）。后台可能已卡住，请检查后台状态或刷新页面。`,
+      );
+    }
+    // fetch 的原始错误（"Failed to fetch" / "fetch failed"）对用户毫无信息量。
+    // 转成能指明方向的说法：连接层失败通常是后台没起来或刚崩了。
+    const 原始 = err instanceof Error ? err.message : String(err);
+    if (/failed to fetch|fetch failed|networkerror|load failed/i.test(原始)) {
+      throw new Error("无法连接后台（后台可能未启动或已退出）。请检查后台状态，恢复后刷新页面。");
+    }
+    throw err;
+  }
+  clearTimeout(定时器);
   const 文本 = await 响应.text();
   if (!响应.ok) {
     let 信息 = 文本;
